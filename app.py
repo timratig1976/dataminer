@@ -785,10 +785,7 @@ with tab_table:
 
         grid_opts = gb.build()
 
-        if is_running:
-            tbl_ph = st.empty()
-            render_table(rows, tbl_ph)
-        else:
+        if not is_running:
             ag_resp = AgGrid(
                 df_ag,
                 gridOptions=grid_opts,
@@ -862,6 +859,7 @@ with tab_table:
                 process_indices = process_indices[:int(limit)]
 
             prog      = st.progress(0, text="Starte…")
+            table_ph  = st.empty()
             rows_lock = Lock()
             completed = [0]
             n_workers = int(workers)

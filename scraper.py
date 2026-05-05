@@ -8,10 +8,15 @@ import logging
 from urllib.parse import urljoin, urlparse
 from typing import Optional
 
+import os
 import requests
 from bs4 import BeautifulSoup
 
 logger = logging.getLogger(__name__)
+
+SERPER_API_KEY      = os.getenv("SERPER_API_KEY", "")
+BROWSERLESS_URL     = os.getenv("BROWSERLESS_URL", "https://browserless.viminds.de")
+BROWSERLESS_TOKEN   = os.getenv("BROWSERLESS_TOKEN", "n4asd2ethdd0ryfz")
 
 HEADERS = {
     "User-Agent": (
@@ -65,13 +70,20 @@ def find_website(company_name: str, existing_url: Optional[str] = None) -> tuple
         logger.info(f"[{company_name}] found via domain guess: {guessed}")
         return guessed, "domain_guess"
 
-    # Strategy 2: Startpage (Google proxy, reliable)
+    # Strategy 2: Serper.dev API (Google results, reliable — set SERPER_API_KEY in .env)
+    if SERPER_API_KEY:
+        result = _search_serper(company_name)
+        if result:
+            logger.info(f"[{company_name}] found via Serper/Google: {result}")
+            return result, "google"
+
+    # Strategy 4: Startpage fallback
     result = _search_startpage(company_name)
     if result:
         logger.info(f"[{company_name}] found via Startpage: {result}")
         return result, "startpage"
 
-    # Strategy 3: Bing fallback
+    # Strategy 5: Bing fallback
     result = _search_bing(company_name)
     if result:
         logger.info(f"[{company_name}] found via Bing: {result}")
@@ -106,16 +118,24 @@ def _guess_domain(company_name: str) -> Optional[str]:
     for suffix in [" gmbh", " ag", " ug", " kg", " ohg", " gbr", " e.v.", " ev",
                    " co. kg", " & co", " se", " inc", " ltd", " llc"]:
         name = name.replace(suffix, "")
+    # Transliterate German special chars for domain-safe slug
+    name = (name.replace("ß", "ss").replace("ä", "ae").replace("ö", "oe")
+                .replace("ü", "ue").replace("&", "").replace("+", ""))
     name = name.strip()
-    # Remove special chars, collapse spaces → hyphens
+    # Remove remaining non-ASCII / non-domain chars, collapse spaces → hyphens
     name = _re.sub(r"[^\w\s-]", "", name)
     name = _re.sub(r"\s+", "-", name).strip("-")
     slug = name.replace(" ", "-")
 
-    # Only try .de and .com with www – keeps it to max 4 requests
+    # Build variants: full, no-hyphens, first-part, first-two-parts
+    parts = slug.split("-")
+    short1 = parts[0] if len(parts) >= 1 else slug
+    short2 = "-".join(parts[:2]) if len(parts) >= 2 else slug
+    variants = list(dict.fromkeys([slug, slug.replace("-", ""), short2, short1]))
+
     for tld in [".de", ".com"]:
-        for variant in [slug, slug.replace("-", "")]:
-            if not variant:
+        for variant in variants:
+            if not variant or len(variant) < 3:
                 continue
             url = f"https://www.{variant}{tld}"
             r = _get(url, timeout=5)
@@ -125,6 +145,126 @@ def _guess_domain(company_name: str) -> Optional[str]:
                     return _base_url(r.url)
                 else:
                     logger.debug(f"[{company_name}] domain guess rejected (name not on page): {url}")
+    return None
+
+
+def _fetch_browserless(url: str, wait_ms: int = 1500) -> Optional[str]:
+    """Fetch a URL via Browserless headless Chrome, returns HTML or None."""
+    endpoint = f"{BROWSERLESS_URL}/content?token={BROWSERLESS_TOKEN}"
+    try:
+        resp = requests.post(
+            endpoint,
+            json={"url": url, "gotoOptions": {"waitUntil": "networkidle2", "timeout": wait_ms + 5000}},
+            headers={"Content-Type": "application/json"},
+            timeout=25,
+        )
+        if resp.status_code == 200:
+            return resp.text
+        # Fallback: minimal payload without options
+        resp2 = requests.post(
+            endpoint,
+            json={"url": url},
+            headers={"Content-Type": "application/json"},
+            timeout=20,
+        )
+        if resp2.status_code == 200:
+            return resp2.text
+    except Exception as e:
+        logger.debug(f"Browserless fetch {url} failed: {e}")
+    return None
+
+
+SEARXNG_INSTANCE = os.getenv("SEARXNG_INSTANCE", "https://search.mdosch.de")
+
+def _search_browserless(company_name: str) -> Optional[str]:
+    """Search via SearXNG (open metasearch) through Browserless — works reliably."""
+    import urllib.parse, json as _json
+    SKIP = {"google.com", "facebook.com", "linkedin.com", "wikipedia.org",
+            "xing.com", "instagram.com", "youtube.com", "twitter.com", "x.com",
+            "trustpilot.com", "gelbeseiten.de", "wlw.de", "handelsregister.de",
+            "northdata.de", "bundesanzeiger.de", "companyhouse.de", "mdosch.de",
+            "searx", "duckduckgo.com"}
+    query   = f"{company_name} Impressum"
+    api_url = f"{SEARXNG_INSTANCE}/search?q={urllib.parse.quote(query)}&language=de&format=json"
+
+    # Fetch JSON via Browserless (bypasses any local network restrictions)
+    js_code = (
+        "export default async function({ page }) {"
+        f"  await page.goto({_json.dumps(api_url)}, {{waitUntil:'networkidle0', timeout:12000}});"
+        "  const body = await page.$eval('body', el => el.innerText);"
+        "  return { data: body, type: 'application/json' };"
+        "}"
+    )
+    endpoint = f"{BROWSERLESS_URL}/function?token={BROWSERLESS_TOKEN}"
+    try:
+        resp = requests.post(
+            endpoint,
+            json={"code": js_code},
+            headers={"Content-Type": "application/json"},
+            timeout=25,
+        )
+        if resp.status_code != 200:
+            return None
+        raw = resp.json().get("data", "")
+        data = _json.loads(raw) if isinstance(raw, str) else raw
+    except Exception as e:
+        logger.debug(f"SearXNG/Browserless error: {e}")
+        return None
+
+    seen = set()
+    for item in data.get("results", []):
+        url = item.get("url", "")
+        if not url.startswith("http"):
+            continue
+        parsed = urlparse(url)
+        domain = parsed.netloc.lower().replace("www.", "")
+        if not domain or domain in seen:
+            continue
+        if any(s in domain for s in SKIP):
+            continue
+        seen.add(domain)
+        base = f"{parsed.scheme}://{parsed.netloc}"
+        r = _get(base, timeout=6)
+        if r and r.status_code == 200 and _name_on_page(r.text, company_name):
+            logger.debug(f"[{company_name}] SearXNG validated: {base}")
+            return _base_url(r.url)
+        if len(seen) >= 8:
+            break
+    return None
+
+
+def _search_serper(company_name: str) -> Optional[str]:
+    """Google search via Serper.dev API — fast, reliable, no bot blocking."""
+    SKIP = {"google.com", "facebook.com", "linkedin.com", "wikipedia.org",
+            "xing.com", "instagram.com", "youtube.com", "twitter.com", "x.com",
+            "trustpilot.com", "gelbeseiten.de", "wlw.de", "handelsregister.de",
+            "northdata.de", "bundesanzeiger.de", "companyhouse.de"}
+    query = f"{company_name} offizielle Website Impressum"
+    try:
+        resp = requests.post(
+            "https://google.serper.dev/search",
+            headers={"X-API-KEY": SERPER_API_KEY, "Content-Type": "application/json"},
+            json={"q": query, "gl": "de", "hl": "de", "num": 10},
+            timeout=10,
+        )
+        data = resp.json()
+    except Exception as e:
+        logger.debug(f"Serper API error: {e}")
+        return None
+
+    for item in data.get("organic", []):
+        link = item.get("link", "")
+        if not link.startswith("http"):
+            continue
+        parsed = urlparse(link)
+        domain = parsed.netloc.lower().replace("www.", "")
+        if any(s in domain for s in SKIP):
+            continue
+        base = f"{parsed.scheme}://{parsed.netloc}"
+        r = _get(base, timeout=6)
+        if r and r.status_code == 200 and _name_on_page(r.text, company_name):
+            logger.debug(f"[{company_name}] Serper validated: {base}")
+            return _base_url(r.url)
     return None
 
 
@@ -241,6 +381,20 @@ def _clean_text(soup: BeautifulSoup) -> str:
     return " ".join(soup.get_text(separator=" ").split())
 
 
+def _get_html(url: str, timeout: int = TIMEOUT) -> Optional[str]:
+    """Fetch HTML: try requests first, fall back to Browserless for JS-heavy sites."""
+    r = _get(url, timeout=timeout)
+    if r:
+        text = r.text
+        # Heuristic: if page is mostly empty or JS-only, use Browserless
+        if len(text.strip()) > 500:
+            return text
+    if BROWSERLESS_TOKEN:
+        logger.debug(f"Falling back to Browserless for {url}")
+        return _fetch_browserless(url, wait_ms=2000)
+    return None
+
+
 def scrape_company(base_url: str) -> dict:
     """
     Scrape impressum, privacy and contact pages.
@@ -256,32 +410,32 @@ def scrape_company(base_url: str) -> dict:
     }
 
     # Homepage
-    r = _get(base_url)
-    if r:
-        soup = BeautifulSoup(r.text, "lxml")
+    html = _get_html(base_url)
+    if html:
+        soup = BeautifulSoup(html, "lxml")
         result["homepage_text"] = _clean_text(soup)[:3000]
         result["social_links"] = _extract_social_links(soup, base_url)
 
     # Impressum
     imp_url = _find_page(base_url, IMPRESSION_SLUGS)
     if imp_url:
-        r = _get(imp_url)
-        if r:
-            result["impressum_text"] = _clean_text(BeautifulSoup(r.text, "lxml"))[:5000]
+        html = _get_html(imp_url)
+        if html:
+            result["impressum_text"] = _clean_text(BeautifulSoup(html, "lxml"))[:5000]
 
     # Privacy
     prv_url = _find_page(base_url, PRIVACY_SLUGS)
     if prv_url:
-        r = _get(prv_url)
-        if r:
-            result["privacy_text"] = _clean_text(BeautifulSoup(r.text, "lxml"))[:4000]
+        html = _get_html(prv_url)
+        if html:
+            result["privacy_text"] = _clean_text(BeautifulSoup(html, "lxml"))[:4000]
 
     # Contact
     con_url = _find_page(base_url, CONTACT_SLUGS)
     if con_url:
-        r = _get(con_url)
-        if r:
-            result["contact_text"] = _clean_text(BeautifulSoup(r.text, "lxml"))[:3000]
+        html = _get_html(con_url)
+        if html:
+            result["contact_text"] = _clean_text(BeautifulSoup(html, "lxml"))[:3000]
 
     time.sleep(0.2)  # polite delay
     return result
