@@ -22,6 +22,8 @@ def enrich_row(
     input_url: Optional[str],
     api_key: Optional[str] = None,
     deep: bool = False,
+    stage: str = "full",
+    known_website: Optional[str] = None,
 ) -> dict:
     """Process a single company. Returns flat dict of enriched fields."""
     result = {k: None for k in EXTRACTION_FIELDS}
@@ -39,9 +41,17 @@ def enrich_row(
     result["_confidence_avg"]    = None
 
     try:
-        # Step 1: Find website
-        logger.info(f"[{company_name}] Searching for website...")
-        base_url, strategy = find_website(company_name, input_url or None)
+        stage = (stage or "full").strip().lower()
+
+        # Step 1: Find website (or reuse website from previous stage)
+        if stage == "enrich_from_website":
+            base_url = (known_website or input_url or "").strip() or None
+            strategy = "precomputed" if known_website else "provided_url"
+            logger.info(f"[{company_name}] Using existing website for enrichment: {base_url}")
+        else:
+            logger.info(f"[{company_name}] Searching for website...")
+            base_url, strategy = find_website(company_name, input_url or None)
+
         if not base_url:
             logger.warning(f"[{company_name}] No website found")
             result["_status"] = "no_website"
@@ -52,6 +62,11 @@ def enrich_row(
         logger.info(f"[{company_name}] Website found: {base_url}")
         result["_website_found"] = base_url
         result["website"] = base_url
+
+        if stage == "website_only":
+            result["_status"] = "success"
+            logger.info(f"[{company_name}] Website-only stage done")
+            return result
 
         # Step 2: Scrape pages
         logger.info(f"[{company_name}] Scraping pages...")

@@ -4,11 +4,15 @@ Each case has its own input, output, logs and settings.
 """
 
 import io
+import json
 import os
+import re
 import time
 import logging
+from copy import deepcopy
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from threading import Lock
+from pathlib import Path
 
 import pandas as pd
 import streamlit as st
@@ -16,6 +20,7 @@ from dotenv import load_dotenv
 
 from input_handler import load_file, normalize, detect_columns
 from pipeline import enrich_row
+from custom_steps import run_custom_steps
 from extractor import EXTRACTION_FIELDS, SYSTEM_PROMPT
 from case_manager import (
     create_case, list_cases, get_case, delete_case,
@@ -26,6 +31,252 @@ from case_manager import (
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO)
+
+PROMPT_PRESETS_FILE = Path("ai_column_presets.json")
+
+
+def _default_prompt_presets() -> list[dict]:
+    return [
+        {
+            "enabled": True,
+            "name": "Official Domain",
+            "target_column": "official_domain",
+            "model": "gpt-4o-mini",
+            "output_mode": "json",
+            "output_key": "domain",
+            "overwrite": False,
+            "condition_source": "company_name",
+            "condition_operator": "is_truthy",
+            "condition_value": "",
+            "prompt": (
+                "Find the official primary domain for company '{company_name}'. "
+                "If not clearly verifiable from authoritative sources, return notFound with empty domain. "
+                "Return strict JSON only: {\"domain\":\"\",\"confidence\":\"high|medium|low|notFound\",\"sourceUrl\":\"\"}."
+            ),
+        },
+        {
+            "enabled": True,
+            "name": "Domain Confidence",
+            "target_column": "domain_confidence",
+            "model": "gpt-4o-mini",
+            "output_mode": "json",
+            "output_key": "confidence",
+            "overwrite": False,
+            "condition_source": "company_name",
+            "condition_operator": "is_truthy",
+            "condition_value": "",
+            "prompt": (
+                "Find the official primary domain for company '{company_name}'. "
+                "If not clearly verifiable from authoritative sources, return notFound with empty domain. "
+                "Return strict JSON only: {\"domain\":\"\",\"confidence\":\"high|medium|low|notFound\",\"sourceUrl\":\"\"}."
+            ),
+        },
+        {
+            "enabled": True,
+            "name": "Domain Source URL",
+            "target_column": "domain_source_url",
+            "model": "gpt-4o-mini",
+            "output_mode": "json",
+            "output_key": "sourceUrl",
+            "overwrite": False,
+            "condition_source": "company_name",
+            "condition_operator": "is_truthy",
+            "condition_value": "",
+            "prompt": (
+                "Find the official primary domain for company '{company_name}'. "
+                "If not clearly verifiable from authoritative sources, return notFound with empty domain. "
+                "Return strict JSON only: {\"domain\":\"\",\"confidence\":\"high|medium|low|notFound\",\"sourceUrl\":\"\"}."
+            ),
+        },
+        {
+            "enabled": True,
+            "name": "Official Domain Validated",
+            "target_column": "official_domain_validated",
+            "model": "validator",
+            "output_mode": "text",
+            "output_key": "",
+            "overwrite": False,
+            "condition_source": "official_domain",
+            "condition_operator": "is_truthy",
+            "condition_value": "",
+            "prompt": "Deterministic validator step: validate official_domain via HTTP reachability + basic company-name match.",
+        },
+        {
+            "enabled": True,
+            "name": "Website TLD",
+            "target_column": "website_tld",
+            "model": "gpt-4o-mini",
+            "output_mode": "text",
+            "output_key": "",
+            "overwrite": False,
+            "condition_source": "official_domain",
+            "condition_operator": "is_truthy",
+            "condition_value": "",
+            "prompt": "Extract only registrable domain from '{official_domain}'. Return only the domain like example.com.",
+        },
+        {
+            "enabled": True,
+            "name": "Industry Keywords",
+            "target_column": "industry_keywords",
+            "model": "gpt-4o-mini",
+            "output_mode": "json",
+            "output_key": "keywords",
+            "overwrite": False,
+            "condition_source": "official_domain",
+            "condition_operator": "is_truthy",
+            "condition_value": "",
+            "prompt": (
+                "From company website/domain '{official_domain}' and company '{company_name}', "
+                "extract industry keywords. Return JSON: {\"keywords\":[\"...\"]}."
+            ),
+        },
+        {
+            "enabled": True,
+            "name": "Decision Makers JSON",
+            "target_column": "decision_makers_json",
+            "model": "gpt-4o-mini",
+            "output_mode": "json",
+            "output_key": "contacts",
+            "overwrite": False,
+            "condition_source": "official_domain",
+            "condition_operator": "is_truthy",
+            "condition_value": "",
+            "prompt": (
+                "For company domain '{official_domain}' and company '{company_name}', find key decision makers "
+                "(owner, managing director, head of sales/marketing/operations) and return JSON with key 'contacts'."
+            ),
+        },
+        {
+            "enabled": True,
+            "name": "Social Profiles JSON",
+            "target_column": "social_profiles_json",
+            "model": "gpt-4o-mini",
+            "output_mode": "json",
+            "output_key": "",
+            "overwrite": False,
+            "condition_source": "decision_makers_json",
+            "condition_operator": "is_truthy",
+            "condition_value": "",
+            "prompt": (
+                "Using company '{company_name}', domain '{official_domain}', and contacts '{decision_makers_json}', "
+                "find personal profile URLs for LinkedIn, Xing, X, Instagram, Facebook. Return full JSON object."
+            ),
+        },
+        {
+            "enabled": True,
+            "name": "Background Check JSON",
+            "target_column": "background_check_json",
+            "model": "gpt-4o-mini",
+            "output_mode": "json",
+            "output_key": "",
+            "overwrite": False,
+            "condition_source": "official_domain",
+            "condition_operator": "is_truthy",
+            "condition_value": "",
+            "prompt": (
+                "Build an ultra-personalized outreach profile for contact and company '{company_name}' "
+                "based on public mentions and social signals. Include source URLs and return full JSON object."
+            ),
+        },
+    ]
+
+
+def _normalize_step(step: dict) -> dict:
+    return {
+        "enabled": bool(step.get("enabled", True)),
+        "name": str(step.get("name", "")).strip(),
+        "target_column": str(step.get("target_column", "")).strip(),
+        "model": str(step.get("model", "gpt-4o-mini")).strip() or "gpt-4o-mini",
+        "output_mode": str(step.get("output_mode", "text")).strip() or "text",
+        "output_key": str(step.get("output_key", "")).strip(),
+        "overwrite": bool(step.get("overwrite", False)),
+        "condition_source": str(step.get("condition_source", "")).strip(),
+        "condition_operator": str(step.get("condition_operator", "is_truthy")).strip() or "is_truthy",
+        "condition_value": str(step.get("condition_value", "")).strip(),
+        "prompt": str(step.get("prompt", "")),
+    }
+
+
+def _load_prompt_presets() -> list[dict]:
+    defaults = [_normalize_step(s) for s in _default_prompt_presets()]
+
+    if not PROMPT_PRESETS_FILE.exists():
+        _save_prompt_presets(defaults)
+        return defaults
+
+    try:
+        data = json.loads(PROMPT_PRESETS_FILE.read_text(encoding="utf-8"))
+        if isinstance(data, list):
+            loaded = [_normalize_step(s) for s in data if isinstance(s, dict)]
+
+            # Migration: ensure all documented standard presets exist
+            existing_targets = {
+                str(s.get("target_column") or "").strip()
+                for s in loaded
+            }
+            missing = [
+                d for d in defaults
+                if str(d.get("target_column") or "").strip() not in existing_targets
+            ]
+            if missing:
+                merged = loaded + missing
+                _save_prompt_presets(merged)
+                return merged
+
+            return loaded
+    except Exception:
+        _save_prompt_presets(defaults)
+        return defaults
+
+    _save_prompt_presets(defaults)
+    return defaults
+
+
+def _save_prompt_presets(steps: list[dict]):
+    clean = [_normalize_step(s) for s in steps if isinstance(s, dict)]
+    PROMPT_PRESETS_FILE.write_text(
+        json.dumps(clean, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+
+def _dedupe_target_column(step: dict, existing_steps: list[dict]) -> dict:
+    out = deepcopy(step)
+    base_target = str(out.get("target_column") or "").strip() or "custom_col"
+    existing_targets = {
+        str(s.get("target_column") or "").strip()
+        for s in existing_steps
+    }
+    if base_target not in existing_targets:
+        out["target_column"] = base_target
+        return out
+
+    i = 2
+    while f"{base_target}_{i}" in existing_targets:
+        i += 1
+    out["target_column"] = f"{base_target}_{i}"
+    if not str(out.get("name") or "").strip():
+        out["name"] = out["target_column"]
+    return out
+
+
+def _add_missing_standard_steps(existing_steps: list[dict], presets: list[dict]) -> tuple[list[dict], int]:
+    """Add only missing standard steps by target_column (no duplicates)."""
+    updated = list(existing_steps or [])
+    existing_targets = {
+        str(s.get("target_column") or "").strip()
+        for s in updated
+    }
+    added = 0
+    for preset in presets or []:
+        normalized = _normalize_step(preset)
+        target = str(normalized.get("target_column") or "").strip()
+        if not target or target in existing_targets:
+            continue
+        updated.append(normalized)
+        existing_targets.add(target)
+        added += 1
+    return updated, added
 
 # ── Page config ───────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -169,6 +420,18 @@ ROW_STATUS_LABELS = {
 def _v(row, key):
     v = row.get(key)
     return str(v) if v and str(v) not in ("None", "nan", "") else ""
+
+
+def _row_base(row: dict) -> dict:
+    """Keep source columns when resetting rows."""
+    base = {
+        "company_name": row.get("company_name", ""),
+        "input_url": row.get("input_url", ""),
+    }
+    for k, v in row.items():
+        if str(k).startswith("original_"):
+            base[k] = v
+    return base
 
 def render_table(rows: list, placeholder, selected: set = None, start_idx: int = 0, editable: bool = True):
     """Live HTML table. start_idx = global offset of first row for action links."""
@@ -538,6 +801,21 @@ tab_table, tab_settings, tab_log, tab_export = st.tabs(
 # ════════════════════════════════════════════════════════════════════════════
 with tab_table:
     rows = load_rows(active_id)
+    prompt_presets = _load_prompt_presets()
+    preset_names = [p.get("name") or p.get("target_column") or f"Preset {i+1}" for i, p in enumerate(prompt_presets)]
+    custom_steps_cfg = case_settings.get("custom_steps")
+    if not isinstance(custom_steps_cfg, list):
+        custom_steps_cfg = []
+    custom_target_cols = []
+    for s in custom_steps_cfg:
+        col = str(s.get("target_column") or "").strip()
+        if col and col not in custom_target_cols:
+            custom_target_cols.append(col)
+
+    base_source_cols = sorted({
+        str(k) for r in rows for k in r.keys()
+        if str(k).startswith("original_")
+    })
 
     # ── Upload (only if no rows yet) ──────────────────────────────────────
     with st.expander("📁 Datei hochladen & Spalten zuordnen",
@@ -571,9 +849,7 @@ with tab_table:
                         if st.button("✓ Übernehmen & Laden", type="primary", key=f"accept_{active_id}"):
                             save_input(active_id, norm)
                             new_rows = [
-                                {"company_name": r["company_name"],
-                                 "input_url": r.get("input_url",""),
-                                 "_status": "pending"}
+                                {**r.to_dict(), "_status": "pending"}
                                 for _, r in norm.iterrows()
                             ]
                             save_rows(active_id, new_rows)
@@ -583,6 +859,25 @@ with tab_table:
                         st.error(str(e))
             except ValueError as e:
                 st.error(str(e))
+
+        # Base-table importer: rebuild rows from persisted input.csv
+        input_csv_bytes = get_input_csv(active_id)
+        if input_csv_bytes:
+            st.divider()
+            st.caption("Basis-Importer: Zeilen aus ursprünglicher Input-Tabelle neu erzeugen")
+            if st.button("↺ Aus Basis-Input neu aufbauen", key=f"rebuild_from_input_{active_id}"):
+                try:
+                    base_df = pd.read_csv(io.BytesIO(input_csv_bytes), dtype=str).fillna("")
+                    rebuilt_rows = [
+                        {**r.to_dict(), "_status": "pending"}
+                        for _, r in base_df.iterrows()
+                    ]
+                    save_rows(active_id, rebuilt_rows)
+                    append_log(active_id, f"Rows aus input.csv neu aufgebaut: {len(rebuilt_rows)} Zeilen")
+                    st.success("✓ Rows aus Basis-Input neu aufgebaut")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Neuaufbau fehlgeschlagen: {e}")
 
     if not rows:
         st.markdown("""
@@ -594,6 +889,130 @@ with tab_table:
         done  = sum(1 for r in rows if r.get("_status") in ("success","error","no_website"))
         succ  = sum(1 for r in rows if r.get("_status") == "success")
         err   = sum(1 for r in rows if r.get("_status") in ("error","no_website"))
+
+        # ── Prompt columns quick-add (Clay-like, direkt in Tabelle) ───────────
+        with st.expander("🧩 Prompt-Spalten (direkt in Tabelle)", expanded=False):
+            qc1, qc2, qc3 = st.columns([1.3, 1.1, 1.1])
+            with qc1:
+                quick_target = st.text_input(
+                    "Neue Prompt-Zielspalte",
+                    value="",
+                    placeholder="z.B. website_domain",
+                    key=f"quick_target_{active_id}",
+                ).strip()
+            with qc2:
+                quick_model = st.text_input(
+                    "LLM-Modell",
+                    value="gpt-4o-mini",
+                    key=f"quick_model_{active_id}",
+                ).strip() or "gpt-4o-mini"
+            with qc3:
+                add_now = st.button("➕ Als Prompt-Spalte anlegen", key=f"quick_add_step_{active_id}")
+
+            if prompt_presets:
+                qpm1, qpm2, qpm3 = st.columns([2.0, 1, 1.2])
+                with qpm1:
+                    preset_choice = st.selectbox(
+                        "Aus Preset hinzufügen",
+                        options=list(range(len(prompt_presets))),
+                        format_func=lambda i: preset_names[i],
+                        key=f"quick_preset_pick_{active_id}",
+                    )
+                with qpm2:
+                    if st.button("📚 Preset-Spalte hinzufügen", key=f"quick_add_preset_{active_id}"):
+                        picked = _dedupe_target_column(prompt_presets[preset_choice], custom_steps_cfg)
+                        custom_steps_cfg.append(_normalize_step(picked))
+                        update_settings(active_id, {"custom_steps": custom_steps_cfg})
+                        st.success(f"Preset hinzugefügt: {picked.get('name') or picked.get('target_column')}")
+                        st.rerun()
+                with qpm3:
+                    if st.button("📚 Alle Standards hinzufügen", key=f"quick_add_all_presets_{active_id}"):
+                        updated_steps, added_count = _add_missing_standard_steps(custom_steps_cfg, prompt_presets)
+                        update_settings(active_id, {"custom_steps": updated_steps})
+                        if added_count:
+                            st.success(f"{added_count} fehlende Standard-Prompt-Spalten hinzugefügt")
+                        else:
+                            st.info("Alle Standard-Prompt-Spalten sind bereits im Case vorhanden.")
+                        st.rerun()
+
+            if custom_target_cols:
+                st.divider()
+                d1, d2 = st.columns([2.2, 1])
+                with d1:
+                    delete_target = st.selectbox(
+                        "AI-Spalte aus Tabelle löschen",
+                        options=custom_target_cols,
+                        key=f"quick_delete_target_{active_id}",
+                    )
+                with d2:
+                    if st.button("🗑 Spalte löschen", key=f"quick_delete_col_{active_id}"):
+                        # Remove step definition from case settings
+                        updated_steps = [
+                            s for s in custom_steps_cfg
+                            if str(s.get("target_column") or "").strip() != delete_target
+                        ]
+
+                        # Remove column values + debug keys from row data
+                        current_rows = load_rows(active_id)
+                        delete_prefix = f"_{delete_target}_"
+                        cleaned_rows = []
+                        for r in current_rows:
+                            rr = dict(r)
+                            rr.pop(delete_target, None)
+                            for k in list(rr.keys()):
+                                if str(k).startswith(delete_prefix):
+                                    rr.pop(k, None)
+                            cleaned_rows.append(rr)
+                        save_rows(active_id, cleaned_rows)
+
+                        # Remove column label from saved table order
+                        saved_order = case_settings.get("table_column_order")
+                        if isinstance(saved_order, list):
+                            label = f"🤖 {delete_target}"
+                            saved_order = [c for c in saved_order if c not in (delete_target, label)]
+                            update_settings(active_id, {
+                                "custom_steps": updated_steps,
+                                "table_column_order": saved_order,
+                            })
+                            case_settings["table_column_order"] = saved_order
+                        else:
+                            update_settings(active_id, {"custom_steps": updated_steps})
+
+                        case_settings["custom_steps"] = updated_steps
+                        append_log(active_id, f"AI-Spalte gelöscht: {delete_target}")
+                        st.success(f"AI-Spalte '{delete_target}' gelöscht")
+                        st.rerun()
+
+            if add_now:
+                if not quick_target:
+                    st.error("Bitte eine Zielspalte eingeben.")
+                elif any((s.get("target_column") or "").strip() == quick_target for s in custom_steps_cfg):
+                    st.warning(f"Prompt-Spalte '{quick_target}' existiert bereits.")
+                else:
+                    custom_steps_cfg.append({
+                        "enabled": True,
+                        "name": quick_target,
+                        "target_column": quick_target,
+                        "model": quick_model,
+                        "output_mode": "text",
+                        "output_key": "",
+                        "overwrite": False,
+                        "condition_source": "",
+                        "condition_operator": "is_truthy",
+                        "condition_value": "",
+                        "prompt": (
+                            "Nutze Firmenname {company_name} und Website {website}. "
+                            "Gib nur den Wert für die Zielspalte zurück."
+                        ),
+                    })
+                    update_settings(active_id, {"custom_steps": custom_steps_cfg})
+                    st.success(f"Prompt-Spalte '{quick_target}' angelegt. Details in ⚙️ Einstellungen anpassen.")
+                    st.rerun()
+
+            if custom_target_cols:
+                st.caption("Aktive Prompt-Spalten in Tabelle: " + ", ".join(custom_target_cols))
+            else:
+                st.caption("Noch keine Prompt-Spalten angelegt.")
 
         # Stats
         c1,c2,c3,c4 = st.columns(4)
@@ -675,6 +1094,13 @@ with tab_table:
         ]
         target_count = len(target_indices)
 
+        # ── Locked execution mode: AI columns only ────────────────────────────
+        run_stage = "custom_steps_only"
+        if case_settings.get("run_stage") != run_stage:
+            update_settings(active_id, {"run_stage": run_stage})
+            case_settings["run_stage"] = run_stage
+        st.caption("Pipeline-Modus: Nur Prompt-Spalten (ohne System-Prompt)")
+
         # ── Action buttons ───────────────────────────────────────
         b1, b2, b3, b4 = st.columns([1.8, 1.8, 1.4, 1.0])
         with b1:
@@ -703,9 +1129,7 @@ with tab_table:
                 if st.button("↺ Komplett-Reset", use_container_width=True,
                              key=f"reset_{active_id}",
                              help="Wirklich ALLE Zeilen (inkl. Fertig) auf Ausstehend setzen"):
-                    save_rows(active_id, [{"company_name": r["company_name"],
-                                           "input_url": r.get("input_url",""),
-                                           "_status": "pending"} for r in rows])
+                    save_rows(active_id, [{**_row_base(r), "_status": "pending"} for r in rows])
                     append_log(active_id, "Kompletter Reset aller Zeilen")
                     st.rerun()
         with b4:
@@ -714,9 +1138,7 @@ with tab_table:
         # Handle range-reset
         if do_reset_sel and not st.session_state["running"]:
             for i in target_indices:
-                rows[i] = {"company_name": rows[i]["company_name"],
-                           "input_url": rows[i].get("input_url",""),
-                           "_status": "pending"}
+                rows[i] = {**_row_base(rows[i]), "_status": "pending"}
             save_rows(active_id, rows)
             append_log(active_id, f"{target_count} Zeilen zurückgesetzt")
             st.rerun()
@@ -739,10 +1161,23 @@ with tab_table:
             "no_website": "∅ Keine Website",
         }
 
+        ai_col_labels = {c: f"🤖 {c}" for c in custom_target_cols}
+        base_col_labels = {c: f"📥 {c.replace('original_', '')}" for c in base_source_cols}
+
+        def _clean_ai_value(value) -> str:
+            txt = "" if value is None else str(value)
+            if "ⓘ status=" in txt:
+                txt = txt.split("ⓘ status=", 1)[0].strip()
+            for icon in ("✅ ", "⏳ ", "⏭ ", "❌ ", "✅", "⏳", "⏭", "❌"):
+                while txt.startswith(icon):
+                    txt = txt[len(icon):]
+            return txt.strip()
+
         df_ag = pd.DataFrame([{
             "#":          i + 1,
             "_idx":       i,
             "Firma":      r.get("company_name", ""),
+            "Input URL":  r.get("input_url") or "",
             "Status":     STATUS_LABEL.get(r.get("_status","pending"), r.get("_status","")),
             "Qualität %": r.get("_quality_score") or 0,
             "Website":    r.get("_website_found") or "",
@@ -752,7 +1187,23 @@ with tab_table:
             "PLZ":        r.get("zip") or "",
             "Ort":        r.get("city") or "",
             "Branche":    r.get("industry") or "",
+            **{base_col_labels[col]: (r.get(col) or "") for col in base_source_cols},
+            **{ai_col_labels[col]: _clean_ai_value(r.get(col) or "") for col in custom_target_cols},
         } for i, r in enumerate(rows)])
+
+        # Apply saved per-case column order (Clay-like persistence)
+        default_visible_cols = [
+            "#", "Firma", "Input URL", "Status", "Qualität %", "Website", "Email",
+            "Telefon", "GF", "PLZ", "Ort", "Branche",
+            *[base_col_labels[c] for c in base_source_cols],
+            *[ai_col_labels[c] for c in custom_target_cols],
+        ]
+        saved_order = case_settings.get("table_column_order")
+        if not isinstance(saved_order, list):
+            saved_order = []
+        visible_order = [c for c in saved_order if c in default_visible_cols]
+        visible_order += [c for c in default_visible_cols if c not in visible_order]
+        df_ag = df_ag[["_idx", *visible_order]]
 
         # Status cell color via JS
         status_style = JsCode("""
@@ -768,20 +1219,32 @@ with tab_table:
         gb = GridOptionsBuilder.from_dataframe(df_ag)
         gb.configure_default_column(resizable=True, sortable=True, filter=True, minWidth=80)
         gb.configure_column("_idx",     hide=True)
-        gb.configure_column("#",        width=60,  pinned="left")
-        gb.configure_column("Firma",    width=200, pinned="left")
+        gb.configure_column(
+            "#",
+            width=90,
+            pinned="left",
+            checkboxSelection=True,
+            headerCheckboxSelection=True,
+            headerCheckboxSelectionFilteredOnly=False,
+        )
+        gb.configure_column("Firma",    width=220, pinned="left", editable=True)
+        gb.configure_column("Input URL", width=220, editable=True)
         gb.configure_column("Status",   width=140, cellStyle=status_style)
         gb.configure_column("Qualität %", width=100, type=["numericColumn"])
-        gb.configure_column("Website",  width=180)
-        gb.configure_column("Email",    width=200)
-        gb.configure_column("Telefon",  width=130)
-        gb.configure_column("GF",       width=160)
-        gb.configure_column("PLZ",      width=70)
-        gb.configure_column("Ort",      width=120)
-        gb.configure_column("Branche",  width=140)
+        gb.configure_column("Website",  width=180, editable=True)
+        gb.configure_column("Email",    width=200, editable=True)
+        gb.configure_column("Telefon",  width=130, editable=True)
+        gb.configure_column("GF",       width=160, editable=True)
+        gb.configure_column("PLZ",      width=70, editable=True)
+        gb.configure_column("Ort",      width=120, editable=True)
+        gb.configure_column("Branche",  width=140, editable=True)
+        for base_col in base_source_cols:
+            gb.configure_column(base_col_labels[base_col], width=180, editable=True)
+        for custom_col in custom_target_cols:
+            gb.configure_column(ai_col_labels[custom_col], width=200, editable=True)
         gb.configure_selection("multiple", use_checkbox=True, header_checkbox=True)
         gb.configure_pagination(enabled=True, paginationAutoPageSize=False, paginationPageSize=50)
-        gb.configure_grid_options(suppressMovableColumns=False, enableRangeSelection=True)
+        gb.configure_grid_options(suppressMovableColumns=False)
 
         grid_opts = gb.build()
 
@@ -790,13 +1253,121 @@ with tab_table:
                 df_ag,
                 gridOptions=grid_opts,
                 height=550,
-                update_mode=GridUpdateMode.SELECTION_CHANGED,
+                update_mode=GridUpdateMode.SELECTION_CHANGED | GridUpdateMode.COLUMN_CHANGED | GridUpdateMode.VALUE_CHANGED,
                 data_return_mode=DataReturnMode.FILTERED_AND_SORTED,
                 allow_unsafe_jscode=True,
                 use_container_width=True,
                 theme="alpine",
                 key=f"ag_{active_id}",
             )
+
+            # Persist inline edits from grid back into rows
+            ag_data = ag_resp.get("data") if isinstance(ag_resp, dict) else getattr(ag_resp, "data", None)
+            grid_records = []
+            if hasattr(ag_data, "to_dict"):
+                grid_records = ag_data.to_dict("records")
+            elif isinstance(ag_data, list):
+                grid_records = ag_data
+
+            edited_any = False
+            for rec in grid_records:
+                try:
+                    idx = int(rec.get("_idx"))
+                except Exception:
+                    continue
+                if idx < 0 or idx >= len(rows):
+                    continue
+
+                current = dict(rows[idx])
+                updated = dict(current)
+                source_changed = False
+
+                new_company = str(rec.get("Firma", "") or "").strip()
+                if new_company != str(current.get("company_name", "") or ""):
+                    updated["company_name"] = new_company
+                    source_changed = True
+
+                new_input_url = str(rec.get("Input URL", "") or "").strip()
+                if new_input_url != str(current.get("input_url", "") or ""):
+                    updated["input_url"] = new_input_url
+                    source_changed = True
+
+                for base_col in base_source_cols:
+                    label = base_col_labels[base_col]
+                    new_val = rec.get(label, "")
+                    if str(new_val or "") != str(current.get(base_col, "") or ""):
+                        updated[base_col] = new_val
+                        source_changed = True
+
+                for custom_col in custom_target_cols:
+                    label = ai_col_labels[custom_col]
+                    new_val = rec.get(label, "")
+                    new_val = _clean_ai_value(new_val)
+                    if str(new_val or "") != str(current.get(custom_col, "") or ""):
+                        updated[custom_col] = new_val
+
+                field_map = {
+                    "Website": "_website_found",
+                    "Email": "email_general",
+                    "Telefon": "phone",
+                    "GF": "managing_director",
+                    "PLZ": "zip",
+                    "Ort": "city",
+                    "Branche": "industry",
+                }
+                for label, key in field_map.items():
+                    new_val = rec.get(label, "")
+                    if str(new_val or "") != str(current.get(key, "") or ""):
+                        updated[key] = new_val
+                        source_changed = True
+
+                if source_changed:
+                    updated["_status"] = "pending"
+
+                if updated != current:
+                    rows[idx] = updated
+                    edited_any = True
+
+            if edited_any:
+                save_rows(active_id, rows)
+                save_output(active_id, rows)
+                append_log(active_id, "Inline-Änderungen in Tabelle gespeichert")
+
+            # Column order persistence controls
+            col_state = None
+            if isinstance(ag_resp, dict):
+                col_state = (
+                    ag_resp.get("column_state")
+                    or ag_resp.get("columns_state")
+                    or (ag_resp.get("grid_state") or {}).get("columnState")
+                )
+            else:
+                col_state = (
+                    getattr(ag_resp, "column_state", None)
+                    or getattr(ag_resp, "columns_state", None)
+                )
+
+            co1, co2 = st.columns([1.6, 1.4])
+            with co1:
+                if st.button("💾 Spaltenreihenfolge speichern", key=f"save_col_order_{active_id}"):
+                    if isinstance(col_state, list) and col_state:
+                        ordered_cols = [
+                            c.get("colId") for c in col_state
+                            if c.get("colId") and c.get("colId") != "_idx"
+                        ]
+                        if ordered_cols:
+                            update_settings(active_id, {"table_column_order": ordered_cols})
+                            case_settings["table_column_order"] = ordered_cols
+                            st.success("✓ Spaltenreihenfolge gespeichert")
+                        else:
+                            st.warning("Keine Spaltenreihenfolge erkannt.")
+                    else:
+                        st.warning("Reihenfolge noch nicht verfügbar. Spalten kurz bewegen und erneut speichern.")
+            with co2:
+                if st.button("↺ Spaltenreihenfolge zurücksetzen", key=f"reset_col_order_{active_id}"):
+                    update_settings(active_id, {"table_column_order": []})
+                    case_settings["table_column_order"] = []
+                    st.rerun()
 
             # Selected rows → get real indices (handle DataFrame or list)
             sel_raw = ag_resp.selected_rows
@@ -812,15 +1383,13 @@ with tab_table:
 
             # Action bar for selected rows
             if sel_count:
-                sa1, sa2, sa3 = st.columns([1.5, 1.5, 3])
+                sa1, sa2, sa3, sa4 = st.columns([1.3, 1.3, 1.3, 2.1])
                 with sa1:
                     if st.button(f"▶ Auswahl starten ({sel_count})",
                                  key=f"ag_run_{active_id}", type="primary",
                                  use_container_width=True):
                         for i in sel_indices:
-                            rows[i] = {"company_name": rows[i]["company_name"],
-                                       "input_url": rows[i].get("input_url",""),
-                                       "_status": "pending"}
+                            rows[i] = {**_row_base(rows[i]), "_status": "pending"}
                         save_rows(active_id, rows)
                         st.session_state["_sel_run_indices"] = sel_indices
                         st.rerun()
@@ -829,12 +1398,23 @@ with tab_table:
                                  key=f"ag_rst_{active_id}",
                                  use_container_width=True):
                         for i in sel_indices:
-                            rows[i] = {"company_name": rows[i]["company_name"],
-                                       "input_url": rows[i].get("input_url",""),
-                                       "_status": "pending"}
+                            rows[i] = {**_row_base(rows[i]), "_status": "pending"}
                         save_rows(active_id, rows)
                         st.rerun()
                 with sa3:
+                    if st.button(f"🗑 Auswahl löschen ({sel_count})",
+                                 key=f"ag_del_{active_id}",
+                                 use_container_width=True):
+                        for i in sorted(sel_indices, reverse=True):
+                            if 0 <= i < len(rows):
+                                rows.pop(i)
+                        save_rows(active_id, rows)
+                        save_output(active_id, rows)
+                        update_meta(active_id, total_rows=len(rows))
+                        st.session_state["selected_rows"] = set()
+                        append_log(active_id, f"{sel_count} Zeilen gelöscht")
+                        st.rerun()
+                with sa4:
                     names = ", ".join(rows[i]["company_name"] for i in sel_indices[:4])
                     if sel_count > 4: names += f" +{sel_count-4}"
                     st.caption(f"☑ {names}")
@@ -864,6 +1444,9 @@ with tab_table:
             completed = [0]
             n_workers = int(workers)
 
+            # Immediate visual feedback before first row completes
+            prog.progress(0.0, text=f"0/{len(process_indices)} gestartet · {n_workers} parallel")
+
             def process_one(idx):
                 """Worker: enrich one row, update shared rows list."""
                 if st.session_state.get("stop_requested"):
@@ -871,15 +1454,49 @@ with tab_table:
                 row     = rows[idx]
                 company = row["company_name"]
                 url     = row.get("input_url") or None
+                run_stage = "custom_steps_only"
 
                 with rows_lock:
                     rows[idx]["_status"] = "running"
+                    save_rows(active_id, rows)
                 append_log(active_id, f"Start: {company}")
 
-                enriched = enrich_row(company, url, api_key=api_key or None,
-                                      deep=st.session_state.get(f"deep_{active_id}", False))
+                known_website = row.get("_website_found") or row.get("website") or None
+
+                if run_stage == "custom_steps_only":
+                    enriched = dict(row)
+                    enriched["_search_strategy"] = None
+                    enriched["_scraped_pages"] = None
+                    enriched["_extraction_method"] = "custom_steps_only"
+                else:
+                    enriched = enrich_row(
+                        company,
+                        url,
+                        api_key=api_key or None,
+                        deep=st.session_state.get(f"deep_{active_id}", False),
+                        stage=run_stage,
+                        known_website=known_website,
+                    )
+
+                # Ensure base/source values are present for custom-step conditions/prompts
                 enriched["company_name"] = company
-                enriched["input_url"]    = url or ""
+                enriched["input_url"] = url or ""
+                for k, v in row.items():
+                    if str(k).startswith("original_") and k not in enriched:
+                        enriched[k] = v
+
+                custom_steps = case_settings.get("custom_steps") or []
+                if isinstance(custom_steps, list) and custom_steps:
+                    enriched = run_custom_steps(
+                        enriched,
+                        custom_steps,
+                        api_key=api_key or None,
+                        log_fn=lambda msg: append_log(active_id, f"{company} | {msg}"),
+                    )
+
+                enriched["company_name"] = company
+                enriched["input_url"] = url or ""
+                enriched["_status"] = "success"
 
                 with rows_lock:
                     rows[idx] = enriched
@@ -924,6 +1541,8 @@ with tab_table:
                         break
 
             prog.progress(1.0, text="✅ Fertig!")
+            table_ph.empty()
+            prog.empty()
             st.session_state["running"] = False
             st.session_state["stop_requested"] = False
             update_meta(active_id, status="done" if done+len(process_indices)==total else "partial")
@@ -964,24 +1583,219 @@ with tab_settings:
         st.success("✓ Gespeichert")
 
     st.divider()
-    st.markdown("#### ✏️ System-Prompt")
-    st.caption("Zellvariablen: `{impressum}`, `{contact}`, `{homepage}`, `{social_links}`")
-    current_prompt = case_settings.get("system_prompt", SYSTEM_PROMPT)
-    new_prompt = st.text_area("System-Prompt", value=current_prompt, height=280,
-                              key=f"prompt_{active_id}", label_visibility="collapsed")
-    if new_prompt != current_prompt:
-        update_settings(active_id, {"system_prompt": new_prompt})
-        st.success("✓ Prompt gespeichert")
+    st.markdown("#### 🧩 Prompt-Spalten (Clerk-Ansatz)")
+    st.caption("Spalte definieren → Prompt + Modell → Output-Ziel → optionale Bedingung auf Quellspalte.")
 
-    with st.expander("Verfügbare Variablen"):
-        st.markdown("""
-        | Variable | Inhalt |
-        |----------|--------|
-        | `{impressum}` | Text der Impressum-Seite |
-        | `{contact}` | Text der Kontakt-Seite |
-        | `{homepage}` | Homepage-Text |
-        | `{social_links}` | Gefundene Social-Media URLs |
-        """)
+    custom_steps = case_settings.get("custom_steps")
+    if not isinstance(custom_steps, list):
+        custom_steps = []
+    prompt_presets = _load_prompt_presets()
+    preset_names = [p.get("name") or p.get("target_column") or f"Preset {i+1}" for i, p in enumerate(prompt_presets)]
+
+    st.markdown("##### Preset-Bibliothek")
+    pm1, pm2, pm3 = st.columns([2.0, 1, 1.2])
+    with pm1:
+        if prompt_presets:
+            preset_pick_settings = st.selectbox(
+                "Preset wählen",
+                options=list(range(len(prompt_presets))),
+                format_func=lambda i: preset_names[i],
+                key=f"preset_pick_settings_{active_id}",
+            )
+        else:
+            preset_pick_settings = None
+            st.caption("Noch keine Presets vorhanden.")
+    with pm2:
+        if prompt_presets and st.button("➕ Preset in Case", key=f"add_preset_settings_{active_id}"):
+            picked = _dedupe_target_column(prompt_presets[preset_pick_settings], custom_steps)
+            custom_steps.append(_normalize_step(picked))
+            update_settings(active_id, {"custom_steps": custom_steps})
+            st.success(f"Preset hinzugefügt: {picked.get('name') or picked.get('target_column')}")
+            st.rerun()
+    with pm3:
+        if prompt_presets and st.button("➕ Alle Standards", key=f"add_all_presets_settings_{active_id}"):
+            updated_steps, added_count = _add_missing_standard_steps(custom_steps, prompt_presets)
+            update_settings(active_id, {"custom_steps": updated_steps})
+            if added_count:
+                st.success(f"{added_count} fehlende Standard-Prompt-Spalten hinzugefügt")
+            else:
+                st.info("Alle Standard-Prompt-Spalten sind bereits im Case vorhanden.")
+            st.rerun()
+
+    rows_for_columns = load_rows(active_id)
+    available_columns = {"", "company_name", "input_url", "website", "_website_found"}
+    available_columns.update(EXTRACTION_FIELDS.keys())
+    for r in rows_for_columns:
+        available_columns.update(r.keys())
+    for s in custom_steps:
+        col = str(s.get("target_column") or "").strip()
+        if col:
+            available_columns.add(col)
+    available_column_options = [""] + sorted(c for c in available_columns if c)
+
+    if st.button("➕ Prompt-Spalte hinzufügen", key=f"add_cstep_{active_id}"):
+        custom_steps.append({
+            "enabled": True,
+            "name": f"Prompt-Spalte {len(custom_steps)+1}",
+            "target_column": f"custom_col_{len(custom_steps)+1}",
+            "model": "gpt-4o-mini",
+            "output_mode": "text",
+            "output_key": "",
+            "overwrite": False,
+            "condition_source": "",
+            "condition_operator": "is_truthy",
+            "condition_value": "",
+            "prompt": "Nutze diese Daten: {company_name}, {website}. Gib einen kurzen Wert zurück.",
+        })
+        update_settings(active_id, {"custom_steps": custom_steps})
+        st.rerun()
+
+    remove_idx = None
+    edited_steps = []
+    save_preset_idx = None
+    test_step_idx = None
+    cond_ops = ["is_truthy", "is_empty", "equals", "not_equals", "contains", "not_contains"]
+    out_modes = ["text", "json"]
+
+    for i, step in enumerate(custom_steps):
+        step = dict(step)
+        title = step.get("name") or f"Prompt-Spalte {i+1}"
+        with st.expander(f"{i+1}. {title}", expanded=False):
+            r1c1, r1c2, r1c3 = st.columns([2, 1.2, 1])
+            with r1c1:
+                step["name"] = st.text_input("Name", value=step.get("name", ""), key=f"cstep_name_{active_id}_{i}")
+            with r1c2:
+                step["target_column"] = st.text_input(
+                    "Zielspalte",
+                    value=step.get("target_column", ""),
+                    key=f"cstep_target_{active_id}_{i}",
+                    help="In diese Spalte wird das Ergebnis geschrieben.",
+                )
+            with r1c3:
+                step["enabled"] = st.toggle("Aktiv", value=bool(step.get("enabled", True)), key=f"cstep_enabled_{active_id}_{i}")
+
+            r2c1, r2c2, r2c3 = st.columns([1.2, 1, 1])
+            with r2c1:
+                step["model"] = st.text_input("LLM-Modell", value=step.get("model", "gpt-4o-mini"), key=f"cstep_model_{active_id}_{i}")
+            with r2c2:
+                current_mode = step.get("output_mode", "text")
+                if current_mode not in out_modes:
+                    current_mode = "text"
+                step["output_mode"] = st.selectbox(
+                    "Output",
+                    out_modes,
+                    index=out_modes.index(current_mode),
+                    key=f"cstep_outmode_{active_id}_{i}",
+                )
+            with r2c3:
+                step["overwrite"] = st.toggle(
+                    "Überschreiben",
+                    value=bool(step.get("overwrite", False)),
+                    key=f"cstep_overwrite_{active_id}_{i}",
+                    help="Wenn aus: nur schreiben, wenn Zielspalte leer ist.",
+                )
+
+            step["output_key"] = st.text_input(
+                "JSON-Key (optional)",
+                value=step.get("output_key", ""),
+                key=f"cstep_outkey_{active_id}_{i}",
+                help="Nur bei JSON-Output: welcher Key ins Zielfeld übernommen wird.",
+            )
+
+            st.markdown("**Bedingte Ausführung**")
+            c1, c2, c3 = st.columns([1.3, 1.1, 1.3])
+            with c1:
+                current_source = step.get("condition_source", "") or ""
+                if current_source not in available_column_options:
+                    available_column_options.append(current_source)
+                src_idx = available_column_options.index(current_source)
+                step["condition_source"] = st.selectbox(
+                    "Quellspalte",
+                    options=available_column_options,
+                    index=src_idx,
+                    key=f"cstep_condsrc_{active_id}_{i}",
+                    help="Leer = immer ausführen.",
+                    format_func=lambda v: "(immer)" if v == "" else v,
+                )
+            with c2:
+                current_op = step.get("condition_operator", "is_truthy")
+                if current_op not in cond_ops:
+                    current_op = "is_truthy"
+                step["condition_operator"] = st.selectbox(
+                    "Operator",
+                    cond_ops,
+                    index=cond_ops.index(current_op),
+                    key=f"cstep_condop_{active_id}_{i}",
+                )
+            with c3:
+                step["condition_value"] = st.text_input(
+                    "Vergleichswert",
+                    value=step.get("condition_value", ""),
+                    key=f"cstep_condval_{active_id}_{i}",
+                )
+
+            step["prompt"] = st.text_area(
+                "Prompt-Template",
+                value=step.get("prompt", ""),
+                height=180,
+                key=f"cstep_prompt_{active_id}_{i}",
+                help="Template-Variablen wie {company_name}, {website}, {original_city} sind erlaubt.",
+            )
+
+            if st.button("🗑 Prompt-Spalte entfernen", key=f"cstep_remove_{active_id}_{i}"):
+                remove_idx = i
+
+            a1, a2 = st.columns([1, 1])
+            with a1:
+                if st.button("💾 Als Preset speichern", key=f"cstep_savepreset_{active_id}_{i}"):
+                    save_preset_idx = i
+            with a2:
+                if st.button("🧪 Test auf 1 Beispielzeile", key=f"cstep_test_{active_id}_{i}"):
+                    test_step_idx = i
+
+        edited_steps.append(step)
+
+    if remove_idx is not None:
+        edited_steps.pop(remove_idx)
+        update_settings(active_id, {"custom_steps": edited_steps})
+        st.rerun()
+
+    if save_preset_idx is not None and save_preset_idx < len(edited_steps):
+        presets = _load_prompt_presets()
+        step_to_save = _normalize_step(edited_steps[save_preset_idx])
+        presets.append(step_to_save)
+        _save_prompt_presets(presets)
+        st.success(f"Preset gespeichert: {step_to_save.get('name') or step_to_save.get('target_column')}")
+
+    if test_step_idx is not None and test_step_idx < len(edited_steps):
+        sample_rows = load_rows(active_id)
+        if sample_rows:
+            test_step = _normalize_step(edited_steps[test_step_idx])
+            sample = dict(sample_rows[0])
+            sample_result = run_custom_steps(
+                sample,
+                [test_step],
+                api_key=api_key or None,
+                log_fn=lambda msg: append_log(active_id, f"TEST | {msg}"),
+            )
+            tc = test_step.get("target_column", "")
+            st.info(f"Test-Ergebnis ({tc}): {sample_result.get(tc)}")
+            if tc:
+                dbg = {
+                    "status": sample_result.get(f"_{tc}_status"),
+                    "skip_reason": sample_result.get(f"_{tc}_skip_reason"),
+                    "error": sample_result.get(f"_{tc}_error"),
+                    "prompt": sample_result.get(f"_{tc}_prompt"),
+                    "raw": sample_result.get(f"_{tc}_raw"),
+                }
+                st.json(dbg)
+        else:
+            st.warning("Keine Zeilen vorhanden für Test.")
+
+    if st.button("💾 Prompt-Spalten speichern", key=f"save_csteps_{active_id}"):
+        update_settings(active_id, {"custom_steps": edited_steps})
+        case_settings["custom_steps"] = edited_steps
+        st.success("✓ Prompt-Spalten gespeichert")
 
     st.divider()
     st.markdown("#### ⚠️ Case löschen")

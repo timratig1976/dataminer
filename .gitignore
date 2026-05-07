@@ -1,6 +1,9 @@
 # Case data (contains API keys + large data files)
 cases/
 
+# Exclude Next.js app from gitignore patterns
+!dataminer-next/
+
 # Python
 __pycache__/
 *.py[cod]
