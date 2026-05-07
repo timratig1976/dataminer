@@ -1,8 +1,9 @@
-# Case data (contains API keys + large data files)
-cases/
+# Case data (contains API keys + large data files) — root-level only
+/cases/
 
-# Exclude Next.js app from gitignore patterns
+# Explicitly include Next.js app (including app/cases/ routes)
 !dataminer-next/
+!dataminer-next/**
 
 # Python
 __pycache__/
