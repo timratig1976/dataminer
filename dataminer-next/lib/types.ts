@@ -1,5 +1,10 @@
 export type CellStatus = "idle" | "running" | "done" | "error" | "skipped";
 
+export interface MultiKeyMap {
+  jsonKey: string;
+  outputKey: string;
+}
+
 export interface AiColumn {
   id: string;
   name: string;
@@ -8,6 +13,8 @@ export interface AiColumn {
   model?: string;
   outputMode?: "text" | "json";
   jsonKey?: string;
+  multiKeys?: MultiKeyMap[];
+  validateDomain?: boolean; // if true, HTTP-validate the "domain" multiKey and write domain_validated
   condition?: "empty" | "not_empty" | "require_input";
   conditionField?: string;
 }
@@ -19,6 +26,8 @@ export interface Case {
   updatedAt: string;
   aiColumns: AiColumn[];
   apiKey?: string;
+  colOrder?: string[];
+  fieldMappings?: Record<string, string>; // e.g. { company_name: "Unternehmensname", city: "Stadt" }
 }
 
 export interface RowData {

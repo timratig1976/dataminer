@@ -17,7 +17,7 @@ export async function POST(req: NextRequest) {
   const allRows = listRows(caseId);
   const targetRows = rowIds ? allRows.filter((r) => rowIds.includes(r.id)) : allRows;
 
-  const results: Record<string, { status: string; value?: string; error?: string }> = {};
+  const results: Record<string, { status: string; value?: string; error?: string; multiValues?: Record<string,string>; rawResponse?: string }> = {};
 
   await Promise.all(
     targetRows.map(async (row) => {
@@ -30,8 +30,17 @@ export async function POST(req: NextRequest) {
         updateRowCell(row.id, column.outputKey, "", "error", result.error);
         results[row.id] = { status: "error", error: result.error };
       } else {
-        updateRowCell(row.id, column.outputKey, result.value, "done");
-        results[row.id] = { status: "done", value: result.value };
+        if (result.rawResponse) {
+          updateRowCell(row.id, `_llm_raw_${column.outputKey}`, result.rawResponse, "done");
+        }
+        if (result.multiValues) {
+          for (const [key, val] of Object.entries(result.multiValues)) {
+            updateRowCell(row.id, key, val, "done");
+          }
+        } else {
+          updateRowCell(row.id, column.outputKey, result.value, "done");
+        }
+        results[row.id] = { status: "done", value: result.value, multiValues: result.multiValues, rawResponse: result.rawResponse };
       }
     })
   );

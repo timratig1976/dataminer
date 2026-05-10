@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { X, Sparkles, Type, Hash } from "lucide-react";
 import type { AiColumn, Case } from "@/lib/types";
 
@@ -10,6 +10,7 @@ interface Props {
   caseId: string;
   onClose: () => void;
   onAdded: (updated: Case) => void;
+  availableFields?: string[];
 }
 
 const CONDITIONS = [
@@ -23,7 +24,7 @@ const MODELS = ["gpt-4o-mini", "gpt-4o", "gpt-4-turbo"];
 
 type ColType = "ai" | "text" | "number";
 
-export function AddColumnModal({ caseId, onClose, onAdded }: Props) {
+export function AddColumnModal({ caseId, onClose, onAdded, availableFields = [] }: Props) {
   const [presets, setPresets] = useState<Omit<AiColumn, "id">[]>([]);
   const [colType, setColType] = useState<ColType>("ai");
   const [mode, setMode] = useState<"preset" | "custom">("preset");
@@ -36,6 +37,7 @@ export function AddColumnModal({ caseId, onClose, onAdded }: Props) {
   const [outputMode, setOutputMode] = useState<"text" | "json">("text");
   const [jsonKey, setJsonKey] = useState("");
   const [saving, setSaving] = useState(false);
+  const promptRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     fetch("/api/presets").then((r) => r.json()).then(setPresets);
@@ -187,9 +189,49 @@ export function AddColumnModal({ caseId, onClose, onAdded }: Props) {
                   <div>
                     <label className="text-xs font-medium text-gray-600 uppercase tracking-wide">Prompt</label>
                     <p className="text-xs text-gray-400 mt-0.5 mb-1">Platzhalter: &#123;company_name&#125;, &#123;website&#125; usw.</p>
-                    <textarea value={prompt} onChange={e => setPrompt(e.target.value)} rows={6}
+                    <textarea ref={promptRef} value={prompt} onChange={e => setPrompt(e.target.value)} rows={6}
                       placeholder="Find the official website domain for {company_name}..."
                       className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-green-500 resize-y" />
+                    {availableFields.length > 0 && (() => {
+                      const used = [...new Set((prompt.match(/\{([^}]+)\}/g)||[]).map(m=>m.slice(1,-1).trim()))];
+                      const matched = used.filter(p => availableFields.includes(p));
+                      const unmatched = used.filter(p => !availableFields.includes(p));
+                      return (
+                        <div style={{marginTop:6,display:"grid",gap:5}}>
+                          {(matched.length > 0 || unmatched.length > 0) && (
+                            <div style={{display:"flex",flexWrap:"wrap",gap:3}}>
+                              {matched.map(p => <span key={p} style={{fontSize:11,padding:"1px 7px",borderRadius:4,background:"#dcfce7",color:"#15803d",fontFamily:"monospace"}}>{`{${p}}`} ✓</span>)}
+                              {unmatched.map(p => <span key={p} style={{fontSize:11,padding:"1px 7px",borderRadius:4,background:"#fee2e2",color:"#dc2626",fontFamily:"monospace"}}>{`{${p}}`} ✗</span>)}
+                            </div>
+                          )}
+                          <div style={{display:"flex",flexWrap:"wrap",gap:3,alignItems:"center"}}>
+                            <span style={{fontSize:11,color:"#6b7280"}}>Verfügbare Felder:</span>
+                            {availableFields.map(f => {
+                              const inPrompt = prompt.includes(`{${f}}`);
+                              return (
+                                <button key={f} type="button"
+                                  onClick={() => {
+                                    const ta = promptRef.current;
+                                    if (!ta) return;
+                                    const start = ta.selectionStart ?? prompt.length;
+                                    const end = ta.selectionEnd ?? prompt.length;
+                                    const ins = `{${f}}`;
+                                    const next = prompt.slice(0, start) + ins + prompt.slice(end);
+                                    setPrompt(next);
+                                    setTimeout(() => { ta.focus(); ta.setSelectionRange(start + ins.length, start + ins.length); }, 0);
+                                  }}
+                                  style={{fontSize:11,padding:"1px 7px",borderRadius:4,border:"1px solid",fontFamily:"monospace",cursor:"pointer",
+                                    background: inPrompt ? "#f0fdf4" : "#f9fafb",
+                                    borderColor: inPrompt ? "#86efac" : "#e5e7eb",
+                                    color: inPrompt ? "#15803d" : "#374151"}}>
+                                  {`{${f}}`}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div>

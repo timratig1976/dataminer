@@ -25,6 +25,7 @@ function initSchema(db: Database.Database) {
       name TEXT NOT NULL,
       ai_columns TEXT NOT NULL DEFAULT '[]',
       api_key TEXT,
+      col_order TEXT NOT NULL DEFAULT '[]',
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -50,6 +51,8 @@ function initSchema(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_rows_case_id ON rows(case_id, row_index);
     CREATE INDEX IF NOT EXISTS idx_logs_case_id ON logs(case_id, id DESC);
   `);
+  // migrate existing DBs that don't have col_order yet
+  try { db.exec(`ALTER TABLE cases ADD COLUMN col_order TEXT NOT NULL DEFAULT '[]'`); } catch {}
 }
 
 // ── Cases ────────────────────────────────────────────────────────────────────
@@ -70,9 +73,9 @@ export function createCase(c: Omit<Case, "createdAt" | "updatedAt">): Case {
   const db = getDb();
   const now = new Date().toISOString();
   db.prepare(`
-    INSERT INTO cases (id, name, ai_columns, api_key, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `).run(c.id, c.name, JSON.stringify(c.aiColumns), c.apiKey ?? null, now, now);
+    INSERT INTO cases (id, name, ai_columns, api_key, col_order, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).run(c.id, c.name, JSON.stringify(c.aiColumns), c.apiKey ?? null, JSON.stringify(c.colOrder ?? []), now, now);
   return getCase(c.id)!;
 }
 
@@ -82,8 +85,8 @@ export function updateCase(id: string, patch: Partial<Omit<Case, "id" | "created
   if (!existing) return null;
   const merged = { ...existing, ...patch, updatedAt: new Date().toISOString() };
   db.prepare(`
-    UPDATE cases SET name=?, ai_columns=?, api_key=?, updated_at=? WHERE id=?
-  `).run(merged.name, JSON.stringify(merged.aiColumns), merged.apiKey ?? null, merged.updatedAt, id);
+    UPDATE cases SET name=?, ai_columns=?, api_key=?, col_order=?, updated_at=? WHERE id=?
+  `).run(merged.name, JSON.stringify(merged.aiColumns), merged.apiKey ?? null, JSON.stringify(merged.colOrder ?? []), merged.updatedAt, id);
   return getCase(id)!;
 }
 
@@ -191,6 +194,7 @@ function deserializeCase(row: any): Case {
     name: row.name,
     aiColumns: JSON.parse(row.ai_columns || "[]"),
     apiKey: row.api_key ?? undefined,
+    colOrder: JSON.parse(row.col_order || "[]"),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

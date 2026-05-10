@@ -6,19 +6,206 @@ import {
   ArrowLeft, Plus, Play, Upload, Trash2, Settings, Save, Sparkles,
   Loader2, CheckCircle2, XCircle, SkipForward, Zap,
   Download, ScrollText, ChevronLeft, ChevronRight, GripVertical,
-  Database
+  Database, Info, CheckCircle, AlertCircle
 } from "lucide-react";
 import type { Case, RowData, AiColumn, CellStatus } from "@/lib/types";
 import { AddColumnModal } from "@/components/AddColumnModal";
 import { ImportModal } from "@/components/ImportModal";
 import { ColumnHeaderMenu } from "@/components/ColumnHeaderMenu";
 
+// ── Run Detail Modal ──────────────────────────────────────────────────────────
+function RunDetailModal({ col, row: initialRow, caseId, onClose, onRowUpdate }: {
+  col: AiColumn;
+  row: RowData;
+  caseId: string;
+  onClose: () => void;
+  onRowUpdate: (rowId: string, patch: Partial<RowData>) => void;
+}) {
+  const [row, setRow] = useState(initialRow);
+  const [running, setRunning] = useState(false);
+  const [runError, setRunError] = useState<string|null>(null);
+
+  const multiKeys = col.multiKeys ?? [];
+  const extraOutputKeys = col.validateDomain
+    ? [...multiKeys.map(mk => mk.outputKey), "domain_validated"]
+    : multiKeys.map(mk => mk.outputKey);
+  const allOutputKeys = extraOutputKeys.length > 0 ? extraOutputKeys : [col.outputKey];
+
+  const savedStatus = row.cellStatuses[col.outputKey] ?? "idle";
+  const err = row.cellErrors[col.outputKey];
+  // All meta stored in row data with _ prefix
+  const rawResponse   = row.data[`_llm_raw_${col.outputKey}`] ?? "";
+  const exactPrompt   = row.data[`_llm_prompt_${col.outputKey}`] ?? "";
+  const tokensRaw     = row.data[`_llm_tokens_${col.outputKey}`] ?? "";
+  const costRaw       = row.data[`_llm_cost_${col.outputKey}`] ?? "";
+  const tokens        = tokensRaw ? (() => { try { return JSON.parse(tokensRaw); } catch { return null; } })() : null;
+  const costUsd       = costRaw ? parseFloat(costRaw) : null;
+  const companyName   = row.data["company_name"] ?? row.data["Unternehmensname"] ?? row.data["Name"] ?? "";
+
+  // Fallback rendered prompt (before first run)
+  const previewPrompt = col.prompt.replace(/\{([^}]+)\}/g, (_, k) => {
+    const v = row.data[k.trim()];
+    return (v != null && String(v).trim() !== "") ? String(v) : `{${k}}`;
+  });
+
+  async function handleRun() {
+    if (running) return;
+    setRunning(true);
+    setRunError(null);
+    try {
+      const res = await fetch("/api/run/cell", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ caseId, rowId: row.id, columnId: col.id }),
+      });
+      const result = await res.json();
+      if (result.error || !res.ok) { setRunError(result.error ?? "Unbekannter Fehler"); return; }
+      const extraData   = result.multiValues ?? {};
+      const metaData: Record<string,string> = {};
+      if (result.rawResponse)   metaData[`_llm_raw_${col.outputKey}`]    = result.rawResponse;
+      if (result.renderedPrompt) metaData[`_llm_prompt_${col.outputKey}`] = result.renderedPrompt;
+      if (result.tokens)        metaData[`_llm_tokens_${col.outputKey}`]  = JSON.stringify(result.tokens);
+      if (result.costUsd != null) metaData[`_llm_cost_${col.outputKey}`] = String(result.costUsd);
+      const newData     = { ...row.data, [col.outputKey]: result.value ?? "", ...extraData, ...metaData };
+      const newStatuses = { ...row.cellStatuses, [col.outputKey]: "done" as CellStatus };
+      for (const k of Object.keys(extraData)) newStatuses[k] = "done";
+      const updated = { ...row, data: newData, cellStatuses: newStatuses };
+      setRow(updated);
+      onRowUpdate(row.id, { data: newData, cellStatuses: newStatuses });
+    } catch (e: any) {
+      setRunError(e.message ?? "Netzwerkfehler");
+    } finally {
+      setRunning(false);
+    }
+  }
+
+  const box: React.CSSProperties = { border:"1px solid #e2e8f0", borderRadius:8, overflow:"hidden" };
+  const boxHdr: React.CSSProperties = { fontSize:10, fontWeight:700, color:"#64748b", padding:"6px 14px", background:"#f8fafc", borderBottom:"1px solid #e2e8f0", textTransform:"uppercase", letterSpacing:"0.07em" };
+  const pre: React.CSSProperties = { margin:0, padding:"11px 14px", fontSize:11, whiteSpace:"pre-wrap", wordBreak:"break-all", lineHeight:1.7, fontFamily:"monospace", maxHeight:220, overflowY:"auto" };
+
+  const hasRun = savedStatus === "done" || savedStatus === "error";
+
+  return (
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center"}}
+      onClick={e=>{if(e.target===e.currentTarget)onClose();}}>
+      <div style={{background:"#fff",borderRadius:12,width:"min(760px,96vw)",maxHeight:"90vh",display:"flex",flexDirection:"column",boxShadow:"0 28px 80px rgba(0,0,0,0.28)"}}>
+
+        {/* Header */}
+        <div style={{padding:"13px 18px",borderBottom:"1px solid #e5e7eb",display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
+          <Sparkles style={{width:14,height:14,color:"#16a34a",flexShrink:0}}/>
+          <div style={{flex:1,minWidth:0}}>
+            <span style={{fontWeight:700,fontSize:13,color:"#111"}}>{col.name}</span>
+            {companyName && <span style={{fontSize:12,color:"#9ca3af",marginLeft:8}}>— {companyName}</span>}
+            <span style={{fontSize:11,color:"#d1d5db",marginLeft:8}}>{col.model ?? "gpt-4o-mini"}</span>
+          </div>
+          <button onClick={handleRun} disabled={running}
+            style={{display:"flex",alignItems:"center",gap:5,padding:"5px 14px",background:running?"#86efac":"#16a34a",color:"#fff",border:"none",borderRadius:6,cursor:running?"not-allowed":"pointer",fontSize:12,fontWeight:600,flexShrink:0}}>
+            {running ? <Loader2 style={{width:11,height:11}} className="animate-spin"/> : <Play style={{width:11,height:11}}/>}
+            {running ? "Läuft…" : "Ausführen"}
+          </button>
+          <button onClick={onClose} style={{border:"none",background:"none",cursor:"pointer",fontSize:20,color:"#9ca3af",lineHeight:1,padding:"0 4px"}}>×</button>
+        </div>
+
+        <div style={{overflowY:"auto",padding:"14px 18px",display:"flex",flexDirection:"column",gap:10}}>
+
+          {/* Status row */}
+          <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+            {running && <span style={{display:"inline-flex",alignItems:"center",gap:5,fontSize:12,color:"#d97706",background:"#fef3c7",padding:"3px 10px",borderRadius:10,fontWeight:600}}><Loader2 style={{width:10,height:10}} className="animate-spin"/> Läuft…</span>}
+            {!running && savedStatus==="done"    && <span style={{display:"inline-flex",alignItems:"center",gap:5,fontSize:12,color:"#059669",background:"#d1fae5",padding:"3px 10px",borderRadius:10,fontWeight:600}}><CheckCircle style={{width:10,height:10}}/> Fertig</span>}
+            {!running && savedStatus==="error"   && <span style={{display:"inline-flex",alignItems:"center",gap:5,fontSize:12,color:"#dc2626",background:"#fef2f2",padding:"3px 10px",borderRadius:10,fontWeight:600}}><AlertCircle style={{width:10,height:10}}/> Fehler</span>}
+            {!running && savedStatus==="idle"    && <span style={{fontSize:12,color:"#9ca3af"}}>○ Noch nicht ausgeführt</span>}
+            {!running && savedStatus==="skipped" && <span style={{fontSize:12,color:"#9ca3af",background:"#f3f4f6",padding:"3px 10px",borderRadius:10}}>⏭ Übersprungen</span>}
+            {/* tokens + cost badges */}
+            {tokens && <>
+              <span style={{fontSize:11,color:"#6366f1",background:"#eef2ff",padding:"2px 8px",borderRadius:8,fontFamily:"monospace"}}>↑{tokens.prompt} ↓{tokens.completion} = {tokens.total} tok</span>
+              {costUsd != null && <span style={{fontSize:11,color:"#0369a1",background:"#e0f2fe",padding:"2px 8px",borderRadius:8,fontFamily:"monospace"}}>${costUsd.toFixed(5)}</span>}
+            </>}
+            {runError && <span style={{fontSize:12,color:"#dc2626"}}>{runError}</span>}
+          </div>
+
+          {/* Output fields */}
+          {(hasRun || running) && (
+            <div style={box}>
+              <div style={boxHdr}>Output</div>
+              <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                <tbody>
+                  {allOutputKeys.map(k => {
+                    const v = row.data[k] ?? "";
+                    const isValid = v.startsWith("✓"), isInvalid = v.startsWith("✗");
+                    return (
+                      <tr key={k} style={{borderBottom:"1px solid #f1f5f9"}}>
+                        <td style={{padding:"6px 14px",fontFamily:"monospace",color:"#94a3b8",whiteSpace:"nowrap",width:180,fontSize:11,verticalAlign:"top"}}>{k}</td>
+                        <td style={{padding:"6px 14px",wordBreak:"break-all",lineHeight:1.6,color:isInvalid?"#dc2626":isValid?"#15803d":"#1e293b",fontWeight:(isValid||isInvalid)?600:400}}>
+                          {running && !v ? <span style={{color:"#d1d5db",fontStyle:"italic"}}>wird berechnet…</span> : v || <span style={{color:"#cbd5e1",fontStyle:"italic"}}>—</span>}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* Error detail */}
+          {err && !running && (
+            <div style={{...box,border:"1px solid #fecaca"}}>
+              <div style={{...boxHdr,color:"#dc2626",background:"#fef2f2",borderBottom:"1px solid #fecaca"}}>Fehler</div>
+              <pre style={{...pre,color:"#991b1b"}}>{err}</pre>
+            </div>
+          )}
+
+          {/* Raw LLM response */}
+          {rawResponse && (
+            <div style={box}>
+              <div style={{...boxHdr,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                <span>LLM Response (raw)</span>
+                {tokens && <span style={{fontSize:10,color:"#94a3b8",fontFamily:"monospace",textTransform:"none",letterSpacing:0}}>{tokens.completion} completion tokens</span>}
+              </div>
+              <pre style={{...pre,color:"#1e293b",background:"#fff"}}>{rawResponse}</pre>
+            </div>
+          )}
+
+          {/* Exact prompt sent */}
+          <div style={box}>
+            <div style={{...boxHdr,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+              <span>Prompt (gesendet an LLM)</span>
+              {tokens && <span style={{fontSize:10,color:"#94a3b8",fontFamily:"monospace",textTransform:"none",letterSpacing:0}}>{tokens.prompt} prompt tokens</span>}
+            </div>
+            <pre style={{...pre,color:"#374151",background:"#fafafa"}}>{exactPrompt || previewPrompt}</pre>
+          </div>
+
+          {/* Input variables */}
+          <div style={box}>
+            <div style={boxHdr}>Input-Variablen</div>
+            <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
+              <tbody>
+                {col.prompt.match(/\{([^}]+)\}/g)
+                  ?.map(m => m.slice(1,-1).trim())
+                  .filter((v,i,a)=>a.indexOf(v)===i)
+                  .map(k => (
+                    <tr key={k} style={{borderBottom:"1px solid #f1f5f9"}}>
+                      <td style={{padding:"5px 14px",fontFamily:"monospace",color:"#94a3b8",whiteSpace:"nowrap",width:180}}>{k}</td>
+                      <td style={{padding:"5px 14px",color: row.data[k] ? "#1e293b" : "#d1d5db",fontStyle: row.data[k] ? "normal" : "italic"}}>
+                        {row.data[k] ?? "(not provided)"}
+                      </td>
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Edit Prompt Modal ─────────────────────────────────────────────────────────
 function EditPromptModal({ col, caseId, onSave, onClose, cellContext, onRunCell, availableFields }: {
   col: AiColumn; caseId: string;
   onSave: (updated: AiColumn) => void;
   onClose: () => void;
-  cellContext?: { rowId: string; value: string; status: CellStatus; error?: string; rowLabel?: string };
+  cellContext?: { rowId: string; value: string; status: CellStatus; error?: string; rowLabel?: string; multiValues?: Record<string,string> };
   onRunCell?: () => void;
   availableFields?: string[];
 }) {
@@ -72,7 +259,18 @@ function EditPromptModal({ col, caseId, onSave, onClose, cellContext, onRunCell,
           <div>
             <label style={lbl}>Prompt</label>
             <textarea ref={promptRef} style={{...inp,fontFamily:"monospace",fontSize:12,minHeight:140,resize:"vertical",lineHeight:1.6}}
-              value={draft.prompt} onChange={e=>setDraft(d=>({...d,prompt:e.target.value}))} />
+              value={draft.prompt}
+              onChange={e=>{
+                const scroll = promptRef.current?.scrollTop ?? 0;
+                const selStart = e.target.selectionStart;
+                const selEnd = e.target.selectionEnd;
+                setDraft(d=>({...d,prompt:e.target.value}));
+                requestAnimationFrame(()=>{
+                  if(!promptRef.current) return;
+                  promptRef.current.scrollTop = scroll;
+                  promptRef.current.setSelectionRange(selStart, selEnd);
+                });
+              }} />
             {/* Placeholder analysis */}
             {availableFields && availableFields.length > 0 && (() => {
               const used = [...new Set((draft.prompt.match(/\{([^}]+)\}/g)||[]).map(m=>m.slice(1,-1).trim()))];
@@ -187,10 +385,29 @@ function EditPromptModal({ col, caseId, onSave, onClose, cellContext, onRunCell,
                 <pre style={{fontSize:12,color:"#991b1b",margin:0,whiteSpace:"pre-wrap",wordBreak:"break-all",fontFamily:"monospace",lineHeight:1.5}}>{cellContext.error}</pre>
               </div>
             )}
-            {cellContext.value && cellContext.status==="done" && (
-              <div style={{background:"#f0fdf4",border:"1px solid #bbf7d0",borderRadius:6,padding:"10px 12px"}}>
-                <div style={{fontSize:11,fontWeight:600,color:"#15803d",marginBottom:4}}>Ergebnis</div>
-                <pre style={{fontSize:12,color:"#1f2937",margin:0,whiteSpace:"pre-wrap",wordBreak:"break-all",fontFamily:"monospace",lineHeight:1.5}}>{cellContext.value}</pre>
+            {cellContext.status==="done" && (cellContext.value || cellContext.multiValues) && (
+              <div style={{background:"#f8fafc",border:"1px solid #e2e8f0",borderRadius:6,overflow:"hidden"}}>
+                <div style={{fontSize:11,fontWeight:600,color:"#475569",padding:"7px 12px",borderBottom:"1px solid #e2e8f0",background:"#f1f5f9",textTransform:"uppercase",letterSpacing:"0.05em"}}>
+                  Output
+                </div>
+                <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                  <tbody>
+                    {cellContext.multiValues
+                      ? Object.entries(cellContext.multiValues).map(([k, v]) => (
+                          <tr key={k} style={{borderBottom:"1px solid #f1f5f9"}}>
+                            <td style={{padding:"6px 12px",fontFamily:"monospace",color:"#64748b",whiteSpace:"nowrap",width:180,verticalAlign:"top"}}>{k}</td>
+                            <td style={{padding:"6px 12px",color:v.startsWith("✗")?"#dc2626":v.startsWith("✓")?"#15803d":"#1e293b",wordBreak:"break-all",lineHeight:1.5}}>{v||<span style={{color:"#cbd5e1",fontStyle:"italic"}}>empty</span>}</td>
+                          </tr>
+                        ))
+                      : (
+                          <tr>
+                            <td style={{padding:"6px 12px",fontFamily:"monospace",color:"#64748b",whiteSpace:"nowrap",width:180}}>{col.outputKey}</td>
+                            <td style={{padding:"6px 12px",color:"#1e293b",wordBreak:"break-all"}}>{cellContext.value}</td>
+                          </tr>
+                        )
+                    }
+                  </tbody>
+                </table>
               </div>
             )}
           </div>
@@ -436,10 +653,12 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
   const [rangeBis, setRangeBis] = useState<number>(0);
   const [rangeMax, setRangeMax] = useState(0);
   const [colOrder, setColOrder] = useState<string[]>([]);
+  const [colWidths, setColWidths] = useState<Record<string, number>>({});
   const [dragCol, setDragCol] = useState<string | null>(null);
   const [dragOverCol, setDragOverCol] = useState<string | null>(null);
   const [editingPromptCol, setEditingPromptCol] = useState<AiColumn | null>(null);
   const [editingPromptCell, setEditingPromptCell] = useState<{col: AiColumn; row: RowData} | null>(null);
+  const [runDetailCell, setRunDetailCell] = useState<{col: AiColumn; row: RowData} | null>(null);
 
   const refresh = useCallback(async () => {
     const [c, r] = await Promise.all([
@@ -449,13 +668,23 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
     setCaseData(c);
     setRows(r);
     if (r.length > 0) {
-      const keys = Object.keys(r[0].data).filter(
-        (k) => !k.startsWith("_") && !c.aiColumns.some((col: AiColumn) => col.outputKey === k)
-      );
-      setSourceColumns(keys);
+      const aiKeys = c.aiColumns.map((col: AiColumn) => col.outputKey);
+      // all multiKey sub-outputs (e.g. domain_confidence, domain_validated) written to row data
+      const allMultiKeys = c.aiColumns.flatMap((col: AiColumn) => (col.multiKeys ?? []).map((mk: {outputKey: string}) => mk.outputKey));
+      const allDataKeys = Object.keys(r[0].data).filter(k => !k.startsWith("_"));
+      const srcKeys = allDataKeys.filter(k => !aiKeys.includes(k) && !allMultiKeys.includes(k));
+      // orphan = in data and is a multiKey sub-output OR unknown key (e.g. domain_validated from validateDomain)
+      const orphanKeys = allDataKeys.filter(k => !srcKeys.includes(k) && !aiKeys.includes(k));
+      setSourceColumns(srcKeys);
       setColOrder(prev => {
-        if (prev.length > 0) return prev;
-        return [...keys, ...c.aiColumns.map((col: AiColumn) => col.outputKey)];
+        // Use DB-saved order as base; only fall back to derived order if nothing saved
+        const savedOrder: string[] = c.colOrder?.length ? c.colOrder : [];
+        const base = savedOrder.length > 0 ? savedOrder : [...srcKeys, ...aiKeys, ...orphanKeys];
+        // If we already have a local order (user reordered mid-session), keep it but append new keys
+        const activeBase = prev.length > 0 ? prev : base;
+        const existing = new Set(activeBase);
+        const toAdd = allDataKeys.filter(k => !existing.has(k));
+        return toAdd.length > 0 ? [...activeBase, ...toAdd] : activeBase;
       });
     }
     setRangeBis(r.length);
@@ -463,6 +692,19 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
   }, [caseId]);
 
   useEffect(() => { refresh(); }, [refresh]);
+
+  // Debounce-save colOrder to DB whenever it changes
+  useEffect(() => {
+    if (!colOrder.length) return;
+    const t = setTimeout(() => {
+      fetch(`/api/cases/${caseId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ colOrder }),
+      });
+    }, 800);
+    return () => clearTimeout(t);
+  }, [colOrder, caseId]);
 
   async function fetchLogs() {
     const data = await fetch(`/api/logs?caseId=${caseId}&limit=300`).then((r) => r.json());
@@ -509,16 +751,29 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
     });
     const result = await res.json();
     setRows((prev) =>
-      prev.map((r) => r.id === rowId
-        ? {
-            ...r,
-            data: { ...r.data, [col.outputKey]: result.value ?? r.data[col.outputKey] },
-            cellStatuses: { ...r.cellStatuses, [col.outputKey]: result.status ?? (res.ok ? "done" : "error") },
-            cellErrors: result.error ? { ...r.cellErrors, [col.outputKey]: result.error } : r.cellErrors,
-          }
-        : r)
+      prev.map((r) => {
+        if (r.id !== rowId) return r;
+        const extraData = result.multiValues ?? {};
+        const extraStatuses: Record<string,string> = {};
+        for (const k of Object.keys(extraData)) extraStatuses[k] = result.status ?? "done";
+        const rawData = result.rawResponse ? { [`_llm_raw_${col.outputKey}`]: result.rawResponse } : {};
+        return {
+          ...r,
+          data: { ...r.data, [col.outputKey]: result.value ?? r.data[col.outputKey], ...extraData, ...rawData },
+          cellStatuses: { ...r.cellStatuses, [col.outputKey]: result.status ?? (res.ok ? "done" : "error"), ...extraStatuses },
+          cellErrors: result.error ? { ...r.cellErrors, [col.outputKey]: result.error } : r.cellErrors,
+        };
+      })
     );
     setRunningCells((prev) => { const s = new Set(prev); s.delete(key); return s; });
+    if (result.multiValues) {
+      const newKeys = Object.keys(result.multiValues);
+      setColOrder(prev => {
+        const existing = new Set(prev);
+        const toAdd = newKeys.filter(k => !existing.has(k));
+        return toAdd.length > 0 ? [...prev, ...toAdd] : prev;
+      });
+    }
   }
 
   // ── Run entire column ─────────────────────────────────────────────────────
@@ -542,10 +797,13 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
       prev.map((r) => {
         const result = results?.[r.id];
         if (!result) return r;
+        const extraData = result.multiValues ?? {};
+        const extraStatuses: Record<string,string> = {};
+        for (const k of Object.keys(extraData)) extraStatuses[k] = result.status ?? "done";
         return {
           ...r,
-          data: { ...r.data, [col.outputKey]: result.value ?? r.data[col.outputKey] },
-          cellStatuses: { ...r.cellStatuses, [col.outputKey]: result.status },
+          data: { ...r.data, [col.outputKey]: result.value ?? r.data[col.outputKey], ...extraData },
+          cellStatuses: { ...r.cellStatuses, [col.outputKey]: result.status, ...extraStatuses },
           cellErrors: result.error ? { ...r.cellErrors, [col.outputKey]: result.error } : r.cellErrors,
         };
       })
@@ -578,10 +836,13 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
         prev.map((r) => {
           const result = results?.[r.id];
           if (!result) return r;
+          const extraData = result.multiValues ?? {};
+          const extraStatuses: Record<string,string> = {};
+          for (const k of Object.keys(extraData)) extraStatuses[k] = result.status ?? "done";
           return {
             ...r,
-            data: { ...r.data, [col.outputKey]: result.value ?? r.data[col.outputKey] },
-            cellStatuses: { ...r.cellStatuses, [col.outputKey]: result.status },
+            data: { ...r.data, [col.outputKey]: result.value ?? r.data[col.outputKey], ...extraData },
+            cellStatuses: { ...r.cellStatuses, [col.outputKey]: result.status, ...extraStatuses },
             cellErrors: result.error ? { ...r.cellErrors, [col.outputKey]: result.error } : r.cellErrors,
           };
         })
@@ -866,7 +1127,7 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
                   {(colOrder.length > 0 ? colOrder : [...sourceColumns,...caseData.aiColumns.map(c=>c.outputKey)]).map(key => {
                     const aiCol = caseData.aiColumns.find(c=>c.outputKey===key);
                     const isSrc = sourceColumns.includes(key);
-                    if (!isSrc && !aiCol) return null;
+                    const isOrphan = !isSrc && !aiCol;
                     const isDragOver = dragOverCol === key;
                     return (
                       <th key={key}
@@ -875,11 +1136,29 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
                         onDragOver={e=>{e.preventDefault();setDragOverCol(key);}}
                         onDragLeave={()=>setDragOverCol(null)}
                         onDrop={()=>handleColDrop(key)}
-                        style={{padding:"8px 12px",borderRight:"1px solid #e5e7eb",textAlign:"left",fontWeight:600,fontSize:12,color:"#1f2937",whiteSpace:"nowrap",minWidth: key==="company_name"?160:aiCol?160:110,cursor:"grab",background: isDragOver?"#dcfce7":aiCol?"#f0fdf4":"#f9fafb",borderLeft: isDragOver?"2px solid #16a34a":undefined,userSelect:"none"}}>
-                        <div style={{display:"flex",alignItems:"center",gap:4}}>
+                        style={{padding:"8px 12px",borderRight:"1px solid #e5e7eb",textAlign:"left",fontWeight:600,fontSize:12,color:"#1f2937",whiteSpace:"nowrap",width: colWidths[key] ?? (key==="company_name"?200:aiCol?180:140),minWidth:80,cursor:"grab",background: isDragOver?"#dcfce7":aiCol?"#f0fdf4":isOrphan?"#f0fdfa":"#f9fafb",borderLeft: isDragOver?"2px solid #16a34a":undefined,userSelect:"none",position:"relative"}}>
+                        {/* resize handle */}
+                        <div
+                          style={{position:"absolute",right:0,top:0,bottom:0,width:6,cursor:"col-resize",zIndex:10}}
+                          onMouseDown={e=>{
+                            e.stopPropagation(); e.preventDefault();
+                            const startX = e.clientX;
+                            const startW = colWidths[key] ?? (key==="company_name"?200:aiCol?180:140);
+                            const onMove = (ev: MouseEvent) => {
+                              const w = Math.max(80, startW + ev.clientX - startX);
+                              setColWidths(prev=>({...prev,[key]:w}));
+                            };
+                            const onUp = () => { window.removeEventListener("mousemove",onMove); window.removeEventListener("mouseup",onUp); };
+                            window.addEventListener("mousemove",onMove);
+                            window.addEventListener("mouseup",onUp);
+                          }}
+                        />
+                        <div style={{display:"flex",alignItems:"center",gap:4,overflow:"hidden"}}>
                           <GripVertical style={{width:10,height:10,color:"#9ca3af",flexShrink:0}} />
                           {aiCol ? (
                             <ColumnHeaderMenu column={aiCol} onRun={()=>runColumn(aiCol)} onDelete={()=>deleteColumn(aiCol.id)} onEdit={()=>setEditingPromptCol({...aiCol})} />
+                          ) : isOrphan ? (
+                            <span style={{flex:1,color:"#0d9488",fontSize:11,fontWeight:600}}>{key}</span>
                           ) : (
                             <div className="group/hdr" style={{display:"flex",alignItems:"center",gap:4,width:"100%"}}>
                               <span style={{flex:1}}>{key==="company_name"?"Firma":key}</span>
@@ -939,39 +1218,92 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
                       {(colOrder.length > 0 ? colOrder : [...sourceColumns,...caseData.aiColumns.map(c=>c.outputKey)]).map(key => {
                         const aiCol = caseData.aiColumns.find(c=>c.outputKey===key);
                         const isSrc = sourceColumns.includes(key);
-                        if (!isSrc && !aiCol) return null;
                         if (aiCol) {
                           const status: CellStatus = row.cellStatuses[aiCol.outputKey]??"idle";
                           const val = row.data[aiCol.outputKey]??"";
                           const err = row.cellErrors[aiCol.outputKey];
                           const isEd = editingCell?.rowId===row.id && editingCell.key===aiCol.outputKey;
                           return (
-                            <td key={key} style={{padding:"6px 12px",borderRight:"1px solid #f3f4f6",maxWidth:200,background:status==="error"?"#fef2f2":undefined}} className="group/cell" onDoubleClick={()=>startEdit(row.id,aiCol.outputKey,val)}>
+                            <td key={key} style={{padding:"5px 10px",borderRight:"1px solid #f3f4f6",background:status==="error"?"#fef2f2":undefined}} className="group/cell" onDoubleClick={()=>startEdit(row.id,aiCol.outputKey,val)}>
                               {isEd ? <EditInput rowId={row.id} k={aiCol.outputKey} /> : (
-                                <div style={{display:"flex",alignItems:"center",gap:4,minHeight:22}}>
-                                  <CellStatusIcon status={status} />
-                                  {(status==="idle"||(!val&&status!=="running"&&status!=="error"&&status!=="skipped")) ? (
-                                    <button onClick={()=>runCell(row.id,aiCol)}
-                                      className="opacity-0 group-hover/cell:opacity-100"
-                                      style={{display:"flex",alignItems:"center",gap:3,fontSize:11,color:"#16a34a",border:"none",background:"none",cursor:"pointer",transition:"opacity .15s"}}>
-                                      <Play style={{width:10,height:10}} /> Run
-                                    </button>
-                                  ) : (
-                                    <>
-                                      <span style={{fontSize:12,color:status==="error"?"#dc2626":status==="skipped"?"#9ca3af":"#1f2937",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1}} title={err||val}>
-                                        {status==="error" ? (err || "Fehler") : status==="skipped" ? `⏭ ${val||"übersprungen"}` : val}
-                                      </span>
-                                      <button onClick={()=>runCell(row.id,aiCol)} className="opacity-0 group-hover/cell:opacity-100"
-                                        style={{color:"#d1d5db",border:"none",background:"none",cursor:"pointer",flexShrink:0,transition:"opacity .15s"}} title="Erneut ausführen">
-                                        <Play style={{width:10,height:10}} />
-                                      </button>
-                                    </>
-                                  )}
-                                  <button onClick={e=>{e.stopPropagation();setEditingPromptCell({col:aiCol,row});}}
-                                    className="opacity-0 group-hover/cell:opacity-100"
-                                    style={{color:"#9ca3af",border:"none",background:"none",cursor:"pointer",flexShrink:0,transition:"opacity .15s",padding:"0 2px"}} title="Prompt & Log">
-                                    <Settings style={{width:10,height:10}} />
-                                  </button>
+                                <div style={{display:"flex",alignItems:"center",gap:5,minHeight:24}}>
+                                  {/* running spinner */}
+                                  {status==="running" && <Loader2 style={{width:12,height:12,color:"#d97706",flexShrink:0}} className="animate-spin"/>}
+
+                                  {(() => {
+                                    const hasRun = status==="done"||status==="error"||status==="skipped";
+                                    const notFound = status==="done" && !val;
+                                    const isValid = val.startsWith("✓");
+                                    const isInvalid = val.startsWith("✗");
+
+                                    return (
+                                      <>
+                                        {/* idle — show run button on hover */}
+                                        {status==="idle" && (
+                                          <button onClick={()=>runCell(row.id,aiCol)}
+                                            className="opacity-0 group-hover/cell:opacity-100"
+                                            style={{display:"flex",alignItems:"center",gap:3,fontSize:11,color:"#16a34a",border:"none",background:"none",cursor:"pointer",transition:"opacity .15s",padding:0,flex:1}}>
+                                            <Play style={{width:10,height:10}}/> Run
+                                          </button>
+                                        )}
+
+                                        {/* skipped */}
+                                        {status==="skipped" && (
+                                          <span style={{fontSize:11,color:"#9ca3af",flex:1}}>⏭</span>
+                                        )}
+
+                                        {/* error */}
+                                        {status==="error" && (
+                                          <span style={{display:"inline-flex",alignItems:"center",gap:3,fontSize:11,color:"#dc2626",flex:1}} title={err}>
+                                            <AlertCircle style={{width:11,height:11,flexShrink:0}}/> {err?.slice(0,30)||"Fehler"}
+                                          </span>
+                                        )}
+
+                                        {/* done but nothing found */}
+                                        {notFound && (
+                                          <span style={{display:"inline-flex",alignItems:"center",gap:4,fontSize:11,color:"#9ca3af",background:"#f3f4f6",padding:"2px 8px",borderRadius:6,flex:1}}>
+                                            <XCircle style={{width:10,height:10,flexShrink:0,color:"#d1d5db"}}/>
+                                            <span style={{fontStyle:"italic"}}>nicht gefunden</span>
+                                          </span>
+                                        )}
+
+                                        {/* valid domain */}
+                                        {isValid && (
+                                          <span style={{display:"inline-flex",alignItems:"center",gap:4,fontSize:11,fontWeight:600,color:"#15803d",background:"#dcfce7",padding:"2px 8px",borderRadius:6,flex:1,minWidth:0,overflow:"hidden"}}>
+                                            <CheckCircle style={{width:10,height:10,flexShrink:0}}/><span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{val.slice(2)}</span>
+                                          </span>
+                                        )}
+
+                                        {/* invalid domain */}
+                                        {isInvalid && (
+                                          <span style={{display:"inline-flex",alignItems:"center",gap:4,fontSize:11,fontWeight:600,color:"#dc2626",background:"#fee2e2",padding:"2px 8px",borderRadius:6,flex:1,minWidth:0,overflow:"hidden"}}>
+                                            <XCircle style={{width:10,height:10,flexShrink:0}}/><span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{val.slice(2)}</span>
+                                          </span>
+                                        )}
+
+                                        {/* plain value */}
+                                        {val && !isValid && !isInvalid && status!=="error" && status!=="skipped" && (
+                                          <span style={{fontSize:12,color:"#1f2937",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={val}>{val}</span>
+                                        )}
+
+                                        {/* action buttons — always visible after run, hover-only when idle */}
+                                        <div style={{display:"flex",alignItems:"center",gap:1,flexShrink:0}}>
+                                          <button onClick={e=>{e.stopPropagation();runCell(row.id,aiCol);}}
+                                            className={hasRun ? undefined : "opacity-0 group-hover/cell:opacity-100"}
+                                            style={{border:"none",background:"none",cursor:"pointer",padding:"2px",color:"#d1d5db",display:"flex",transition:"opacity .15s"}} title="Erneut ausführen">
+                                            <Play style={{width:9,height:9}}/>
+                                          </button>
+                                          {/* Info always visible after run */}
+                                          <button onClick={e=>{e.stopPropagation();setRunDetailCell({col:aiCol,row});}}
+                                            className={hasRun ? undefined : "opacity-0 group-hover/cell:opacity-100"}
+                                            style={{border:"none",background:"none",cursor:"pointer",padding:"2px",display:"flex",transition:"opacity .15s",
+                                              color: notFound?"#f59e0b": hasRun?"#60a5fa":"#d1d5db"}} title="Details anzeigen">
+                                            <Info style={{width:10,height:10}}/>
+                                          </button>
+                                        </div>
+                                      </>
+                                    );
+                                  })()}
                                 </div>
                               )}
                             </td>
@@ -979,10 +1311,15 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
                         }
                         const val = row.data[key]??"";
                         const isEd = editingCell?.rowId===row.id && editingCell.key===key;
+                        const isValidated = !isSrc && !aiCol; // orphan multiKey output
                         return (
-                          <td key={key} style={{padding:"6px 12px",borderRight:"1px solid #f3f4f6",maxWidth:200}} onDoubleClick={()=>startEdit(row.id,key,val)}>
+                          <td key={key} style={{padding:"6px 12px",borderRight:"1px solid #f3f4f6",maxWidth:200,
+                            background: isValidated ? (val.startsWith("✗")?"#fef2f2":val.startsWith("✓")?"#f0fdf4":undefined) : undefined
+                          }} onDoubleClick={()=>startEdit(row.id,key,val)}>
                             {isEd ? <EditInput rowId={row.id} k={key} /> :
-                              <span style={{fontSize:12,color:key==="company_name"?"#1f2937":"#4b5563",display:"block",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={val}>{val}</span>}
+                              <span style={{fontSize:12,display:"block",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",
+                                color: isValidated ? (val.startsWith("✗")?"#dc2626":val.startsWith("✓")?"#15803d":"#4b5563") : key==="company_name"?"#1f2937":"#4b5563"
+                              }} title={val}>{val}</span>}
                           </td>
                         );
                       })}
@@ -1053,7 +1390,16 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
 
       </div>
 
-      {showAddCol && <AddColumnModal caseId={caseId} onClose={()=>setShowAddCol(false)} onAdded={(u:Case)=>{setCaseData(u);setShowAddCol(false);}} />}
+      {showAddCol && <AddColumnModal caseId={caseId} onClose={()=>setShowAddCol(false)} onAdded={(u:Case)=>{
+        setCaseData(u);
+        setColOrder(prev => {
+          const existing = new Set(prev);
+          const newKeys = u.aiColumns.map((c:AiColumn)=>c.outputKey).filter((k:string)=>!existing.has(k));
+          return newKeys.length > 0 ? [...prev, ...newKeys] : prev;
+        });
+        setShowAddCol(false);
+      }}
+        availableFields={[...sourceColumns, ...caseData.aiColumns.map(c=>c.outputKey)]} />}
       {showImport && <ImportModal caseId={caseId} onClose={()=>setShowImport(false)} onImported={()=>{setShowImport(false);refresh();}} />}
       {(editingPromptCol || editingPromptCell) && caseData && (
         <EditPromptModal
@@ -1063,18 +1409,41 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
             setCaseData(prev => prev ? {...prev, aiColumns: prev.aiColumns.map(c => c.id===updated.id ? updated : c)} : prev);
           }}
           onClose={() => { setEditingPromptCol(null); setEditingPromptCell(null); }}
-          cellContext={editingPromptCell ? {
-            rowId: editingPromptCell.row.id,
-            value: editingPromptCell.row.data[editingPromptCell.col.outputKey] ?? "",
-            status: editingPromptCell.row.cellStatuses[editingPromptCell.col.outputKey] ?? "idle",
-            error: editingPromptCell.row.cellErrors[editingPromptCell.col.outputKey],
-            rowLabel: editingPromptCell.row.data["company_name"] ?? editingPromptCell.row.id,
-          } : undefined}
+          cellContext={editingPromptCell ? (() => {
+            const col = editingPromptCell.col;
+            const row = editingPromptCell.row;
+            const multiKeys = col.multiKeys ?? [];
+            const extraKey = col.validateDomain ? [...multiKeys.map(mk=>mk.outputKey), "domain_validated"] : multiKeys.map(mk=>mk.outputKey);
+            const multiValues = extraKey.length > 0
+              ? Object.fromEntries(extraKey.map(k => [k, row.data[k] ?? ""]))
+              : undefined;
+            return {
+              rowId: row.id,
+              value: row.data[col.outputKey] ?? "",
+              status: row.cellStatuses[col.outputKey] ?? "idle",
+              error: row.cellErrors[col.outputKey],
+              rowLabel: row.data["company_name"] ?? row.data["Unternehmensname"] ?? row.data["Name"] ?? row.data["name"] ?? row.id.slice(0,8),
+              multiValues,
+            };
+          })() : undefined}
           onRunCell={editingPromptCell ? () => runCell(editingPromptCell.row.id, editingPromptCell.col) : undefined}
           availableFields={[
             ...sourceColumns,
             ...caseData.aiColumns.filter(c => c.id !== (editingPromptCell?.col.id ?? editingPromptCol?.id)).map(c => c.outputKey),
           ]}
+        />
+      )}
+      {runDetailCell && (
+        <RunDetailModal
+          col={runDetailCell.col}
+          row={runDetailCell.row}
+          caseId={caseId}
+          onClose={()=>setRunDetailCell(null)}
+          onRowUpdate={(rowId, patch) => {
+            setRows(prev => prev.map(r => r.id === rowId ? { ...r, ...patch } : r));
+            // keep modal in sync if still open
+            setRunDetailCell(prev => prev && prev.row.id === rowId ? { ...prev, row: { ...prev.row, ...patch } } : prev);
+          }}
         />
       )}
     </div>
