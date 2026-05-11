@@ -38,6 +38,10 @@ export function AddColumnModal({ caseId, onClose, onAdded, availableFields = [] 
   const [requiredFields, setRequiredFields] = useState<string[]>([]);
   const [inputMappings, setInputMappings] = useState<Record<string, string>>({});
   const [modelOptions, setModelOptions] = useState<string[]>([...DEFAULT_MODEL_OPTIONS]);
+  const [useWebSearch, setUseWebSearch] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchMaxResults, setSearchMaxResults] = useState(5);
+  const [searchForceLayer, setSearchForceLayer] = useState<"" | "serpapi" | "duckduckgo" | "playwright">("" );
   const [saving, setSaving] = useState(false);
   const promptTextareaId = useId();
 
@@ -121,6 +125,10 @@ export function AddColumnModal({ caseId, onClose, onAdded, availableFields = [] 
             .map((field) => [field, (inputMappings[field] || "").trim()])
             .filter(([, mapped]) => mapped !== ""))
         : undefined,
+      useWebSearch: useWebSearch || undefined,
+      searchQuery: useWebSearch && searchQuery.trim() ? searchQuery.trim() : undefined,
+      searchMaxResults: useWebSearch ? searchMaxResults : undefined,
+      searchForceLayer: useWebSearch && searchForceLayer ? searchForceLayer : undefined,
     };
     const caseRes = await fetch(`/api/cases/${caseId}`).then((r) => r.json());
     const res = await fetch(`/api/cases/${caseId}`, {
@@ -344,6 +352,45 @@ export function AddColumnModal({ caseId, onClose, onAdded, availableFields = [] 
                   </div>
                 </div>
               )}
+
+              {/* ── Web Search ── */}
+              <div className="border border-blue-200 bg-blue-50 rounded-lg p-3">
+                <div className="flex items-center gap-2 mb-2">
+                  <input type="checkbox" id="useWebSearch" checked={useWebSearch} onChange={e => setUseWebSearch(e.target.checked)}
+                    className="w-3.5 h-3.5 rounded accent-blue-600 cursor-pointer" />
+                  <label htmlFor="useWebSearch" className="text-xs font-semibold text-blue-800 uppercase tracking-wide cursor-pointer select-none">
+                    🔍 Web-Suche vor LLM-Call (SerpAPI → DuckDuckGo → Playwright)
+                  </label>
+                </div>
+                {useWebSearch && (
+                  <div className="grid gap-2 mt-2">
+                    <div>
+                      <label className="text-[11px] font-medium text-blue-700 uppercase tracking-wide">Suchanfrage-Template</label>
+                      <input value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
+                        placeholder="z.B. {company_name} Heizung Website"
+                        className="mt-1 w-full border border-blue-300 rounded-lg px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                      <p className="text-[11px] text-blue-600 mt-1">Platzhalter wie {"{"}company_name{"}"} werden durch Zeilenwerte ersetzt. Ergebnisse werden dem LLM-Prompt hinzugefügt.</p>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="text-[11px] font-medium text-blue-700 uppercase tracking-wide">Max. Ergebnisse</label>
+                        <input type="number" min={1} max={10} value={searchMaxResults} onChange={e => setSearchMaxResults(Number(e.target.value))}
+                          className="mt-1 w-full border border-blue-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                      </div>
+                      <div>
+                        <label className="text-[11px] font-medium text-blue-700 uppercase tracking-wide">Layer erzwingen</label>
+                        <select value={searchForceLayer} onChange={e => setSearchForceLayer(e.target.value as typeof searchForceLayer)}
+                          className="mt-1 w-full border border-blue-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                          <option value="">Auto (SerpAPI → DDG → Playwright)</option>
+                          <option value="serpapi">Nur SerpAPI</option>
+                          <option value="duckduckgo">Nur DuckDuckGo</option>
+                          <option value="playwright">Nur Playwright</option>
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
 
               {requiredFields.length > 0 && (
                 <div className="mt-1 border border-amber-200 bg-amber-50 rounded-lg p-3">

@@ -1,5 +1,6 @@
 import OpenAI from "openai";
 import type { AiColumn } from "./types";
+import { webSearch, formatSearchResultsForLlm } from "./search";
 
 type LlmProvider = "openai" | "cerebras" | "anthropic";
 
@@ -248,7 +249,30 @@ export async function runAiColumn(
     return { value: result.valid ? domain : `invalid (${result.reason})` };
   }
 
-  const prompt = renderPrompt(column.prompt, rowData, column.inputMappings);
+  // ── Web Search injection ──────────────────────────────────────────────────
+  let webSearchContext = "";
+  let webSearchSource: string | undefined;
+  if (column.useWebSearch && column.searchQuery) {
+    try {
+      const searchQueryRendered = renderPrompt(column.searchQuery, rowData, column.inputMappings);
+      const serpApiKey = process.env.SERP_API_KEY || undefined;
+      const searchResp = await webSearch(searchQueryRendered, {
+        serpApiKey,
+        maxResults: column.searchMaxResults ?? 5,
+        forceLayer: column.searchForceLayer,
+      });
+      webSearchContext = formatSearchResultsForLlm(searchResp);
+      webSearchSource = searchResp.source;
+    } catch (e) {
+      console.warn("[ai] web search failed, continuing without:", (e as Error).message);
+    }
+  }
+
+  const promptBase = column.useWebSearch && webSearchContext
+    ? `${column.prompt}\n\n---\nWEB SEARCH RESULTS (Quelle: ${webSearchSource ?? "web"}):\n${webSearchContext}\n---`
+    : column.prompt;
+
+  const prompt = renderPrompt(promptBase, rowData, column.inputMappings);
   if (!prompt.trim()) return { value: "", error: "Empty prompt after rendering" };
 
   const maxTokens = column.outputMode === "json" ? 1024 : 512;

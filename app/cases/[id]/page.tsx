@@ -673,6 +673,58 @@ function EditPromptModal({ col, caseId, onSave, onClose, cellContext, onRunCell,
             )}
           </div>
 
+          {/* ── Web Search ── */}
+          <div style={{border:"1px solid #bfdbfe",background:"#eff6ff",borderRadius:8,padding:12}}>
+            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:draft.useWebSearch ? 10 : 0}}>
+              <input type="checkbox" id="editUseWebSearch" checked={!!draft.useWebSearch}
+                onChange={e => setDraft(d => ({
+                  ...d,
+                  useWebSearch: e.target.checked || undefined,
+                  searchQuery: e.target.checked ? d.searchQuery : undefined,
+                }))}
+                style={{width:14,height:14,accentColor:"#2563eb",cursor:"pointer"}} />
+              <label htmlFor="editUseWebSearch"
+                style={{fontSize:12,fontWeight:700,color:"#1e40af",textTransform:"uppercase",letterSpacing:"0.05em",cursor:"pointer",userSelect:"none"}}>
+                🔍 Web-Suche vor LLM-Call (SerpAPI → DuckDuckGo → Playwright)
+              </label>
+            </div>
+            {draft.useWebSearch && (
+              <div style={{display:"grid",gap:8}}>
+                <div>
+                  <label style={{...lbl,color:"#1d4ed8"}}>Suchanfrage-Template</label>
+                  <input style={{...inp,fontFamily:"monospace",borderColor:"#93c5fd"}}
+                    value={draft.searchQuery || ""}
+                    onChange={e => setDraft(d => ({...d, searchQuery: e.target.value || undefined}))}
+                    placeholder="z.B. {company_name} Heizung Website" />
+                  <div style={{fontSize:11,color:"#3b82f6",marginTop:3}}>
+                    Platzhalter wie &#123;company_name&#125; werden durch Zeilenwerte ersetzt. Ergebnisse werden dem LLM-Prompt als Kontext hinzugefügt.
+                  </div>
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                  <div>
+                    <label style={{...lbl,color:"#1d4ed8"}}>Max. Ergebnisse</label>
+                    <input type="number" min={1} max={10}
+                      style={{...inp,borderColor:"#93c5fd"}}
+                      value={draft.searchMaxResults ?? 5}
+                      onChange={e => setDraft(d => ({...d, searchMaxResults: Math.max(1, Math.min(10, Number(e.target.value)))}))} />
+                  </div>
+                  <div>
+                    <label style={{...lbl,color:"#1d4ed8"}}>Layer erzwingen</label>
+                    <select
+                      style={{...inp,borderColor:"#93c5fd"}}
+                      value={draft.searchForceLayer || ""}
+                      onChange={e => setDraft(d => ({...d, searchForceLayer: (e.target.value || undefined) as typeof d.searchForceLayer}))}>
+                      <option value="">Auto (SerpAPI → DDG → Playwright)</option>
+                      <option value="serpapi">Nur SerpAPI</option>
+                      <option value="duckduckgo">Nur DuckDuckGo</option>
+                      <option value="playwright">Nur Playwright</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
           {cellContext && (
             <div style={{border:"1px solid #dbeafe",background:"#f8fbff",borderRadius:8,padding:12,display:"grid",gap:10}}>
               <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10}}>

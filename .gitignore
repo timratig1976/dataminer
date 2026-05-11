@@ -42,3 +42,9 @@ next-env.d.ts
 
 # SQLite database (may contain API keys)
 /data/
+
+# Legacy Streamlit artifacts
+__pycache__/
+*.py[cod]
+/cases/
+/dataminer-next/

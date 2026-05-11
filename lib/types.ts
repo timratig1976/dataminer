@@ -19,6 +19,10 @@ export interface AiColumn {
   conditionField?: string;
   requiredFields?: string[];
   inputMappings?: Record<string, string>;
+  useWebSearch?: boolean;           // inject web search results into prompt context
+  searchQuery?: string;             // template e.g. "{company_name} Heizung Anbieter"
+  searchMaxResults?: number;        // default 5
+  searchForceLayer?: "serpapi" | "duckduckgo" | "playwright";
 }
 
 export interface Case {
