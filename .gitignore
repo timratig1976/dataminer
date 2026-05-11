@@ -1,21 +1,44 @@
-# Case data (contains API keys + large data files) — root-level only
-/cases/
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
-# Explicitly include Next.js app (including app/cases/ routes)
-!dataminer-next/
-!dataminer-next/**
+# dependencies
+/node_modules
+/.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
 
-# Python
-__pycache__/
-*.py[cod]
-*.pyo
-.env
-*.egg-info/
-dist/
-build/
+# testing
+/coverage
 
-# Streamlit
-.streamlit/secrets.toml
+# next.js
+/.next/
+/out/
 
-# OS
+# production
+/build
+
+# misc
 .DS_Store
+*.pem
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# env files (can opt-in for committing if needed)
+.env*
+
+# vercel
+.vercel
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+
+# SQLite database (may contain API keys)
+/data/
