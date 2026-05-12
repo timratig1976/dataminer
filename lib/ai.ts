@@ -263,9 +263,10 @@ export async function runAiColumn(
 1. Treat the search results as GROUND TRUTH — prefer them over your internal training knowledge.
 2. Each result includes Title, URL, Domain (the bare hostname), and Snippet. The Domain field is pre-extracted for you.
 3. For domain/URL tasks: read the Domain field of each result first. If a result is the company's own site (not a directory), use that domain.
-4. For directory results (gelbeseiten, dasoertliche, 11880, northdata, linkedin, etc.): extract the target company URL from the snippet if present.
+4. For directory results (gelbeseiten, dasoertliche, 11880, northdata, wlw, kompass, europages, cylex, linkedin, xing, etc.): extract the target company URL from the snippet if present — do NOT use the directory URL itself as the answer.
 5. If results are contradictory, prefer the result whose URL is the company's own homepage over third-party directories.
-6. If no result is relevant, fall back to internal knowledge and lower your confidence accordingly.`);
+6. NEVER output a catalog, directory, social, or review domain as the final domain answer. These are NEVER valid company websites: wlw.de, gelbeseiten.de, dasoertliche.de, 11880.com, northdata.de, kompass.com, europages.de, cylex.de, linkedin.com, xing.com, facebook.com, yelp.com, trustpilot.com, kununu.com, glassdoor.com, wikipedia.org, bloomberg.com, crunchbase.com.
+7. If no result contains the company's own homepage, return confidence "notFound" rather than a directory URL.`);
     }
     if (captureReasoning && isJson) {
       parts.push(`Always include a "_reasoning" key in your JSON output. Its value should be a concise 1-3 sentence explanation of: which source(s) you used, why you chose this answer, and what you rejected. Example: "Found hildebrandt-transport.de directly listed on dasoertliche.de snippet. Cross-checked with 11880.com which confirmed the same domain. Rejected linkedin.com as a social profile."`)

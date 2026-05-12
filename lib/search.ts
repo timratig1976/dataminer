@@ -59,16 +59,71 @@ function sanitiseText(s: string, maxLen: number): string {
     .slice(0, maxLen);
 }
 
-/** Deduplicate results by normalised URL */
+/**
+ * Domains that are business directories / catalogs / social profiles.
+ * Results whose hostname matches any of these are NEVER returned as a
+ * company's own website — they may appear in the prompt as context but
+ * the LLM system prompt already instructs it to extract the real URL
+ * from their snippet rather than treating them as the answer.
+ */
+const CATALOG_DOMAINS = new Set([
+  // German business directories
+  "wlw.de", "gelbeseiten.de", "dasoertliche.de", "dastelefonbuch.de",
+  "11880.com", "11880.de", "meinestadt.de", "stadtbranchenbuch.com",
+  "branchenbuch.de", "firmen.de", "firmenwissen.de", "northdata.de",
+  "northdata.com", "companyhouse.de", "handelsregister.de",
+  "unternehmensregister.de", "bundesanzeiger.de", "creditreform.de",
+  "bisnode.de", "hoppenstedt.de", "dun.com", "dnb.com",
+  "cylex.de", "cylex-branchenbuch.de", "werkenntwen.de",
+  "marktplatz-mittelstand.de", "europages.de", "europages.com",
+  "kompass.com", "kompass.de", "wer-liefert-was.de",
+  // Generic / international directories
+  "yelp.com", "yelp.de", "foursquare.com", "trustpilot.com",
+  "trustpilot.de", "kununu.com", "glassdoor.com", "glassdoor.de",
+  "manta.com", "hotfrog.com", "yellowpages.com", "superpages.com",
+  "thomasnet.com", "alibaba.com", "aliexpress.com",
+  "dnb.com", "bloomberg.com", "crunchbase.com",
+  // Social / professional
+  "linkedin.com", "xing.com", "facebook.com", "instagram.com",
+  "twitter.com", "x.com", "youtube.com", "tiktok.com",
+  "pinterest.com", "snapchat.com",
+  // Maps / review
+  "maps.google.com", "google.com/maps", "maps.apple.com",
+  "tripadvisor.com", "tripadvisor.de", "golocal.de",
+  // App stores / job boards
+  "play.google.com", "apps.apple.com", "indeed.com", "stepstone.de",
+  "monster.de", "jobs.de",
+  // Wiki / encyclopaedic
+  "wikipedia.org", "wikidata.org",
+]);
+
+/** Returns true if the URL belongs to a catalog/directory domain */
+function isCatalogUrl(url: string): boolean {
+  try {
+    const hostname = new URL(url).hostname.replace(/^www\./, "").toLowerCase();
+    // exact match or subdomain match (e.g. de.trustpilot.com)
+    return Array.from(CATALOG_DOMAINS).some(
+      (d) => hostname === d || hostname.endsWith(`.${d}`)
+    );
+  } catch {
+    return false;
+  }
+}
+
+/** Deduplicate results by normalised URL and strip catalog/directory entries */
 function deduplicate(results: SearchResult[]): SearchResult[] {
   const seen = new Set<string>();
   return results.filter((r) => {
+    if (isCatalogUrl(r.url)) return false;
     const key = r.url.toLowerCase().replace(/\/+$/, "");
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
   });
 }
+
+/** Exported so tests and the LLM system prompt can reference the same list */
+export { CATALOG_DOMAINS, isCatalogUrl };
 
 // ── Layer 1: SerpAPI ─────────────────────────────────────────────────────────
 
