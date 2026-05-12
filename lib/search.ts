@@ -386,19 +386,28 @@ export async function searchViaPlaywright(
       }
     ).catch(() => [] as RawItem[]);
 
-    // Engine 2: Bing
+    // Engine 2: Bing (decodes bing.com/ck/a redirect URLs via u= base64 param)
     if (raw.length === 0) {
       raw = await tryEngine(
         `https://www.bing.com/search?q=${encodeURIComponent(query)}&setlang=de&cc=DE`,
-        "#b_results .b_algo",
+        "li.b_algo",
         (max) => {
           const items: RawItem[] = [];
-          const cards = document.querySelectorAll("#b_results .b_algo");
+          const cards = document.querySelectorAll("li.b_algo");
           for (const card of Array.from(cards).slice(0, max * 2)) {
             const a = card.querySelector("h2 a") as HTMLAnchorElement | null;
             const p = card.querySelector(".b_caption p") ?? card.querySelector(".b_dList li");
-            if (a?.href && !a.href.includes("bing.com")) {
-              items.push({ title: (a.textContent ?? "").trim(), url: a.href, snippet: (p?.textContent ?? "").trim() });
+            if (!a?.href) continue;
+            // Decode bing redirect: bing.com/ck/a?...&u=a1<base64>&...
+            let url = a.href;
+            try {
+              const uParam = new URL(url).searchParams.get("u");
+              if (uParam?.startsWith("a1")) {
+                url = atob(uParam.slice(2));
+              }
+            } catch { /* keep original */ }
+            if (url.startsWith("http") && !url.includes("bing.com")) {
+              items.push({ title: (a.textContent ?? "").trim(), url, snippet: (p?.textContent ?? "").trim() });
             }
             if (items.length >= max) break;
           }
