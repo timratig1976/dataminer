@@ -282,14 +282,38 @@ export async function runAiColumn(
   let webSearchQueryRendered: string | undefined;
   if (column.useWebSearch && column.searchQuery) {
     try {
-      webSearchQueryRendered = renderPrompt(column.searchQuery, rowData, column.inputMappings);
-      const searchQueryRendered = webSearchQueryRendered;
+      const primaryQuery = renderPrompt(column.searchQuery, rowData, column.inputMappings);
+      webSearchQueryRendered = primaryQuery;
       const serpApiKey = process.env.SERP_API_KEY || undefined;
-      const searchResp = await webSearch(searchQueryRendered, {
-        serpApiKey,
-        maxResults: column.searchMaxResults ?? 5,
-        forceLayer: column.searchForceLayer,
-      });
+      const braveApiKey = process.env.BRAVE_API_KEY || undefined;
+      const searchOpts = { serpApiKey, braveApiKey, maxResults: column.searchMaxResults ?? 5, forceLayer: column.searchForceLayer };
+
+      // Build fallback queries: strip legal form suffixes, then strip location tokens
+      function buildFallbacks(q: string): string[] {
+        const noLegal = q.replace(/\b(GmbH|AG|KG|UG|e\.K\.|eG|GbR|OHG|mbH|Co\.|&\s*Co\.?|KGaA|SE|Ltd\.?|Inc\.?|LLC)\b\.?/gi, "").replace(/\s{2,}/g, " ").trim();
+        // strip "(not provided)" placeholders from unresolved template vars
+        const noPlaceholder = noLegal.replace(/\(not provided\)/gi, "").replace(/\s{2,}/g, " ").trim();
+        const words = noPlaceholder.split(/\s+/);
+        // progressively drop trailing words (usually location) until 2 words remain
+        const shorterForms: string[] = [];
+        for (let i = words.length - 1; i >= 2; i--) {
+          shorterForms.push(words.slice(0, i).join(" "));
+        }
+        return [noPlaceholder, ...shorterForms].filter((q2, i, arr) => q2 && arr.indexOf(q2) === i && q2 !== q);
+      }
+
+      let searchResp = await webSearch(primaryQuery, searchOpts);
+      if (searchResp.results.length === 0) {
+        for (const fallback of buildFallbacks(primaryQuery)) {
+          console.log(`[ai] 0 results for "${primaryQuery}", retrying with "${fallback}"`);
+          searchResp = await webSearch(fallback, searchOpts);
+          if (searchResp.results.length > 0) {
+            webSearchQueryRendered = fallback;
+            break;
+          }
+        }
+      }
+
       webSearchContext = formatSearchResultsForLlm(searchResp);
       webSearchSource = searchResp.source;
       webSearchResultCount = searchResp.results.length;

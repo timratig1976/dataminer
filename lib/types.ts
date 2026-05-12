@@ -22,7 +22,7 @@ export interface AiColumn {
   useWebSearch?: boolean;           // inject web search results into prompt context
   searchQuery?: string;             // template e.g. "{company_name} Heizung Anbieter"
   searchMaxResults?: number;        // default 5
-  searchForceLayer?: "serpapi" | "duckduckgo" | "playwright";
+  searchForceLayer?: "serpapi" | "brave" | "duckduckgo" | "playwright";
   captureReasoning?: boolean;       // ask LLM to return _reasoning field; stored as _reasoning_{outputKey}
 }
 

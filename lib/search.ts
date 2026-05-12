@@ -23,7 +23,7 @@ export interface SearchResult {
   snippet: string;
 }
 
-export type SearchLayer = "serpapi" | "duckduckgo" | "playwright";
+export type SearchLayer = "serpapi" | "brave" | "duckduckgo" | "playwright";
 
 export interface SearchResponse {
   results: SearchResult[];
@@ -206,7 +206,59 @@ export async function searchViaDuckDuckGo(
   return deduplicate(results);
 }
 
-// ── Layer 3: Playwright headless Chromium on Bing ───────────────────────────
+// ── Layer 2: Brave Search API ──────────────────────────────────────────────
+
+export async function searchViaBrave(
+  query: string,
+  braveApiKey: string,
+  maxResults = 5
+): Promise<SearchResult[]> {
+  if (!query.trim()) throw new Error("empty query");
+  if (!braveApiKey.trim()) throw new Error("missing Brave API key");
+
+  const params = new URLSearchParams({
+    q: query,
+    count: String(Math.min(maxResults, 20)),
+    search_lang: "de",
+    country: "DE",
+    safesearch: "off",
+    text_decorations: "false",
+  });
+
+  const { controller, clear } = withTimeout(10_000);
+  let res: Response;
+  try {
+    res = await fetch(`https://api.search.brave.com/res/v1/web/search?${params}`, {
+      headers: {
+        Accept: "application/json",
+        "Accept-Encoding": "gzip",
+        "X-Subscription-Token": braveApiKey,
+      },
+      signal: controller.signal,
+    });
+  } finally {
+    clear();
+  }
+
+  if (!res.ok) {
+    await drainBody(res);
+    throw new Error(`Brave Search HTTP ${res.status}`);
+  }
+
+  const data = await res.json() as { web?: { results?: Array<{ title?: string; url?: string; description?: string }> } };
+  const hits = data?.web?.results ?? [];
+  return deduplicate(
+    hits.slice(0, maxResults).map((r) => ({
+      title: sanitiseText(r.title ?? "", 200),
+      url: (r.url ?? "").trim(),
+      snippet: sanitiseText(r.description ?? "", 400),
+    })).filter((r) => r.url.startsWith("http"))
+  );
+}
+
+// ── Layer 3: DuckDuckGo HTML scraping (kept as fallback) ───────────────────
+
+// ── Layer 4: Playwright headless Chromium on Bing ───────────────────────────
 
 export async function searchViaPlaywright(
   query: string,
@@ -292,11 +344,12 @@ export async function webSearch(
   query: string,
   options: {
     serpApiKey?: string;
+    braveApiKey?: string;
     maxResults?: number;
     forceLayer?: SearchLayer;
   } = {}
 ): Promise<SearchResponse> {
-  const { serpApiKey, maxResults = 5, forceLayer } = options;
+  const { serpApiKey, braveApiKey, maxResults = 5, forceLayer } = options;
   const clampedMax = Math.max(1, Math.min(maxResults, 10));
   const layerErrors: Record<string, string> = {};
   const t0 = Date.now();
@@ -331,6 +384,11 @@ export async function webSearch(
       const r = await searchViaSerpApi(query, serpApiKey, clampedMax);
       return respond(r, "serpapi");
     }
+    if (forceLayer === "brave") {
+      if (!braveApiKey) throw new Error("forceLayer=brave but no BRAVE_API_KEY");
+      const r = await searchViaBrave(query, braveApiKey, clampedMax);
+      return respond(r, "brave");
+    }
     if (forceLayer === "duckduckgo") {
       const r = await searchViaDuckDuckGo(query, clampedMax);
       return respond(r, "duckduckgo");
@@ -349,17 +407,25 @@ export async function webSearch(
     if (r && r.length > 0) return respond(r, "serpapi");
   }
 
-  // ─ Layer 2: DuckDuckGo ─
-  const r2 = await tryLayer("duckduckgo", () =>
+  // ─ Layer 2: Brave Search API ─
+  if (braveApiKey) {
+    const r = await tryLayer("brave", () =>
+      searchViaBrave(query, braveApiKey!, clampedMax)
+    );
+    if (r && r.length > 0) return respond(r, "brave");
+  }
+
+  // ─ Layer 3: DuckDuckGo HTML scraping ─
+  const r3 = await tryLayer("duckduckgo", () =>
     searchViaDuckDuckGo(query, clampedMax)
   );
-  if (r2 && r2.length > 0) return respond(r2, "duckduckgo");
+  if (r3 && r3.length > 0) return respond(r3, "duckduckgo");
 
-  // ─ Layer 3: Playwright ─
-  const r3 = await tryLayer("playwright", () =>
+  // ─ Layer 4: Playwright ─
+  const r4 = await tryLayer("playwright", () =>
     searchViaPlaywright(query, clampedMax)
   );
-  if (r3 && r3.length > 0) return respond(r3, "playwright");
+  if (r4 && r4.length > 0) return respond(r4, "playwright");
 
   return {
     results: [],

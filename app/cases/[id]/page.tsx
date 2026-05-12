@@ -687,8 +687,9 @@ function EditPromptModal({ col, caseId, onSave, onClose, cellContext, onRunCell,
                       <select style={{...inp,borderColor:"#93c5fd"}}
                         value={draft.searchForceLayer || ""}
                         onChange={e => setDraft(d => ({...d, searchForceLayer: (e.target.value || undefined) as typeof d.searchForceLayer}))}>
-                        <option value="">Auto (SerpAPI → DDG → Playwright)</option>
+                        <option value="">Auto (SerpAPI → Brave → DDG → Playwright)</option>
                         <option value="serpapi">Nur SerpAPI</option>
+                        <option value="brave">Nur Brave Search</option>
                         <option value="duckduckgo">Nur DuckDuckGo</option>
                         <option value="playwright">Nur Playwright</option>
                       </select>
