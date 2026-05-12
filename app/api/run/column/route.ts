@@ -33,7 +33,7 @@ function endpointForModel(provider: "openai" | "cerebras" | "anthropic", model: 
 }
 
 export async function POST(req: NextRequest) {
-  const { caseId, columnId, rowIds, runMode: rawRunMode } = await req.json();
+  const { caseId, columnId, rowIds, runMode: rawRunMode, concurrency: rawConcurrency } = await req.json();
   const runMode: RunMode = rawRunMode === "empty_only" ? "empty_only" : "all_force";
 
   const caseData = getCase(caseId);
@@ -55,7 +55,7 @@ export async function POST(req: NextRequest) {
     : selectedRows;
 
   const startedAt = Date.now();
-  const CONCURRENCY = 5;
+  const CONCURRENCY = typeof rawConcurrency === "number" && rawConcurrency >= 1 ? Math.min(rawConcurrency, 20) : 5;
 
   const results: Record<string, {
     status: string;
@@ -152,7 +152,7 @@ export async function POST(req: NextRequest) {
     };
   }
 
-  // Run in batches of CONCURRENCY
+  // Run in batches of CONCURRENCY (1 = sequential, 5 = default parallel)
   for (let i = 0; i < targetRows.length; i += CONCURRENCY) {
     const batch = targetRows.slice(i, i + CONCURRENCY);
     await Promise.all(batch.map(processRow));

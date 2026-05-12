@@ -1314,6 +1314,7 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
   const [editingPromptCol, setEditingPromptCol] = useState<AiColumn | null>(null);
   const [editingPromptCell, setEditingPromptCell] = useState<{col: AiColumn; row: RowData} | null>(null);
   const [runDetailCell, setRunDetailCell] = useState<{col: AiColumn; row: RowData} | null>(null);
+  const [sequentialMode, setSequentialMode] = useState(false);
 
   const refresh = useCallback(async () => {
     const [c, r] = await Promise.all([
@@ -1460,7 +1461,7 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
     const res = await fetch("/api/run/column", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ caseId, columnId: col.id, rowIds: targetIds, runMode }),
+      body: JSON.stringify({ caseId, columnId: col.id, rowIds: targetIds, runMode, concurrency: sequentialMode ? 1 : 5 }),
     });
     const { results } = await res.json();
     setRows((prev) =>
@@ -1500,7 +1501,7 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
       const res = await fetch("/api/run/column", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ caseId, columnId: col.id, rowIds: targetIds }),
+        body: JSON.stringify({ caseId, columnId: col.id, rowIds: targetIds, concurrency: sequentialMode ? 1 : 5 }),
       });
       const { results } = await res.json();
       setRows((prev) =>
@@ -1773,6 +1774,13 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
                 style={{display:"flex",alignItems:"center",justifyContent:"center",gap:5,padding:"5px 14px",background:"#16a34a",color:"#fff",border:"none",borderRadius:5,cursor:"pointer",fontSize:12,fontWeight:600}}
               >
                 ▶ Starten — {selCount} Zeilen
+              </button>
+              <button
+                onClick={() => setSequentialMode(prev => !prev)}
+                title={sequentialMode ? "Sequenziell: 1 Zeile gleichzeitig" : "Parallel: 5 Zeilen gleichzeitig"}
+                style={{padding:"4px 10px",border:`1px solid ${sequentialMode ? "#7c3aed" : "#d1d5db"}`,borderRadius:5,background:sequentialMode ? "#f5f3ff" : "#fff",cursor:"pointer",fontSize:12,color:sequentialMode ? "#7c3aed" : "#374151",fontWeight:sequentialMode?600:400}}
+              >
+                {sequentialMode ? "⏩ Sequenziell" : "⚡ Parallel"}
               </button>
               <button onClick={() => setSelectedRows(new Set())}
                 style={{padding:"4px 10px",border:"1px solid #d1d5db",borderRadius:5,background:"#fff",cursor:"pointer",fontSize:12,color:"#374151"}}>
