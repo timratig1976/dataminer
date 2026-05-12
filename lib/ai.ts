@@ -266,7 +266,8 @@ export async function runAiColumn(
 4. For directory results (gelbeseiten, dasoertliche, 11880, northdata, wlw, kompass, europages, cylex, linkedin, xing, etc.): extract the target company URL from the snippet if present — do NOT use the directory URL itself as the answer.
 5. If results are contradictory, prefer the result whose URL is the company's own homepage over third-party directories.
 6. NEVER output a catalog, directory, social, or review domain as the final domain answer. These are NEVER valid company websites: wlw.de, gelbeseiten.de, dasoertliche.de, 11880.com, northdata.de, kompass.com, europages.de, cylex.de, linkedin.com, xing.com, facebook.com, yelp.com, trustpilot.com, kununu.com, glassdoor.com, wikipedia.org, bloomberg.com, crunchbase.com.
-7. If no result contains the company's own homepage, return confidence "notFound" rather than a directory URL.`);
+7. If a city is provided in the inputs: a candidate domain must be verifiably associated with that city. A shared abbreviation or partial name match is NOT enough — the snippet or site content must confirm the city. If uncertain, lower confidence to "low" or "notFound".
+8. If no result contains the company's own homepage, return confidence "notFound" rather than a directory URL.`);
     }
     if (captureReasoning && isJson) {
       parts.push(`Always include a "_reasoning" key in your JSON output. Its value should be a concise 1-3 sentence explanation of: which source(s) you used, why you chose this answer, and what you rejected. Example: "Found hildebrandt-transport.de directly listed on dasoertliche.de snippet. Cross-checked with 11880.com which confirmed the same domain. Rejected linkedin.com as a social profile."`)
@@ -512,15 +513,22 @@ Find the official primary domain for the given company name using web search and
    - If an input URL hint is provided, treat it as a strong signal — verify it belongs to the correct company before accepting it.
    - If a legal form is visible in the company name (GmbH, AG, KG, e.K., UG etc.), use it to narrow the search.
 
-7. Using web search results:
+7. CITY VERIFICATION (critical — do this before finalising):
+   - If City is provided and not "(not provided)": you MUST verify the candidate domain belongs to the correct company in that city.
+   - Check the snippet or the domain name itself for a city match. If the snippet mentions a different city or the domain is clearly a different company, REJECT it.
+   - A domain that shares only the abbreviation or first word of the company name (e.g. "ITU") is NOT sufficient — the full name + city must match.
+   - If you cannot confirm the city matches, set confidence to "low" or "notFound". Never set "high" without city confirmation when city is provided.
+   - Example: company "ITU Matuscheck" in Luckenwalde → reject itu-gmbh.de if that company is based elsewhere.
+
+8. Using web search results:
    - If a #WEB SEARCH RESULTS block is present above your instructions, treat it as live search data.
-   - Scan each result's URL and Domain field first — if a result URL IS the company's own homepage (domain matches company name), use that domain directly with confidence "high".
+   - Scan each result's URL and Domain field first — if a result URL IS the company's own homepage (domain matches company name AND city), use that domain.
    - Directory listings (dasoertliche.de, gelbeseiten.de, 11880.com, northdata.de, etc.) often contain the company's own website URL in their snippet — extract it from there.
    - Cross-reference at least two results before setting confidence "high".
 
-8. Output rules:
+9. Output rules:
    - Output JSON with camelCase keys only: { "domain": string, "confidence": "high"|"medium"|"low"|"notFound", "sourceUrl": string }
-   - Use "high" when the domain is confirmed on the company's homepage and corroborated or clearly unambiguous; "medium" for strong but not fully corroborated matches; "low" when weak signals suggest a match; "notFound" if no reliable domain.
+   - Use "high" ONLY when name AND city are both confirmed; "medium" for plausible but unverified city; "low" when weak signals; "notFound" if no reliable match.
    - For sourceUrl, provide the most authoritative page used (prefer the company homepage or an authoritative directory entry).
 
 #INPUTS#
