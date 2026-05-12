@@ -2054,15 +2054,54 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
 
         {/* ══ TAB: EXPORT ══ */}
         {activeTab === "Export" && (
-          <div style={{flex:1,padding:24}}>
-            <div style={{maxWidth:400,background:"#fff",borderRadius:10,border:"1px solid #e5e7eb",padding:24}}>
-              <div style={{fontSize:16,fontWeight:700,marginBottom:8}}>📤 Export</div>
-              <div style={{fontSize:13,color:"#6b7280",marginBottom:16}}>{rows.length} Zeilen · {sourceColumns.length + caseData.aiColumns.length} Spalten</div>
+          <div style={{flex:1,padding:24,display:"flex",flexDirection:"column",gap:16}}>
+
+            {/* CSV export */}
+            <div style={{maxWidth:480,background:"#fff",borderRadius:10,border:"1px solid #e5e7eb",padding:24}}>
+              <div style={{fontSize:15,fontWeight:700,marginBottom:4}}>📊 CSV exportieren</div>
+              <div style={{fontSize:13,color:"#6b7280",marginBottom:16}}>{rows.length} Zeilen · {sourceColumns.length + caseData.aiColumns.length} Spalten — nur Datenwerte, kein Setup</div>
               <a href={`/api/export?caseId=${caseId}`}
                 style={{display:"inline-flex",alignItems:"center",gap:8,padding:"8px 20px",background:"#15803d",color:"#fff",borderRadius:8,fontSize:13,fontWeight:600,textDecoration:"none"}}>
                 <Download style={{width:15,height:15}} /> CSV herunterladen
               </a>
             </div>
+
+            {/* Full snapshot export */}
+            <div style={{maxWidth:480,background:"#fff",borderRadius:10,border:"1px solid #e5e7eb",padding:24}}>
+              <div style={{fontSize:15,fontWeight:700,marginBottom:4}}>💾 Vollständiger Snapshot</div>
+              <div style={{fontSize:13,color:"#6b7280",marginBottom:16}}>Exportiert alle Zeilen <strong>und</strong> die komplette Spalten-Konfiguration (Prompts, Web-Search-Einstellungen usw.) als JSON. Kann auf einem anderen PC wiederhergestellt werden.</div>
+              <a href={`/api/export/snapshot?caseId=${caseId}`}
+                style={{display:"inline-flex",alignItems:"center",gap:8,padding:"8px 20px",background:"#1d4ed8",color:"#fff",borderRadius:8,fontSize:13,fontWeight:600,textDecoration:"none"}}>
+                <Download style={{width:15,height:15}} /> Snapshot herunterladen (.json)
+              </a>
+            </div>
+
+            {/* Snapshot import/restore */}
+            <div style={{maxWidth:480,background:"#fff",borderRadius:10,border:"1px solid #e5e7eb",padding:24}}>
+              <div style={{fontSize:15,fontWeight:700,marginBottom:4}}>📥 Snapshot wiederherstellen</div>
+              <div style={{fontSize:13,color:"#6b7280",marginBottom:12}}>Lade eine <code style={{background:"#f3f4f6",padding:"1px 5px",borderRadius:4}}>*_snapshot.json</code>-Datei hoch — es wird ein neuer Case mit allen Zeilen und der Konfiguration angelegt.</div>
+              <label style={{display:"inline-flex",alignItems:"center",gap:8,padding:"8px 20px",background:"#7c3aed",color:"#fff",borderRadius:8,fontSize:13,fontWeight:600,cursor:"pointer"}}>
+                <Upload style={{width:15,height:15}} /> Snapshot importieren
+                <input type="file" accept=".json,application/json" style={{display:"none"}} onChange={async (e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  try {
+                    const text = await file.text();
+                    const snap = JSON.parse(text);
+                    const res = await fetch("/api/import/snapshot", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(snap) });
+                    const data = await res.json();
+                    if (!res.ok) { alert("Fehler: " + (data.error ?? "Unbekannt")); return; }
+                    if (confirm(`✅ ${data.imported} Zeilen importiert. Zum neuen Case wechseln?`)) {
+                      window.location.href = `/cases/${data.caseId}`;
+                    }
+                  } catch (err) {
+                    alert("Ungültige Snapshot-Datei: " + String(err));
+                  }
+                  e.target.value = "";
+                }} />
+              </label>
+            </div>
+
           </div>
         )}
 
