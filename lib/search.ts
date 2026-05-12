@@ -295,36 +295,84 @@ export async function searchViaPlaywright(
       (route) => route.abort()
     );
 
-    const page = await context.newPage();
-    await page.goto(
-      `https://www.bing.com/search?q=${encodeURIComponent(query)}&setlang=de&cc=DE&form=QBLH`,
-      { waitUntil: "domcontentloaded", timeout: 20_000 }
-    );
+    type RawItem = { title: string; url: string; snippet: string };
 
-    // Wait for results to appear (max 5s)
-    await page.waitForSelector("#b_results .b_algo", { timeout: 5_000 }).catch(() => {});
-
-    const raw = await page.evaluate((max: number) => {
-      const items: { title: string; url: string; snippet: string }[] = [];
-
-      // Primary: Bing organic result cards
-      const cards = document.querySelectorAll("#b_results .b_algo");
-      for (const card of Array.from(cards).slice(0, max * 2)) {
-        const a = card.querySelector("h2 a") as HTMLAnchorElement | null;
-        const p =
-          card.querySelector(".b_caption p") ??
-          card.querySelector(".b_dList li");
-        if (a?.href && !a.href.includes("bing.com")) {
-          items.push({
-            title: (a.textContent ?? "").trim(),
-            url: a.href,
-            snippet: (p?.textContent ?? "").trim(),
-          });
-        }
-        if (items.length >= max) break;
+    async function tryEngine(
+      url: string,
+      waitSelector: string,
+      extract: (max: number) => RawItem[]
+    ): Promise<RawItem[]> {
+      const page = await context.newPage();
+      try {
+        await page.goto(url, { waitUntil: "domcontentloaded", timeout: 20_000 });
+        await page.waitForSelector(waitSelector, { timeout: 6_000 }).catch(() => {});
+        return await page.evaluate(extract, maxResults);
+      } finally {
+        await page.close();
       }
-      return items;
-    }, maxResults);
+    }
+
+    // Engine 1: DuckDuckGo full JS (renders in real browser, bypasses HTML challenge)
+    let raw = await tryEngine(
+      `https://duckduckgo.com/?q=${encodeURIComponent(query)}&kl=de-de`,
+      "[data-testid='result']",
+      (max) => {
+        const items: RawItem[] = [];
+        const cards = document.querySelectorAll("[data-testid='result']");
+        for (const card of Array.from(cards).slice(0, max * 2)) {
+          const a = card.querySelector("a[data-testid='result-title-a']") as HTMLAnchorElement | null;
+          const snippet = card.querySelector("[data-result='snippet']")?.textContent ?? "";
+          if (a?.href && !a.href.includes("duckduckgo.com")) {
+            items.push({ title: (a.textContent ?? "").trim(), url: a.href, snippet: snippet.trim() });
+          }
+          if (items.length >= max) break;
+        }
+        return items;
+      }
+    ).catch(() => [] as RawItem[]);
+
+    // Engine 2: Bing
+    if (raw.length === 0) {
+      raw = await tryEngine(
+        `https://www.bing.com/search?q=${encodeURIComponent(query)}&setlang=de&cc=DE`,
+        "#b_results .b_algo",
+        (max) => {
+          const items: RawItem[] = [];
+          const cards = document.querySelectorAll("#b_results .b_algo");
+          for (const card of Array.from(cards).slice(0, max * 2)) {
+            const a = card.querySelector("h2 a") as HTMLAnchorElement | null;
+            const p = card.querySelector(".b_caption p") ?? card.querySelector(".b_dList li");
+            if (a?.href && !a.href.includes("bing.com")) {
+              items.push({ title: (a.textContent ?? "").trim(), url: a.href, snippet: (p?.textContent ?? "").trim() });
+            }
+            if (items.length >= max) break;
+          }
+          return items;
+        }
+      ).catch(() => [] as RawItem[]);
+    }
+
+    // Engine 3: Google (last resort — may require consent click, but often works)
+    if (raw.length === 0) {
+      raw = await tryEngine(
+        `https://www.google.com/search?q=${encodeURIComponent(query)}&hl=de&gl=de&num=10`,
+        "#search .g",
+        (max) => {
+          const items: RawItem[] = [];
+          const cards = document.querySelectorAll("#search .g");
+          for (const card of Array.from(cards).slice(0, max * 2)) {
+            const a = card.querySelector("a") as HTMLAnchorElement | null;
+            const snippet = card.querySelector(".VwiC3b, .st, span[style]")?.textContent ?? "";
+            const h3 = card.querySelector("h3")?.textContent ?? "";
+            if (a?.href && a.href.startsWith("http") && !a.href.includes("google.com") && h3) {
+              items.push({ title: h3.trim(), url: a.href, snippet: snippet.trim() });
+            }
+            if (items.length >= max) break;
+          }
+          return items;
+        }
+      ).catch(() => [] as RawItem[]);
+    }
 
     return deduplicate(
       raw.map((r) => ({
