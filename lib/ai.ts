@@ -290,24 +290,57 @@ export async function runAiColumn(
       const braveApiKey = process.env.BRAVE_API_KEY || undefined;
       const searchOpts = { serpApiKey, braveApiKey, maxResults: column.searchMaxResults ?? 5, forceLayer: column.searchForceLayer };
 
-      // Build fallback queries: strip legal form suffixes, then strip location tokens
-      function buildFallbacks(q: string): string[] {
+      // Resolve city value directly from rowData (via inputMappings or common field names)
+      function resolveCity(): string {
+        const cityKeys = ["city", "Stadt", "stadt", "Ort", "ort", "location", "Location"];
+        // also check inputMappings values that look like city fields
+        if (column.inputMappings) {
+          for (const [placeholder, sourceKey] of Object.entries(column.inputMappings)) {
+            if (/city|stadt|ort/i.test(placeholder) || /city|stadt|ort/i.test(sourceKey)) {
+              const v = rowData[sourceKey];
+              if (v && v.trim() && v.trim() !== "(not provided)") return v.trim();
+            }
+          }
+        }
+        for (const k of cityKeys) {
+          const v = rowData[k];
+          if (v && v.trim() && v.trim() !== "(not provided)") return v.trim();
+        }
+        return "";
+      }
+
+      // Build fallback queries: strip legal form suffixes, then drop trailing words
+      function buildFallbacks(q: string, city: string): string[] {
         const noLegal = q.replace(/\b(GmbH|AG|KG|UG|e\.K\.|eG|GbR|OHG|mbH|Co\.|&\s*Co\.?|KGaA|SE|Ltd\.?|Inc\.?|LLC)\b\.?/gi, "").replace(/\s{2,}/g, " ").trim();
-        // strip "(not provided)" placeholders from unresolved template vars
         const noPlaceholder = noLegal.replace(/\(not provided\)/gi, "").replace(/\s{2,}/g, " ").trim();
         const words = noPlaceholder.split(/\s+/);
-        // progressively drop trailing words (usually location) until 2 words remain
         const shorterForms: string[] = [];
         for (let i = words.length - 1; i >= 2; i--) {
           shorterForms.push(words.slice(0, i).join(" "));
         }
-        return [noPlaceholder, ...shorterForms].filter((q2, i, arr) => q2 && arr.indexOf(q2) === i && q2 !== q);
+        // If city known: add a city-quoted variant of the shorter form (e.g. "ITU Matuscheck" "Luckenwalde")
+        const cityPinned = city && shorterForms.length > 0
+          ? [`${shorterForms[0]} "${city}"`]
+          : [];
+        return [...cityPinned, noPlaceholder, ...shorterForms].filter((q2, i, arr) => q2 && arr.indexOf(q2) === i && q2 !== q);
       }
 
-      let searchResp = await webSearch(primaryQuery, searchOpts);
+      // Pin city with quotes in primary query if city is known
+      const resolvedCity = resolveCity();
+      let effectivePrimary = primaryQuery;
+      if (resolvedCity && !primaryQuery.includes(`"${resolvedCity}"`)) {
+        // Replace bare city token with quoted version for exact match
+        effectivePrimary = primaryQuery.replace(
+          new RegExp(`\\b${resolvedCity.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i"),
+          `"${resolvedCity}"`
+        );
+        webSearchQueryRendered = effectivePrimary;
+      }
+
+      let searchResp = await webSearch(effectivePrimary, searchOpts);
       if (searchResp.results.length === 0) {
-        for (const fallback of buildFallbacks(primaryQuery)) {
-          console.log(`[ai] 0 results for "${primaryQuery}", retrying with "${fallback}"`);
+        for (const fallback of buildFallbacks(primaryQuery, resolvedCity)) {
+          console.log(`[ai] 0 results for "${effectivePrimary}", retrying with "${fallback}"`);
           searchResp = await webSearch(fallback, searchOpts);
           if (searchResp.results.length > 0) {
             webSearchQueryRendered = fallback;
