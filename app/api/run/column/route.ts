@@ -55,6 +55,7 @@ export async function POST(req: NextRequest) {
     : selectedRows;
 
   const startedAt = Date.now();
+  const CONCURRENCY = 5;
 
   const results: Record<string, {
     status: string;
@@ -68,19 +69,23 @@ export async function POST(req: NextRequest) {
     metaData?: Record<string, string>;
   }> = {};
 
+  // Shared rate-limit delay — increased by any worker that hits 429, decayed when successful
   let adaptiveDelayMs = 0;
 
-  for (const row of targetRows) {
+  const col = column!;
+
+  async function processRow(row: typeof targetRows[number]): Promise<void> {
+    // Stagger start slightly if backoff is active
     if (adaptiveDelayMs > 0) {
-      const jitter = Math.floor(Math.random() * 120);
+      const jitter = Math.floor(Math.random() * 200);
       await sleep(adaptiveDelayMs + jitter);
     }
 
-    updateRowCell(row.id, column.outputKey, row.data[column.outputKey] ?? "", "running");
+    updateRowCell(row.id, col.outputKey, row.data[col.outputKey] ?? "", "running");
 
     const effectiveColumn = runMode === "all_force"
-      ? { ...column, condition: undefined, conditionField: undefined }
-      : column;
+      ? { ...col, condition: undefined, conditionField: undefined }
+      : col;
 
     const runId = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`;
     const runAt = new Date().toISOString();
@@ -89,66 +94,51 @@ export async function POST(req: NextRequest) {
 
     while (result.error && isRateLimitError(result.error) && retries < MAX_RATE_RETRY) {
       retries += 1;
-      adaptiveDelayMs = Math.min(
-        MAX_BACKOFF_MS,
-        Math.max(MIN_BACKOFF_MS, adaptiveDelayMs > 0 ? adaptiveDelayMs * 2 : MIN_BACKOFF_MS)
-      );
-      const jitter = Math.floor(Math.random() * 150);
-      await sleep(adaptiveDelayMs + jitter);
+      adaptiveDelayMs = Math.min(MAX_BACKOFF_MS, Math.max(MIN_BACKOFF_MS, adaptiveDelayMs > 0 ? adaptiveDelayMs * 2 : MIN_BACKOFF_MS));
+      await sleep(adaptiveDelayMs + Math.floor(Math.random() * 200));
       result = await runAiColumn(effectiveColumn, row.data, apiKey, provider);
     }
 
     if (result.error && isRateLimitError(result.error)) {
-      adaptiveDelayMs = Math.min(
-        MAX_BACKOFF_MS,
-        Math.max(MIN_BACKOFF_MS, adaptiveDelayMs > 0 ? adaptiveDelayMs * 2 : MIN_BACKOFF_MS)
-      );
+      adaptiveDelayMs = Math.min(MAX_BACKOFF_MS, Math.max(MIN_BACKOFF_MS, adaptiveDelayMs > 0 ? adaptiveDelayMs * 2 : MIN_BACKOFF_MS));
     } else if (!result.error) {
       adaptiveDelayMs = Math.max(0, Math.floor(adaptiveDelayMs * 0.75) - 50);
     }
 
     const metaData: Record<string, string> = {
-      [`_llm_model_${column.outputKey}`]: model,
-      [`_llm_provider_${column.outputKey}`]: provider,
-      [`_llm_endpoint_${column.outputKey}`]: endpoint,
-      [`_llm_run_id_${column.outputKey}`]: runId,
-      [`_llm_run_at_${column.outputKey}`]: runAt,
+      [`_llm_model_${col.outputKey}`]: model,
+      [`_llm_provider_${col.outputKey}`]: provider,
+      [`_llm_endpoint_${col.outputKey}`]: endpoint,
+      [`_llm_run_id_${col.outputKey}`]: runId,
+      [`_llm_run_at_${col.outputKey}`]: runAt,
     };
-    if (result.webSearchQuery) metaData[`_search_query_${column.outputKey}`] = result.webSearchQuery;
-    if (result.webSearchResultCount) metaData[`_search_count_${column.outputKey}`] = String(result.webSearchResultCount);
-    if (result.webSearchSource) metaData[`_search_source_${column.outputKey}`] = result.webSearchSource;
-    if (result.rawResponse) metaData[`_llm_raw_${column.outputKey}`] = result.rawResponse;
-    if (result.renderedPrompt) metaData[`_llm_prompt_${column.outputKey}`] = result.renderedPrompt;
-    if (result.tokens) metaData[`_llm_tokens_${column.outputKey}`] = JSON.stringify(result.tokens);
-    if (result.costUsd !== undefined) metaData[`_llm_cost_${column.outputKey}`] = String(result.costUsd);
+    if (result.webSearchQuery) metaData[`_search_query_${col.outputKey}`] = result.webSearchQuery;
+    if (result.webSearchResultCount) metaData[`_search_count_${col.outputKey}`] = String(result.webSearchResultCount);
+    if (result.webSearchSource) metaData[`_search_source_${col.outputKey}`] = result.webSearchSource;
+    if (result.rawResponse) metaData[`_llm_raw_${col.outputKey}`] = result.rawResponse;
+    if (result.renderedPrompt) metaData[`_llm_prompt_${col.outputKey}`] = result.renderedPrompt;
+    if (result.tokens) metaData[`_llm_tokens_${col.outputKey}`] = JSON.stringify(result.tokens);
+    if (result.costUsd !== undefined) metaData[`_llm_cost_${col.outputKey}`] = String(result.costUsd);
 
     if (result.skipped) {
-      updateRowCell(row.id, column.outputKey, result.value, "skipped");
-      for (const [key, val] of Object.entries(metaData)) {
-        updateRowCell(row.id, key, val, "done");
-      }
+      updateRowCell(row.id, col.outputKey, result.value, "skipped");
+      for (const [key, val] of Object.entries(metaData)) updateRowCell(row.id, key, val, "done");
       results[row.id] = { status: "skipped", value: result.value, metaData };
-      continue;
+      return;
     }
 
     if (result.error) {
-      updateRowCell(row.id, column.outputKey, "", "error", result.error);
-      for (const [key, val] of Object.entries(metaData)) {
-        updateRowCell(row.id, key, val, "done");
-      }
+      updateRowCell(row.id, col.outputKey, "", "error", result.error);
+      for (const [key, val] of Object.entries(metaData)) updateRowCell(row.id, key, val, "done");
       results[row.id] = { status: "error", error: result.error, metaData };
-      continue;
+      return;
     }
 
-    for (const [key, val] of Object.entries(metaData)) {
-      updateRowCell(row.id, key, val, "done");
-    }
+    for (const [key, val] of Object.entries(metaData)) updateRowCell(row.id, key, val, "done");
     if (result.multiValues) {
-      for (const [key, val] of Object.entries(result.multiValues)) {
-        updateRowCell(row.id, key, val, "done");
-      }
+      for (const [key, val] of Object.entries(result.multiValues)) updateRowCell(row.id, key, val, "done");
     } else {
-      updateRowCell(row.id, column.outputKey, result.value, "done");
+      updateRowCell(row.id, col.outputKey, result.value, "done");
     }
     results[row.id] = {
       status: "done",
@@ -160,6 +150,12 @@ export async function POST(req: NextRequest) {
       costUsd: result.costUsd,
       metaData,
     };
+  }
+
+  // Run in batches of CONCURRENCY
+  for (let i = 0; i < targetRows.length; i += CONCURRENCY) {
+    const batch = targetRows.slice(i, i + CONCURRENCY);
+    await Promise.all(batch.map(processRow));
   }
 
   return NextResponse.json({
