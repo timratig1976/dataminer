@@ -350,70 +350,97 @@ export function AddColumnModal({ caseId, onClose, onAdded, availableFields = [] 
                       )}
                     </div>
                   </div>
-                </div>
-              )}
-
-              {/* ── Web Search ── */}
-              <div className="border border-blue-200 bg-blue-50 rounded-lg p-3">
-                <div className="flex items-center gap-2 mb-2">
-                  <input type="checkbox" id="useWebSearch" checked={useWebSearch} onChange={e => setUseWebSearch(e.target.checked)}
-                    className="w-3.5 h-3.5 rounded accent-blue-600 cursor-pointer" />
-                  <label htmlFor="useWebSearch" className="text-xs font-semibold text-blue-800 uppercase tracking-wide cursor-pointer select-none">
-                    🔍 Web-Suche vor LLM-Call (SerpAPI → DuckDuckGo → Playwright)
-                  </label>
-                </div>
-                {useWebSearch && (
-                  <div className="grid gap-2 mt-2">
-                    <div>
-                      <label className="text-[11px] font-medium text-blue-700 uppercase tracking-wide">Suchanfrage-Template</label>
-                      <input value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
-                        placeholder="z.B. {company_name} Heizung Website"
-                        className="mt-1 w-full border border-blue-300 rounded-lg px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                      <p className="text-[11px] text-blue-600 mt-1">Platzhalter wie {"{"}company_name{"}"} werden durch Zeilenwerte ersetzt. Ergebnisse werden dem LLM-Prompt hinzugefügt.</p>
-                    </div>
-                    <div className="grid grid-cols-2 gap-2">
-                      <div>
-                        <label className="text-[11px] font-medium text-blue-700 uppercase tracking-wide">Max. Ergebnisse</label>
-                        <input type="number" min={1} max={10} value={searchMaxResults} onChange={e => setSearchMaxResults(Number(e.target.value))}
-                          className="mt-1 w-full border border-blue-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                  {/* ── Web Search — inline under prompt ── */}
+                  <div className="mt-2 border border-blue-200 rounded-lg overflow-hidden">
+                    <button type="button"
+                      onClick={() => { setUseWebSearch(v => !v); if (useWebSearch) setSearchQuery(""); }}
+                      className="w-full flex items-center gap-2 px-3 py-1.5 text-left border-none cursor-pointer"
+                      style={{background: useWebSearch ? "#dbeafe" : "#f0f9ff"}}>
+                      <span className="text-sm">🔍</span>
+                      <span className="text-[11px] font-bold uppercase tracking-wide flex-1"
+                        style={{color: useWebSearch ? "#1e40af" : "#64748b"}}>Web-Suche vor LLM</span>
+                      <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full"
+                        style={{background: useWebSearch ? "#2563eb" : "#e2e8f0", color: useWebSearch ? "#fff" : "#64748b"}}>
+                        {useWebSearch ? "AN" : "AUS"}
+                      </span>
+                    </button>
+                    {useWebSearch && (
+                      <div className="p-3 bg-blue-50 grid gap-2">
+                        <div>
+                          <label className="text-[11px] font-semibold text-blue-700 uppercase tracking-wide">Suchanfrage-Template</label>
+                          <input value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
+                            placeholder="z.B. {company_name} offizieller Webauftritt"
+                            className="mt-1 w-full border border-blue-300 rounded-lg px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                        </div>
+                        {availableFields.length > 0 && (
+                          <div className="flex flex-wrap gap-1 items-center">
+                            <span className="text-[11px] text-gray-500">Felder:</span>
+                            {availableFields.map(f => {
+                              const inQuery = searchQuery.includes(`{${f}}`);
+                              return (
+                                <button key={f} type="button"
+                                  onMouseDown={e => e.preventDefault()}
+                                  onClick={() => setSearchQuery(q => q + `{${f}}`)}
+                                  className="text-[11px] px-1.5 py-0.5 rounded font-mono border cursor-pointer"
+                                  style={{
+                                    background: inQuery ? "#dbeafe" : "#f9fafb",
+                                    borderColor: inQuery ? "#93c5fd" : "#e5e7eb",
+                                    color: inQuery ? "#1d4ed8" : "#374151",
+                                  }}>
+                                  {`{${f}}`}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="text-[11px] font-semibold text-blue-700 uppercase tracking-wide">Max. Ergebnisse</label>
+                            <input type="number" min={1} max={10} value={searchMaxResults}
+                              onChange={e => setSearchMaxResults(Math.max(1, Math.min(10, Number(e.target.value))))}
+                              className="mt-1 w-full border border-blue-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                          </div>
+                          <div>
+                            <label className="text-[11px] font-semibold text-blue-700 uppercase tracking-wide">Layer</label>
+                            <select value={searchForceLayer} onChange={e => setSearchForceLayer(e.target.value as typeof searchForceLayer)}
+                              className="mt-1 w-full border border-blue-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                              <option value="">Auto (SerpAPI → DDG → Playwright)</option>
+                              <option value="serpapi">Nur SerpAPI</option>
+                              <option value="duckduckgo">Nur DuckDuckGo</option>
+                              <option value="playwright">Nur Playwright</option>
+                            </select>
+                          </div>
+                        </div>
+                        <p className="text-[11px] text-blue-600 leading-relaxed">
+                          Suchergebnisse werden als Kontext <strong>vor deinem Prompt</strong> eingefügt. Platzhalter wie <code className="bg-blue-100 px-1 rounded">{"{company_name}"}</code> erzeugen zeilenspezifische Suchen.
+                        </p>
                       </div>
-                      <div>
-                        <label className="text-[11px] font-medium text-blue-700 uppercase tracking-wide">Layer erzwingen</label>
-                        <select value={searchForceLayer} onChange={e => setSearchForceLayer(e.target.value as typeof searchForceLayer)}
-                          className="mt-1 w-full border border-blue-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-                          <option value="">Auto (SerpAPI → DDG → Playwright)</option>
-                          <option value="serpapi">Nur SerpAPI</option>
-                          <option value="duckduckgo">Nur DuckDuckGo</option>
-                          <option value="playwright">Nur Playwright</option>
-                        </select>
-                      </div>
-                    </div>
+                    )}
                   </div>
-                )}
-              </div>
-
-              {requiredFields.length > 0 && (
-                <div className="mt-1 border border-amber-200 bg-amber-50 rounded-lg p-3">
-                  <div className="text-[11px] font-semibold text-amber-800 uppercase tracking-wide mb-2">Pflicht-Mapping</div>
-                  <div className="grid gap-2">
-                    {requiredFields.map((field) => (
-                      <div key={field} className="grid grid-cols-[180px_1fr] items-center gap-2">
-                        <span className="text-xs text-gray-700 font-mono">{`{${field}}`}</span>
-                        <select
-                          value={inputMappings[field] || ""}
-                          onChange={(e) => setInputMappings((prev) => ({ ...prev, [field]: e.target.value }))}
-                          className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-green-500"
-                        >
-                          <option value="">Feld wählen…</option>
-                          {availableFields.map((sourceField) => (
-                            <option key={sourceField} value={sourceField}>{sourceField}</option>
-                          ))}
-                        </select>
+                  {requiredFields.length > 0 && (
+                    <div className="mt-1 border border-amber-200 bg-amber-50 rounded-lg p-3">
+                      <div className="text-[11px] font-semibold text-amber-800 uppercase tracking-wide mb-2">Pflicht-Mapping</div>
+                      <div className="grid gap-2">
+                        {requiredFields.map((field) => (
+                          <div key={field} className="grid grid-cols-[180px_1fr] items-center gap-2">
+                            <span className="text-xs text-gray-700 font-mono">{`{${field}}`}</span>
+                            <select
+                              value={inputMappings[field] || ""}
+                              onChange={(e) => setInputMappings((prev) => ({ ...prev, [field]: e.target.value }))}
+                              className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-green-500"
+                            >
+                              <option value="">Feld wählen…</option>
+                              {availableFields.map((sourceField) => (
+                                <option key={sourceField} value={sourceField}>{sourceField}</option>
+                              ))}
+                            </select>
+                          </div>
+                        ))}
                       </div>
-                    ))}
-                  </div>
-                  {hasMissingRequiredMappings && (
-                    <div className="mt-2 text-xs text-amber-700">Bitte alle Pflichtfelder mappen, sonst wird der Prompt nicht ausgeführt.</div>
+                      {hasMissingRequiredMappings && (
+                        <div className="mt-2 text-xs text-amber-700">Bitte alle Pflichtfelder mappen, sonst wird der Prompt nicht ausgeführt.</div>
+                      )}
+                    </div>
                   )}
                 </div>
               )}

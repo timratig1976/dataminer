@@ -283,18 +283,16 @@ describe("webSearch", () => {
   it("reports error and empty results when all layers fail", async () => {
     vi.mocked(fetch)
       .mockRejectedValueOnce(new Error("DDG down"))
-      .mockRejectedValueOnce(new Error("DDG down")); // fallback second DDG attempt if any
-    // Playwright would also be called — mock module to throw
-    // Playwright is dynamically imported inside the function;
-    // DDG already failed above so the response should be the all-failed case
+      .mockRejectedValueOnce(new Error("DDG down"));
+    // Playwright is dynamically imported — falls through to the real binary.
+    // Accept either outcome: real Playwright succeeds or all fail with error.
     const resp = await webSearch("q");
-    // Either we get empty results with an error, or Playwright happened to work
     if (resp.results.length === 0) {
       expect(resp.error).toBeTruthy();
     } else {
       expect(resp.source).toBe("playwright");
     }
-  });
+  }, 30_000);
 
   it("forceLayer=serpapi throws when no key", async () => {
     await expect(
