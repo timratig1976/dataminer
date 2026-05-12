@@ -31,11 +31,12 @@ async function runAnthropicCompletion(params: {
   prompt: string;
   isJson: boolean;
   maxTokens: number;
+  systemOverride?: string;
 }): Promise<{ raw: string; tokens?: { prompt: number; completion: number; total: number } }> {
-  const { apiKey, model, prompt, isJson, maxTokens } = params;
-  const system = isJson
+  const { apiKey, model, prompt, isJson, maxTokens, systemOverride } = params;
+  const system = systemOverride ?? (isJson
     ? "You are a data enrichment assistant. Return ONLY valid JSON, no markdown, no explanation."
-    : "You are a data enrichment assistant. Return only the requested value, nothing else. If you cannot find the information, return exactly: notFound";
+    : "You are a data enrichment assistant. Return only the requested value, nothing else. If you cannot find the information, return exactly: notFound");
 
   const resp = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
@@ -251,6 +252,23 @@ export async function runAiColumn(
     return { value: result.valid ? domain : `invalid (${result.reason})` };
   }
 
+  // ── System message builder ─────────────────────────────────────────────────
+  function buildSystemMessage(isJson: boolean, hasWebSearch: boolean): string {
+    const base = isJson
+      ? "You are a data enrichment assistant. Return ONLY valid JSON, no markdown, no explanation."
+      : "You are a data enrichment assistant. Return only the requested value, nothing else. If you cannot find the information, return exactly: notFound";
+    if (!hasWebSearch) return base;
+    return `${base}
+
+You have been given live web search results in the user message (inside the #WEB SEARCH RESULTS block). Rules for using them:
+1. Treat the search results as GROUND TRUTH — prefer them over your internal training knowledge.
+2. Each result includes Title, URL, Domain (the bare hostname), and Snippet. The Domain field is pre-extracted for you.
+3. For domain/URL tasks: read the Domain field of each result first. If a result is the company's own site (not a directory), use that domain.
+4. For directory results (gelbeseiten, dasoertliche, 11880, northdata, linkedin, etc.): extract the target company URL from the snippet if present.
+5. If results are contradictory, prefer the result whose URL is the company's own homepage over third-party directories.
+6. If no result is relevant, fall back to internal knowledge and lower your confidence accordingly.`;
+  }
+
   // ── Web Search injection ──────────────────────────────────────────────────
   let webSearchContext = "";
   let webSearchSource: string | undefined;
@@ -270,8 +288,9 @@ export async function runAiColumn(
     }
   }
 
-  const promptBase = column.useWebSearch && webSearchContext
-    ? `#WEB SEARCH RESULTS (source: ${webSearchSource ?? "web"}) — use these as your PRIMARY source of evidence. Extract your answer directly from the URLs and snippets below before falling back to internal knowledge.\n${webSearchContext}\n#END WEB SEARCH RESULTS\n\n${column.prompt}`
+  const hasWebSearch = !!(column.useWebSearch && webSearchContext);
+  const promptBase = hasWebSearch
+    ? `#WEB SEARCH RESULTS (source: ${webSearchSource ?? "web"}):\n${webSearchContext}\n#END WEB SEARCH RESULTS\n\n${column.prompt}`
     : column.prompt;
 
   const prompt = renderPrompt(promptBase, rowData, column.inputMappings);
@@ -285,8 +304,10 @@ export async function runAiColumn(
     let raw = "";
     let tokens: { prompt: number; completion: number; total: number } | undefined;
 
+    const systemMsg = buildSystemMessage(isJson, hasWebSearch);
+
     if (provider === "anthropic") {
-      const anthropic = await runAnthropicCompletion({ apiKey, model, prompt, isJson, maxTokens });
+      const anthropic = await runAnthropicCompletion({ apiKey, model, prompt, isJson: isJson, maxTokens, systemOverride: systemMsg });
       raw = anthropic.raw;
       tokens = anthropic.tokens;
     } else {
@@ -301,12 +322,7 @@ export async function runAiColumn(
       const baseRequest = {
         model,
         messages: [
-          {
-            role: "system" as const,
-            content: isJson
-              ? "You are a data enrichment assistant. Return ONLY valid JSON, no markdown, no explanation."
-              : "You are a data enrichment assistant. Return only the requested value, nothing else. If you cannot find the information, return exactly: notFound",
-          },
+          { role: "system" as const, content: systemMsg },
           { role: "user" as const, content: prompt },
         ],
       };
@@ -315,12 +331,7 @@ export async function runAiColumn(
         const resp = await client.responses.create({
           model,
           input: [
-            {
-              role: "system",
-              content: isJson
-                ? "You are a data enrichment assistant. Return ONLY valid JSON, no markdown, no explanation."
-                : "You are a data enrichment assistant. Return only the requested value, nothing else. If you cannot find the information, return exactly: notFound",
-            },
+            { role: "system", content: systemMsg },
             { role: "user", content: prompt },
           ],
           max_output_tokens: maxTokens,
