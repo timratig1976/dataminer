@@ -42,6 +42,7 @@ export function AddColumnModal({ caseId, onClose, onAdded, availableFields = [] 
   const [searchQuery, setSearchQuery] = useState("");
   const [searchMaxResults, setSearchMaxResults] = useState(5);
   const [searchForceLayer, setSearchForceLayer] = useState<"" | "serpapi" | "duckduckgo" | "playwright">("" );
+  const [captureReasoning, setCaptureReasoning] = useState(false);
   const [saving, setSaving] = useState(false);
   const promptTextareaId = useId();
 
@@ -128,6 +129,7 @@ export function AddColumnModal({ caseId, onClose, onAdded, availableFields = [] 
         searchQuery: useWebSearch && searchQuery.trim() ? searchQuery.trim() : undefined,
         searchMaxResults: useWebSearch ? searchMaxResults : undefined,
         searchForceLayer: useWebSearch && searchForceLayer ? searchForceLayer : undefined,
+        captureReasoning: captureReasoning || undefined,
       };
       const caseRes = await fetch(`/api/cases/${caseId}`).then((r) => r.json());
       const res = await fetch(`/api/cases/${caseId}`, {
@@ -376,6 +378,27 @@ export function AddColumnModal({ caseId, onClose, onAdded, availableFields = [] 
                         </div>
                       )}
                     </div>
+                  </div>
+
+                  {/* ── Reasoning capture ── */}
+                  <div className="border border-purple-200 rounded-lg overflow-hidden">
+                    <button type="button"
+                      onClick={() => setCaptureReasoning(v => !v)}
+                      className="w-full flex items-center gap-2 px-3 py-1.5 text-left border-none cursor-pointer"
+                      style={{background: captureReasoning ? "#f3e8ff" : "#faf5ff"}}>
+                      <span className="text-sm">🧠</span>
+                      <span className="text-[11px] font-bold uppercase tracking-wide flex-1"
+                        style={{color: captureReasoning ? "#6b21a8" : "#94a3b8"}}>Reasoning erfassen</span>
+                      <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full"
+                        style={{background: captureReasoning ? "#7c3aed" : "#e2e8f0", color: captureReasoning ? "#fff" : "#64748b"}}>
+                        {captureReasoning ? "AN" : "AUS"}
+                      </span>
+                    </button>
+                    {captureReasoning && (
+                      <div className="px-3 py-2 text-[11px] text-purple-700" style={{background:"#faf5ff"}}>
+                        LLM gibt eine kurze Begründung zurück (welche Quelle, warum, was abgelehnt). Gespeichert als <code className="bg-purple-100 px-1 rounded">_reasoning_{outputKey || "…"}</code>.
+                      </div>
+                    )}
                   </div>
 
                   {/* Output mode + JSON key */}

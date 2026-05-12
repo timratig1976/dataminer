@@ -23,6 +23,7 @@ export interface AiColumn {
   searchQuery?: string;             // template e.g. "{company_name} Heizung Anbieter"
   searchMaxResults?: number;        // default 5
   searchForceLayer?: "serpapi" | "duckduckgo" | "playwright";
+  captureReasoning?: boolean;       // ask LLM to return _reasoning field; stored as _reasoning_{outputKey}
 }
 
 export interface Case {

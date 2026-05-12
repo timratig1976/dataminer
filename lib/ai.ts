@@ -253,20 +253,26 @@ export async function runAiColumn(
   }
 
   // ── System message builder ─────────────────────────────────────────────────
-  function buildSystemMessage(isJson: boolean, hasWebSearch: boolean): string {
+  function buildSystemMessage(isJson: boolean, hasWebSearch: boolean, captureReasoning: boolean): string {
     const base = isJson
       ? "You are a data enrichment assistant. Return ONLY valid JSON, no markdown, no explanation."
       : "You are a data enrichment assistant. Return only the requested value, nothing else. If you cannot find the information, return exactly: notFound";
-    if (!hasWebSearch) return base;
-    return `${base}
-
-You have been given live web search results in the user message (inside the #WEB SEARCH RESULTS block). Rules for using them:
+    const parts: string[] = [base];
+    if (hasWebSearch) {
+      parts.push(`You have been given live web search results in the user message (inside the #WEB SEARCH RESULTS block). Rules for using them:
 1. Treat the search results as GROUND TRUTH — prefer them over your internal training knowledge.
 2. Each result includes Title, URL, Domain (the bare hostname), and Snippet. The Domain field is pre-extracted for you.
 3. For domain/URL tasks: read the Domain field of each result first. If a result is the company's own site (not a directory), use that domain.
 4. For directory results (gelbeseiten, dasoertliche, 11880, northdata, linkedin, etc.): extract the target company URL from the snippet if present.
 5. If results are contradictory, prefer the result whose URL is the company's own homepage over third-party directories.
-6. If no result is relevant, fall back to internal knowledge and lower your confidence accordingly.`;
+6. If no result is relevant, fall back to internal knowledge and lower your confidence accordingly.`);
+    }
+    if (captureReasoning && isJson) {
+      parts.push(`Always include a "_reasoning" key in your JSON output. Its value should be a concise 1-3 sentence explanation of: which source(s) you used, why you chose this answer, and what you rejected. Example: "Found hildebrandt-transport.de directly listed on dasoertliche.de snippet. Cross-checked with 11880.com which confirmed the same domain. Rejected linkedin.com as a social profile."`)
+    } else if (captureReasoning) {
+      parts.push(`Before your answer, output a single line starting with "REASONING:" that briefly states which source you used and why. Then output the answer on the next line.`);
+    }
+    return parts.join("\n\n");
   }
 
   // ── Web Search injection ──────────────────────────────────────────────────
@@ -304,7 +310,8 @@ You have been given live web search results in the user message (inside the #WEB
     let raw = "";
     let tokens: { prompt: number; completion: number; total: number } | undefined;
 
-    const systemMsg = buildSystemMessage(isJson, hasWebSearch);
+    const captureReasoning = !!column.captureReasoning;
+    const systemMsg = buildSystemMessage(isJson, hasWebSearch, captureReasoning);
 
     if (provider === "anthropic") {
       const anthropic = await runAnthropicCompletion({ apiKey, model, prompt, isJson: isJson, maxTokens, systemOverride: systemMsg });
@@ -367,6 +374,20 @@ You have been given live web search results in the user message (inside the #WEB
     console.log(`[LLM] provider=${provider} model=${model} prompt_tokens=${tokens?.prompt} completion_tokens=${tokens?.completion} raw_length=${raw.length} raw_preview=${raw.slice(0,120)}`);
     const costUsd = estimateCostUsd(model, tokens);
 
+    // Extract _reasoning if captureReasoning is enabled (JSON mode);
+    // for text mode the REASONING: prefix line is stripped below.
+    let reasoningValue: string | undefined;
+    if (captureReasoning && isJson) {
+      reasoningValue = extractJsonKey(raw, "_reasoning");
+      if (reasoningValue === "notFound") reasoningValue = undefined;
+    } else if (captureReasoning) {
+      const reasoningMatch = raw.match(/^REASONING:\s*(.+?)\n/i);
+      if (reasoningMatch) {
+        reasoningValue = reasoningMatch[1].trim();
+        raw = raw.replace(/^REASONING:\s*.+?\n/i, "").trim();
+      }
+    }
+
     // Multi-key mode: write multiple output fields from one JSON response
     if (isJson && column.multiKeys && column.multiKeys.length > 0) {
       const multiValues: Record<string, string> = {};
@@ -374,6 +395,7 @@ You have been given live web search results in the user message (inside the #WEB
         const extracted = extractJsonKey(raw, mk.jsonKey);
         multiValues[mk.outputKey] = extracted === "notFound" ? "" : extracted;
       }
+      if (reasoningValue) multiValues[`_reasoning_${column.outputKey}`] = reasoningValue;
 
       // Inline domain validation — run HTTP check on the found domain
       if (column.validateDomain) {
@@ -402,10 +424,12 @@ You have been given live web search results in the user message (inside the #WEB
 
     if (isJson && column.jsonKey) {
       const extracted = extractJsonKey(raw, column.jsonKey);
-      return { value: extracted === "notFound" ? "" : extracted, rawResponse: raw, renderedPrompt: prompt, tokens, costUsd };
+      const extra = reasoningValue ? { multiValues: { [`_reasoning_${column.outputKey}`]: reasoningValue } } : {};
+      return { value: extracted === "notFound" ? "" : extracted, rawResponse: raw, renderedPrompt: prompt, tokens, costUsd, ...extra };
     }
 
-    return { value: raw === "notFound" ? "" : raw, rawResponse: raw, renderedPrompt: prompt, tokens, costUsd };
+    const extra = reasoningValue ? { multiValues: { [`_reasoning_${column.outputKey}`]: reasoningValue } } : {};
+    return { value: raw === "notFound" ? "" : raw, rawResponse: raw, renderedPrompt: prompt, tokens, costUsd, ...extra };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     return { value: "", error: message };
@@ -477,6 +501,7 @@ Input URL hint (if available): {input_url}`,
     inputMappings: { company_name: "company_name" },
     condition: "require_input",
     conditionField: "company_name",
+    captureReasoning: true,
   },
   {
     name: "Industry Keywords",

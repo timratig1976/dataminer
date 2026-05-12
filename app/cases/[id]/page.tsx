@@ -703,6 +703,26 @@ function EditPromptModal({ col, caseId, onSave, onClose, cellContext, onRunCell,
             </div>
           </div>
 
+          {/* ── Reasoning capture ── */}
+          <div style={{border:"1px solid #e9d5ff",borderRadius:8,overflow:"hidden"}}>
+            <button type="button"
+              onClick={() => setDraft(d => ({...d, captureReasoning: d.captureReasoning ? undefined : true}))}
+              style={{width:"100%",display:"flex",alignItems:"center",gap:8,padding:"7px 10px",background:draft.captureReasoning?"#f3e8ff":"#faf5ff",border:"none",cursor:"pointer",textAlign:"left"}}>
+              <span style={{fontSize:13}}>🧠</span>
+              <span style={{fontSize:11,fontWeight:700,color:draft.captureReasoning?"#6b21a8":"#94a3b8",textTransform:"uppercase",letterSpacing:"0.05em",flex:1}}>
+                Reasoning erfassen
+              </span>
+              <span style={{fontSize:11,padding:"1px 8px",borderRadius:10,background:draft.captureReasoning?"#7c3aed":"#e2e8f0",color:draft.captureReasoning?"#fff":"#64748b",fontWeight:600}}>
+                {draft.captureReasoning ? "AN" : "AUS"}
+              </span>
+            </button>
+            {draft.captureReasoning && (
+              <div style={{padding:"8px 10px",background:"#faf5ff",fontSize:11,color:"#7c3aed",lineHeight:1.5}}>
+                Das LLM gibt eine kurze Begründung seiner Antwort zurück (welche Quelle, warum, was abgelehnt). Wird als <code style={{background:"#ede9fe",padding:"0 4px",borderRadius:3}}>_reasoning_{draft.outputKey}</code> in der Zeile gespeichert.
+              </div>
+            )}
+          </div>
+
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12}}>
             <div><label style={lbl}>Modell</label>
               <select style={inp} value={draft.model||"gpt-4o-mini"} onChange={e=>setDraft(d=>({...d,model:e.target.value}))}>
