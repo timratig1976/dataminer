@@ -62,6 +62,7 @@ export function AddColumnModal({ caseId, onClose, onAdded, availableFields = [] 
   }, [caseId]);
 
   function applyPreset(p: Omit<AiColumn, "id">) {
+    setMode("custom");
     setName(p.name);
     setOutputKey(p.outputKey);
     setPrompt(p.prompt);
@@ -93,52 +94,56 @@ export function AddColumnModal({ caseId, onClose, onAdded, availableFields = [] 
   async function save() {
     if (!canSave) return;
     setSaving(true);
+    try {
+      if (colType === "text" || colType === "number") {
+        const r = await fetch(`/api/cases/${caseId}/add-column`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ key: outputKey.trim() }),
+        });
+        if (!r.ok) throw new Error(`add-column failed: ${r.status} ${await r.text()}`);
+        const updated = await fetch(`/api/cases/${caseId}`).then(r => r.json());
+        onAdded(updated);
+        return;
+      }
 
-    if (colType === "text" || colType === "number") {
-      // Add plain column to all rows
-      await fetch(`/api/cases/${caseId}/add-column`, {
-        method: "POST",
+      if (!prompt.trim()) return;
+      const newCol: AiColumn = {
+        id: randomUUID(),
+        name: name.trim(),
+        outputKey: outputKey.trim(),
+        prompt: prompt.trim(),
+        model,
+        outputMode,
+        jsonKey: outputMode === "json" ? jsonKey.trim() || undefined : undefined,
+        condition: (condition || undefined) as AiColumn["condition"],
+        conditionField: conditionField || undefined,
+        requiredFields: requiredFields.length > 0 ? requiredFields : undefined,
+        inputMappings: requiredFields.length > 0
+          ? Object.fromEntries(requiredFields
+              .map((field) => [field, (inputMappings[field] || "").trim()])
+              .filter(([, mapped]) => mapped !== ""))
+          : undefined,
+        useWebSearch: useWebSearch || undefined,
+        searchQuery: useWebSearch && searchQuery.trim() ? searchQuery.trim() : undefined,
+        searchMaxResults: useWebSearch ? searchMaxResults : undefined,
+        searchForceLayer: useWebSearch && searchForceLayer ? searchForceLayer : undefined,
+      };
+      const caseRes = await fetch(`/api/cases/${caseId}`).then((r) => r.json());
+      const res = await fetch(`/api/cases/${caseId}`, {
+        method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ key: outputKey.trim() }),
+        body: JSON.stringify({ aiColumns: [...(caseRes.aiColumns || []), newCol] }),
       });
-      // Return updated case (no change to aiColumns)
-      const updated = await fetch(`/api/cases/${caseId}`).then(r => r.json());
-      setSaving(false);
+      if (!res.ok) throw new Error(`PATCH failed: ${res.status} ${await res.text()}`);
+      const updated = await res.json();
       onAdded(updated);
-      return;
+    } catch (err) {
+      console.error("[AddColumnModal] save error:", err);
+      alert(`Fehler beim Speichern: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setSaving(false);
     }
-
-    if (!prompt.trim()) { setSaving(false); return; }
-    const newCol: AiColumn = {
-      id: randomUUID(),
-      name: name.trim(),
-      outputKey: outputKey.trim(),
-      prompt: prompt.trim(),
-      model,
-      outputMode,
-      jsonKey: outputMode === "json" ? jsonKey.trim() || undefined : undefined,
-      condition: (condition || undefined) as AiColumn["condition"],
-      conditionField: conditionField || undefined,
-      requiredFields: requiredFields.length > 0 ? requiredFields : undefined,
-      inputMappings: requiredFields.length > 0
-        ? Object.fromEntries(requiredFields
-            .map((field) => [field, (inputMappings[field] || "").trim()])
-            .filter(([, mapped]) => mapped !== ""))
-        : undefined,
-      useWebSearch: useWebSearch || undefined,
-      searchQuery: useWebSearch && searchQuery.trim() ? searchQuery.trim() : undefined,
-      searchMaxResults: useWebSearch ? searchMaxResults : undefined,
-      searchForceLayer: useWebSearch && searchForceLayer ? searchForceLayer : undefined,
-    };
-    const caseRes = await fetch(`/api/cases/${caseId}`).then((r) => r.json());
-    const res = await fetch(`/api/cases/${caseId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ aiColumns: [...(caseRes.aiColumns || []), newCol] }),
-    });
-    const updated = await res.json();
-    setSaving(false);
-    onAdded(updated);
   }
 
   return (
