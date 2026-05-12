@@ -155,7 +155,9 @@ function checkRequiredInputs(column: AiColumn, data: Record<string, string | nul
 
 function checkCondition(column: AiColumn, data: Record<string, string | null>): { skip: boolean; reason?: string } {
   if (!column.condition || !column.conditionField) return { skip: false };
-  const fieldValue = data[column.conditionField];
+  // Resolve through inputMappings if available (conditionField may be a logical name)
+  const resolvedField = column.inputMappings?.[column.conditionField] || column.conditionField;
+  const fieldValue = data[resolvedField] ?? data[column.conditionField];
   if (column.condition === "empty" && fieldValue && String(fieldValue).trim() !== "") {
     return { skip: true, reason: `${column.conditionField} already has value` };
   }
