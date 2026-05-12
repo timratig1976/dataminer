@@ -31,13 +31,19 @@ export async function POST(req: NextRequest) {
   const apiKey = getEffectiveApiKey(caseData, provider) || "";
   if (!apiKey) return NextResponse.json({ error: "No API key configured" }, { status: 400 });
 
-  const company = row.data["company_name"] ?? rowId;
+  const company = row.data["company_name"] ?? row.data[Object.keys(row.data).find(k => k.toLowerCase().includes("name") || k.toLowerCase().includes("unternehmen")) ?? ""] ?? rowId;
   appendLog(caseId, `▶ [${column.name}] ${company} model=${model} provider=${provider} endpoint=${endpoint}`);
   updateRowCell(rowId, column.outputKey, row.data[column.outputKey] ?? "", "running");
 
   const runId = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`;
   const runAt = new Date().toISOString();
   const result = await runAiColumn(column, row.data, apiKey, provider);
+
+  if (result.webSearchQuery) {
+    appendLog(caseId, `🔍 [${column.name}] ${company} — web search: "${result.webSearchQuery}" → ${result.webSearchResultCount ?? 0} result(s) via ${result.webSearchSource ?? "?"}`);
+  } else if (column.useWebSearch) {
+    appendLog(caseId, `⚠ [${column.name}] ${company} — web search enabled but no results (check searchQuery template or SERP_API_KEY)`);
+  }
 
   const metaData: Record<string, string> = {
     [`_llm_model_${column.outputKey}`]: model,
@@ -46,6 +52,9 @@ export async function POST(req: NextRequest) {
     [`_llm_run_id_${column.outputKey}`]: runId,
     [`_llm_run_at_${column.outputKey}`]: runAt,
   };
+  if (result.webSearchQuery) metaData[`_search_query_${column.outputKey}`] = result.webSearchQuery;
+  if (result.webSearchResultCount) metaData[`_search_count_${column.outputKey}`] = String(result.webSearchResultCount);
+  if (result.webSearchSource) metaData[`_search_source_${column.outputKey}`] = result.webSearchSource;
   if (result.rawResponse) metaData[`_llm_raw_${column.outputKey}`] = result.rawResponse;
   if (result.renderedPrompt) metaData[`_llm_prompt_${column.outputKey}`] = result.renderedPrompt;
   if (result.tokens) metaData[`_llm_tokens_${column.outputKey}`] = JSON.stringify(result.tokens);

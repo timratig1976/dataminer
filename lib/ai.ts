@@ -233,7 +233,7 @@ export async function runAiColumn(
   rowData: Record<string, string | null>,
   apiKey: string,
   provider: LlmProvider = "openai"
-): Promise<{ value: string; skipped?: boolean; skipReason?: string; error?: string; multiValues?: Record<string, string>; rawResponse?: string; renderedPrompt?: string; tokens?: { prompt: number; completion: number; total: number }; costUsd?: number }> {
+): Promise<{ value: string; skipped?: boolean; skipReason?: string; error?: string; multiValues?: Record<string, string>; rawResponse?: string; renderedPrompt?: string; tokens?: { prompt: number; completion: number; total: number }; costUsd?: number; webSearchQuery?: string; webSearchResultCount?: number; webSearchSource?: string }> {
   const requiredCheck = checkRequiredInputs(column, rowData);
   if (requiredCheck.skip) {
     return { value: rowData[column.outputKey] ?? "", skipped: true, skipReason: requiredCheck.reason };
@@ -278,9 +278,12 @@ export async function runAiColumn(
   // ── Web Search injection ──────────────────────────────────────────────────
   let webSearchContext = "";
   let webSearchSource: string | undefined;
+  let webSearchResultCount = 0;
+  let webSearchQueryRendered: string | undefined;
   if (column.useWebSearch && column.searchQuery) {
     try {
-      const searchQueryRendered = renderPrompt(column.searchQuery, rowData, column.inputMappings);
+      webSearchQueryRendered = renderPrompt(column.searchQuery, rowData, column.inputMappings);
+      const searchQueryRendered = webSearchQueryRendered;
       const serpApiKey = process.env.SERP_API_KEY || undefined;
       const searchResp = await webSearch(searchQueryRendered, {
         serpApiKey,
@@ -289,6 +292,7 @@ export async function runAiColumn(
       });
       webSearchContext = formatSearchResultsForLlm(searchResp);
       webSearchSource = searchResp.source;
+      webSearchResultCount = searchResp.results.length;
     } catch (e) {
       console.warn("[ai] web search failed, continuing without:", (e as Error).message);
     }
@@ -419,17 +423,20 @@ export async function runAiColumn(
         renderedPrompt: prompt,
         tokens,
         costUsd,
+        webSearchQuery: webSearchQueryRendered,
+        webSearchResultCount,
+        webSearchSource,
       };
     }
 
     if (isJson && column.jsonKey) {
       const extracted = extractJsonKey(raw, column.jsonKey);
       const extra = reasoningValue ? { multiValues: { [`_reasoning_${column.outputKey}`]: reasoningValue } } : {};
-      return { value: extracted === "notFound" ? "" : extracted, rawResponse: raw, renderedPrompt: prompt, tokens, costUsd, ...extra };
+      return { value: extracted === "notFound" ? "" : extracted, rawResponse: raw, renderedPrompt: prompt, tokens, costUsd, webSearchQuery: webSearchQueryRendered, webSearchResultCount, webSearchSource, ...extra };
     }
 
     const extra = reasoningValue ? { multiValues: { [`_reasoning_${column.outputKey}`]: reasoningValue } } : {};
-    return { value: raw === "notFound" ? "" : raw, rawResponse: raw, renderedPrompt: prompt, tokens, costUsd, ...extra };
+    return { value: raw === "notFound" ? "" : raw, rawResponse: raw, renderedPrompt: prompt, tokens, costUsd, webSearchQuery: webSearchQueryRendered, webSearchResultCount, webSearchSource, ...extra };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     return { value: "", error: message };
