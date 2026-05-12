@@ -271,7 +271,7 @@ export async function runAiColumn(
   }
 
   const promptBase = column.useWebSearch && webSearchContext
-    ? `${column.prompt}\n\n---\nWEB SEARCH RESULTS (Quelle: ${webSearchSource ?? "web"}):\n${webSearchContext}\n---`
+    ? `#WEB SEARCH RESULTS (source: ${webSearchSource ?? "web"}) — use these as your PRIMARY source of evidence. Extract your answer directly from the URLs and snippets below before falling back to internal knowledge.\n${webSearchContext}\n#END WEB SEARCH RESULTS\n\n${column.prompt}`
     : column.prompt;
 
   const prompt = renderPrompt(promptBase, rowData, column.inputMappings);
@@ -445,7 +445,13 @@ Find the official primary domain for the given company name using web search and
    - If an input URL hint is provided, treat it as a strong signal — verify it belongs to the correct company before accepting it.
    - If a legal form is visible in the company name (GmbH, AG, KG, e.K., UG etc.), use it to narrow the search.
 
-7. Output rules:
+7. Using web search results:
+   - If a #WEB SEARCH RESULTS block is present above your instructions, treat it as live search data.
+   - Scan each result's URL and Domain field first — if a result URL IS the company's own homepage (domain matches company name), use that domain directly with confidence "high".
+   - Directory listings (dasoertliche.de, gelbeseiten.de, 11880.com, northdata.de, etc.) often contain the company's own website URL in their snippet — extract it from there.
+   - Cross-reference at least two results before setting confidence "high".
+
+8. Output rules:
    - Output JSON with camelCase keys only: { "domain": string, "confidence": "high"|"medium"|"low"|"notFound", "sourceUrl": string }
    - Use "high" when the domain is confirmed on the company's homepage and corroborated or clearly unambiguous; "medium" for strong but not fully corroborated matches; "low" when weak signals suggest a match; "notFound" if no reliable domain.
    - For sourceUrl, provide the most authoritative page used (prefer the company homepage or an authoritative directory entry).

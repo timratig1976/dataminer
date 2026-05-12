@@ -333,7 +333,7 @@ describe("formatSearchResultsForLlm", () => {
 
   it("returns placeholder when results are empty", () => {
     const out = formatSearchResultsForLlm(base);
-    expect(out).toContain("Keine Suchergebnisse");
+    expect(out).toContain("No search results found");
   });
 
   it("includes source and latency in header", () => {

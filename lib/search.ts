@@ -375,15 +375,20 @@ export async function webSearch(
 
 export function formatSearchResultsForLlm(
   response: SearchResponse,
-  maxSnippetLen = 300
+  maxSnippetLen = 400
 ): string {
-  if (response.results.length === 0) return "(Keine Suchergebnisse gefunden)";
-  const header = `Suchergebnisse (via ${response.source}, ${response.latencyMs}ms):`;
+  if (response.results.length === 0) return "(No search results found)";
+  const header = `Found ${response.results.length} result(s) via ${response.source} in ${response.latencyMs}ms:`;
   const body = response.results
-    .map(
-      (r, i) =>
-        `[${i + 1}] ${r.title}\nURL: ${r.url}\n${r.snippet.slice(0, maxSnippetLen)}`
-    )
+    .map((r, i) => {
+      let domain = "";
+      try {
+        domain = new URL(r.url).hostname.replace(/^www\./, "");
+      } catch {}
+      return `[${i + 1}] ${r.title}
+URL: ${r.url}${domain ? `\nDomain: ${domain}` : ""}
+Snippet: ${r.snippet.slice(0, maxSnippetLen)}`;
+    })
     .join("\n\n");
   return `${header}\n\n${body}`;
 }
