@@ -1,6 +1,6 @@
 "use client";
 
-import { Play, Pencil, Trash2, ChevronDown, Sparkles } from "lucide-react";
+import { Play, Pencil, Trash2, ChevronDown, Sparkles, XCircle } from "lucide-react";
 import { useState, useRef, useEffect } from "react";
 import type { AiColumn } from "@/lib/types";
 
@@ -10,9 +10,11 @@ interface Props {
   onRunEmptyOnly: () => void;
   onDelete: () => void;
   onEdit: () => void;
+  onStop?: () => void;
+  isRunning?: boolean;
 }
 
-export function ColumnHeaderMenu({ column, onRunAll, onRunEmptyOnly, onDelete, onEdit }: Props) {
+export function ColumnHeaderMenu({ column, onRunAll, onRunEmptyOnly, onDelete, onEdit, onStop, isRunning }: Props) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -38,6 +40,16 @@ export function ColumnHeaderMenu({ column, onRunAll, onRunEmptyOnly, onDelete, o
 
       {open && (
         <div className="absolute top-full left-0 mt-1 w-44 bg-white border border-gray-200 rounded-lg shadow-lg z-50 py-1 text-sm">
+          {isRunning && onStop && (
+            <button
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={(e) => { e.stopPropagation(); onStop(); setOpen(false); }}
+              className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-red-50 text-red-600"
+            >
+              <XCircle className="w-3.5 h-3.5" />
+              Stop column run
+            </button>
+          )}
           <button
             onMouseDown={(e) => e.stopPropagation()}
             onClick={(e) => { e.stopPropagation(); onRunAll(); setOpen(false); }}

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCase, getRow, updateRowCell, appendLog, getEffectiveApiKey } from "@/lib/db";
 import { inferProviderFromModel, runAiColumn } from "@/lib/ai";
+import { registerOperation, isOperationCancelled, removeOperation, cancelOperation } from "@/lib/operations";
 
 function isOpenAiResponsesOnlyModel(model: string): boolean {
   const m = model.toLowerCase();
@@ -15,21 +16,38 @@ function endpointForModel(provider: "openai" | "cerebras" | "anthropic", model: 
 
 export async function POST(req: NextRequest) {
   const { caseId, rowId, columnId } = await req.json();
+  const abortController = new AbortController();
+  const timeout = setTimeout(() => abortController.abort(), 300000); // 5 min timeout
+  if (req.signal) {
+    req.signal.addEventListener('abort', () => abortController.abort());
+  }
 
   const caseData = getCase(caseId);
-  if (!caseData) return NextResponse.json({ error: "Case not found" }, { status: 404 });
+  if (!caseData) {
+    clearTimeout(timeout);
+    return NextResponse.json({ error: "Case not found" }, { status: 404 });
+  }
 
   const row = getRow(rowId);
-  if (!row) return NextResponse.json({ error: "Row not found" }, { status: 404 });
+  if (!row) {
+    clearTimeout(timeout);
+    return NextResponse.json({ error: "Row not found" }, { status: 404 });
+  }
 
   const column = caseData.aiColumns.find((c) => c.id === columnId);
-  if (!column) return NextResponse.json({ error: "Column not found" }, { status: 404 });
+  if (!column) {
+    clearTimeout(timeout);
+    return NextResponse.json({ error: "Column not found" }, { status: 404 });
+  }
 
   const provider = inferProviderFromModel(column.model);
   const model = column.model || "gpt-4o-mini";
   const endpoint = endpointForModel(provider, model);
   const apiKey = getEffectiveApiKey(caseData, provider) || "";
-  if (!apiKey) return NextResponse.json({ error: "No API key configured" }, { status: 400 });
+  if (!apiKey) {
+    clearTimeout(timeout);
+    return NextResponse.json({ error: "No API key configured" }, { status: 400 });
+  }
 
   const company = row.data["company_name"] ?? row.data[Object.keys(row.data).find(k => k.toLowerCase().includes("name") || k.toLowerCase().includes("unternehmen")) ?? ""] ?? rowId;
   appendLog(caseId, `▶ [${column.name}] ${company} model=${model} provider=${provider} endpoint=${endpoint}`);
@@ -37,7 +55,38 @@ export async function POST(req: NextRequest) {
 
   const runId = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`;
   const runAt = new Date().toISOString();
-  const result = await runAiColumn(column, row.data, apiKey, provider);
+
+  // Register operation for server-side cancellation
+  const opId = registerOperation({
+    type: 'cell',
+    caseId,
+    rowId,
+    columnId,
+    startTime: Date.now(),
+  });
+
+  let result;
+  try {
+    // Check cancellation before starting
+    if (isOperationCancelled(opId)) {
+      updateRowCell(rowId, column.outputKey, "", "skipped");
+      appendLog(caseId, `⏹ [${column.name}] ${company} — cancelled before start`);
+      return NextResponse.json({ status: "cancelled", message: "Operation cancelled", operationId: opId });
+    }
+
+    result = await runAiColumn(column, row.data, apiKey, provider, abortController.signal, opId);
+  } catch (error: any) {
+    clearTimeout(timeout);
+    removeOperation(opId);
+    if (error.name === 'AbortError' || error.message?.includes('abort') || isOperationCancelled(opId)) {
+      updateRowCell(rowId, column.outputKey, "", "skipped");
+      appendLog(caseId, `⏹ [${column.name}] ${company} — cancelled`);
+      return NextResponse.json({ status: "cancelled", message: "Operation cancelled", operationId: opId });
+    }
+    throw error;
+  }
+  clearTimeout(timeout);
+  removeOperation(opId);
 
   if (result.webSearchQuery) {
     appendLog(caseId, `🔍 [${column.name}] ${company} — web search: "${result.webSearchQuery}" → ${result.webSearchResultCount ?? 0} result(s) via ${result.webSearchSource ?? "?"}`);
@@ -66,7 +115,7 @@ export async function POST(req: NextRequest) {
       updateRowCell(rowId, key, val, "done");
     }
     appendLog(caseId, `⏭ [${column.name}] ${company} — skipped: ${result.skipReason}`);
-    return NextResponse.json({ status: "skipped", value: result.value, reason: result.skipReason, ...metaData });
+    return NextResponse.json({ status: "skipped", value: result.value, reason: result.skipReason, operationId: opId, ...metaData });
   }
 
   if (result.error) {
@@ -75,7 +124,7 @@ export async function POST(req: NextRequest) {
       updateRowCell(rowId, key, val, "done");
     }
     appendLog(caseId, `❌ [${column.name}] ${company} — ${result.error}`);
-    return NextResponse.json({ status: "error", error: result.error, ...metaData }, { status: 500 });
+    return NextResponse.json({ status: "error", error: result.error, operationId: opId, ...metaData }, { status: 500 });
   }
 
   for (const [key, val] of Object.entries(metaData)) {
@@ -93,5 +142,21 @@ export async function POST(req: NextRequest) {
     updateRowCell(rowId, column.outputKey, result.value, "done");
     appendLog(caseId, `✅ [${column.name}] ${company} → ${result.value || "(empty)"}`);
   }
-  return NextResponse.json({ status: "done", value: result.value, multiValues: result.multiValues, rawResponse: result.rawResponse, renderedPrompt: result.renderedPrompt, tokens: result.tokens, costUsd: result.costUsd, ...metaData });
+  return NextResponse.json({ status: "done", value: result.value, multiValues: result.multiValues, rawResponse: result.rawResponse, renderedPrompt: result.renderedPrompt, tokens: result.tokens, costUsd: result.costUsd, operationId: opId, ...metaData });
+}
+
+export async function DELETE(req: NextRequest) {
+  const { searchParams } = new URL(req.url);
+  const operationId = searchParams.get('operationId');
+
+  if (!operationId) {
+    return NextResponse.json({ error: "operationId required" }, { status: 400 });
+  }
+
+  const cancelled = cancelOperation(operationId);
+  if (cancelled) {
+    return NextResponse.json({ status: "cancelled", operationId });
+  } else {
+    return NextResponse.json({ error: "Operation not found" }, { status: 404 });
+  }
 }

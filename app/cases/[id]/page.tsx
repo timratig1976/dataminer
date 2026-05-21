@@ -1315,6 +1315,90 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
   const [editingPromptCell, setEditingPromptCell] = useState<{col: AiColumn; row: RowData} | null>(null);
   const [runDetailCell, setRunDetailCell] = useState<{col: AiColumn; row: RowData} | null>(null);
   const [sequentialMode, setSequentialMode] = useState(false);
+  const [reasoningModal, setReasoningModal] = useState<{content: string; title: string} | null>(null);
+  const [abortControllers, setAbortControllers] = useState<Record<string, AbortController>>({});
+  const [runningColumnId, setRunningColumnId] = useState<string | null>(null);
+  const [runningRowIds, setRunningRowIds] = useState<Set<string>>(new Set());
+  const [operationIds, setOperationIds] = useState<Record<string, string>>({});
+  const [runningCellTimestamps, setRunningCellTimestamps] = useState<Record<string, number>>({});
+
+  // Calculate total tokens and costs across all rows
+  const calculateTotals = useCallback(() => {
+    let totalTokens = 0;
+    let totalCostUsd = 0;
+
+    rows.forEach(row => {
+      Object.entries(row.data).forEach(([key, value]) => {
+        if (key.startsWith('_llm_tokens_') && typeof value === 'string') {
+          try {
+            const tokens = JSON.parse(value);
+            if (tokens.total) {
+              totalTokens += tokens.total;
+            }
+          } catch {
+            // Ignore parse errors
+          }
+        }
+        if (key.startsWith('_llm_cost_') && typeof value === 'string') {
+          const cost = parseFloat(value);
+          if (!isNaN(cost)) {
+            totalCostUsd += cost;
+          }
+        }
+      });
+    });
+
+    // Convert USD to Euro (approximate rate: 1 USD = 0.92 EUR)
+    const usdToEurRate = 0.92;
+    const totalCostEur = totalCostUsd * usdToEurRate;
+
+    return { totalTokens, totalCostUsd, totalCostEur };
+  }, [rows]);
+
+  const totals = calculateTotals();
+
+  // Cleanup stuck running cells (only clean up cells running > 10 min or completed)
+  useEffect(() => {
+    // Only start cleanup if there are running cells
+    if (runningCells.size === 0) return;
+
+    const timeout = setTimeout(() => {
+      const now = Date.now();
+      const maxRunTime = 10 * 60 * 1000; // 10 minutes
+
+      setRunningCells(prev => {
+        const cleaned = new Set<string>();
+        const newTimestamps: Record<string, number> = {};
+
+        prev.forEach(key => {
+          const [rowId, colId] = key.split(':');
+          const row = rows.find(r => r.id === rowId);
+          const startTime = runningCellTimestamps[key];
+
+          if (row) {
+            const col = caseData?.aiColumns.find(c => c.id === colId);
+            if (col) {
+              const status = row.cellStatuses[col.outputKey];
+              const isRunningTooLong = startTime && (now - startTime > maxRunTime);
+              
+              // Remove if: not actually running, or running too long
+              if (status !== 'running' || isRunningTooLong) {
+                console.log('Cleaning up stuck running cell:', key, 'actual status:', status);
+              } else {
+                cleaned.add(key);
+                newTimestamps[key] = startTime || now;
+              }
+            }
+          }
+        });
+
+        setRunningCellTimestamps(newTimestamps);
+        return cleaned;
+      });
+    }, 30000); // Check after 30 seconds
+
+    return () => clearTimeout(timeout);
+  }, [runningCells.size, rows, caseData?.aiColumns, runningCellTimestamps]);
 
   const refresh = useCallback(async () => {
     const [c, r] = await Promise.all([
@@ -1323,6 +1407,30 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
     ]);
     setCaseData(c);
     setRows(r);
+    
+    // Clear any stuck "running" statuses from previous session
+    const rowsWithStuckStatus = r.filter((row: RowData) => 
+      Object.keys(row.cellStatuses).some(key => row.cellStatuses[key] === 'running')
+    );
+    
+    if (rowsWithStuckStatus.length > 0) {
+      console.log('Clearing stuck running statuses from previous session:', rowsWithStuckStatus.length);
+      rowsWithStuckStatus.forEach((row: RowData) => {
+        Object.keys(row.cellStatuses).forEach(key => {
+          if (row.cellStatuses[key] === 'running') {
+            // Update the row in the database to clear the running status
+            fetch(`/api/rows/${row.id}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ 
+                cellStatuses: { ...row.cellStatuses, [key]: 'skipped' }
+              }),
+            }).catch(console.error);
+          }
+        });
+      });
+    }
+    
     if (r.length > 0) {
       const aiKeys = c.aiColumns.map((col: AiColumn) => col.outputKey);
       // all multiKey sub-outputs (e.g. domain_confidence, domain_validated) written to row data
@@ -1394,52 +1502,108 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
   // ── Run single cell ───────────────────────────────────────────────────────
   async function runCell(rowId: string, col: AiColumn) {
     const key = `${rowId}:${col.id}`;
+    const abortController = new AbortController();
+    setAbortControllers(prev => ({ ...prev, [key]: abortController }));
     setRunningCells((prev) => new Set(prev).add(key));
+    setRunningCellTimestamps(prev => ({ ...prev, [key]: Date.now() }));
     setRows((prev) =>
       prev.map((r) => r.id === rowId
         ? { ...r, cellStatuses: { ...r.cellStatuses, [col.outputKey]: "running" } }
         : r)
     );
-    const res = await fetch("/api/run/cell", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ caseId, rowId, columnId: col.id }),
-    });
-    const result = await res.json();
-    setRows((prev) =>
-      prev.map((r) => {
-        if (r.id !== rowId) return r;
-        const extraData = result.multiValues ?? {};
-        const extraStatuses: Record<string,string> = {};
-        for (const k of Object.keys(extraData)) extraStatuses[k] = result.status ?? "done";
-        const metaData: Record<string, string> = {};
-        const metaPrefix = `_llm_`;
-        for (const [key, val] of Object.entries(result as Record<string, unknown>)) {
-          if (key.startsWith(metaPrefix) && typeof val === "string") {
-            metaData[key] = val;
-          }
-        }
-        return {
-          ...r,
-          data: { ...r.data, [col.outputKey]: result.value ?? r.data[col.outputKey], ...extraData, ...metaData },
-          cellStatuses: { ...r.cellStatuses, [col.outputKey]: result.status ?? (res.ok ? "done" : "error"), ...extraStatuses },
-          cellErrors: result.error ? { ...r.cellErrors, [col.outputKey]: result.error } : r.cellErrors,
-        };
-      })
-    );
-    setRunningCells((prev) => { const s = new Set(prev); s.delete(key); return s; });
-    if (result.multiValues) {
-      const newKeys = Object.keys(result.multiValues);
-      setColOrder(prev => {
-        const existing = new Set(prev);
-        const toAdd = newKeys.filter(k => !existing.has(k));
-        return toAdd.length > 0 ? [...prev, ...toAdd] : prev;
+    try {
+      const res = await fetch("/api/run/cell", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ caseId, rowId, columnId: col.id }),
+        signal: abortController.signal,
       });
+      const result = await res.json();
+      if (result.operationId) {
+        setOperationIds(prev => ({ ...prev, [key]: result.operationId }));
+      }
+      try {
+        setRows((prev) =>
+          prev.map((r) => {
+            if (r.id !== rowId) return r;
+            const extraData = result.multiValues ?? {};
+            const extraStatuses: Record<string,string> = {};
+            for (const k of Object.keys(extraData)) extraStatuses[k] = result.status ?? "done";
+            const metaData: Record<string, string> = {};
+            const metaPrefix = `_llm_`;
+            for (const [key, val] of Object.entries(result as Record<string, unknown>)) {
+              if (key.startsWith(metaPrefix) && typeof val === "string") {
+                metaData[key] = val;
+              }
+            }
+            return {
+              ...r,
+              data: { ...r.data, [col.outputKey]: result.value ?? r.data[col.outputKey], ...extraData, ...metaData },
+              cellStatuses: { ...r.cellStatuses, [col.outputKey]: result.status ?? (res.ok ? "done" : "error"), ...extraStatuses },
+              cellErrors: result.error ? { ...r.cellErrors, [col.outputKey]: result.error } : r.cellErrors,
+            };
+          })
+        );
+      } catch (error) {
+        console.error('Error updating row status:', error);
+      }
+      if (result.multiValues) {
+        const newKeys = Object.keys(result.multiValues);
+        setColOrder(prev => {
+          const existing = new Set(prev);
+          const toAdd = newKeys.filter(k => !existing.has(k));
+          return toAdd.length > 0 ? [...prev, ...toAdd] : prev;
+        });
+      }
+    } finally {
+      setRunningCells((prev) => { const s = new Set(prev); s.delete(key); return s; });
+      setAbortControllers(prev => { const { [key]: _, ...rest } = prev; return rest; });
+      setRunningCellTimestamps(prev => { const { [key]: _, ...rest } = prev; return rest; });
+      setOperationIds(prev => { const { [key]: _, ...rest } = prev; return rest; });
     }
+  }
+
+  function stopCell(rowId: string, col: AiColumn) {
+    const key = `${rowId}:${col.id}`;
+    const opId = operationIds[key];
+
+    // Call server-side cancellation endpoint
+    if (opId) {
+      fetch(`/api/run/cell?operationId=${opId}`, { method: 'DELETE' }).catch(console.error);
+    }
+
+    // Abort local fetch request
+    const controller = abortControllers[key];
+    if (controller) {
+      controller.abort();
+      setAbortControllers(prev => { const { [key]: _, ...rest } = prev; return rest; });
+    }
+    // Always update UI state even if controller not found
+    setRunningCells((prev) => { const s = new Set(prev); s.delete(key); return s; });
+    setOperationIds(prev => { const { [key]: _, ...rest } = prev; return rest; });
+    setRunningCellTimestamps(prev => { const { [key]: _, ...rest } = prev; return rest; });
+    setRows((prev) =>
+      prev.map((r) => r.id === rowId
+        ? {
+            ...r,
+            cellStatuses: { ...r.cellStatuses, [col.outputKey]: "skipped" },
+            data: {
+              ...r.data,
+              [col.outputKey]: "", // Clear the main output
+              [`_reasoning_${col.outputKey}`]: "", // Clear reasoning
+            },
+          }
+        : r)
+    );
   }
 
   // ── Run entire column ─────────────────────────────────────────────────────
   async function runColumn(col: AiColumn, runMode: "all_force" | "empty_only" = "all_force") {
+    const key = `col:${col.id}`;
+    const abortController = new AbortController();
+    setAbortControllers(prev => ({ ...prev, [key]: abortController }));
+    setRunningColumnId(col.id);
+
     const targetIds = selectedRows.size > 0 ? [...selectedRows] : rows.map((r) => r.id);
     const targetRows = runMode === "empty_only"
       ? rows.filter((r) => targetIds.includes(r.id) && (() => {
@@ -1458,28 +1622,57 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
           : r
       )
     );
-    const res = await fetch("/api/run/column", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ caseId, columnId: col.id, rowIds: targetIds, runMode, concurrency: sequentialMode ? 1 : 5 }),
-    });
-    const { results } = await res.json();
-    setRows((prev) =>
-      prev.map((r) => {
-        const result = results?.[r.id];
-        if (!result) return r;
-        const extraData = result.multiValues ?? {};
-        const metaData = result.metaData ?? {};
-        const extraStatuses: Record<string,string> = {};
-        for (const k of Object.keys(extraData)) extraStatuses[k] = result.status ?? "done";
-        return {
-          ...r,
-          data: { ...r.data, [col.outputKey]: result.value ?? r.data[col.outputKey], ...extraData, ...metaData },
-          cellStatuses: { ...r.cellStatuses, [col.outputKey]: result.status, ...extraStatuses },
-          cellErrors: result.error ? { ...r.cellErrors, [col.outputKey]: result.error } : r.cellErrors,
-        };
-      })
-    );
+    try {
+      const res = await fetch("/api/run/column", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ caseId, columnId: col.id, rowIds: targetIds, runMode, concurrency: sequentialMode ? 1 : 5 }),
+        signal: abortController.signal,
+      });
+      const json = await res.json();
+      const results = json.results;
+      if (json.operationId) {
+        setOperationIds(prev => ({ ...prev, [key]: json.operationId }));
+      }
+      setRows((prev) =>
+        prev.map((r) => {
+          const result = results?.[r.id];
+          if (!result) return r;
+          const extraData = result.multiValues ?? {};
+          const metaData = result.metaData ?? {};
+          const extraStatuses: Record<string,string> = {};
+          for (const k of Object.keys(extraData)) extraStatuses[k] = result.status ?? "done";
+          return {
+            ...r,
+            data: { ...r.data, [col.outputKey]: result.value ?? r.data[col.outputKey], ...extraData, ...metaData },
+            cellStatuses: { ...r.cellStatuses, [col.outputKey]: result.status, ...extraStatuses },
+            cellErrors: result.error ? { ...r.cellErrors, [col.outputKey]: result.error } : r.cellErrors,
+          };
+        })
+      );
+    } finally {
+      setAbortControllers(prev => { const { [key]: _, ...rest } = prev; return rest; });
+      setRunningColumnId(null);
+      setOperationIds(prev => { const { [key]: _, ...rest } = prev; return rest; });
+    }
+  }
+
+  function stopColumn(col: AiColumn) {
+    const key = `col:${col.id}`;
+    const opId = operationIds[key];
+
+    // Call server-side cancellation endpoint
+    if (opId) {
+      fetch(`/api/run/column?operationId=${opId}`, { method: 'DELETE' }).catch(console.error);
+    }
+
+    const controller = abortControllers[key];
+    if (controller) {
+      controller.abort();
+      setAbortControllers(prev => { const { [key]: _, ...rest } = prev; return rest; });
+    }
+    setOperationIds(prev => { const { [key]: _, ...rest } = prev; return rest; });
+    setRunningColumnId(null);
   }
 
   // ── Run all columns for selected rows ─────────────────────────────────────
@@ -1489,37 +1682,81 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
       alert("Keine KI-Spalten konfiguriert. Bitte zuerst eine Prompt-Spalte hinzufügen.");
       return;
     }
+    const key = `rows:${Date.now()}`;
+    const abortController = new AbortController();
+    setAbortControllers(prev => ({ ...prev, [key]: abortController }));
+    setRunningRowIds(new Set(selectedRows.size > 0 ? [...selectedRows] : rows.map((r) => r.id)));
+
     const targetIds = selectedRows.size > 0 ? [...selectedRows] : rows.map((r) => r.id);
-    for (const col of caseData.aiColumns) {
-      setRows((prev) =>
-        prev.map((r) =>
-          targetIds.includes(r.id)
-            ? { ...r, cellStatuses: { ...r.cellStatuses, [col.outputKey]: "running" } }
-            : r
-        )
-      );
-      const res = await fetch("/api/run/column", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ caseId, columnId: col.id, rowIds: targetIds, concurrency: sequentialMode ? 1 : 5 }),
-      });
-      const { results } = await res.json();
-      setRows((prev) =>
-        prev.map((r) => {
-          const result = results?.[r.id];
-          if (!result) return r;
-          const extraData = result.multiValues ?? {};
-          const extraStatuses: Record<string,string> = {};
-          for (const k of Object.keys(extraData)) extraStatuses[k] = result.status ?? "done";
-          return {
-            ...r,
-            data: { ...r.data, [col.outputKey]: result.value ?? r.data[col.outputKey], ...extraData },
-            cellStatuses: { ...r.cellStatuses, [col.outputKey]: result.status, ...extraStatuses },
-            cellErrors: result.error ? { ...r.cellErrors, [col.outputKey]: result.error } : r.cellErrors,
-          };
-        })
-      );
+    try {
+      for (const col of caseData.aiColumns) {
+        setRows((prev) =>
+          prev.map((r) =>
+            targetIds.includes(r.id)
+              ? { ...r, cellStatuses: { ...r.cellStatuses, [col.outputKey]: "running" } }
+              : r
+          )
+        );
+        const res = await fetch("/api/run/column", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ caseId, columnId: col.id, rowIds: targetIds, concurrency: sequentialMode ? 1 : 5 }),
+          signal: abortController.signal,
+        });
+        const json = await res.json();
+        const results = json.results;
+        if (json.operationId) {
+          setOperationIds(prev => ({ ...prev, [key]: json.operationId }));
+        }
+        setRows((prev) =>
+          prev.map((r) => {
+            const result = results?.[r.id];
+            if (!result) return r;
+            const extraData = result.multiValues ?? {};
+            const extraStatuses: Record<string,string> = {};
+            for (const k of Object.keys(extraData)) extraStatuses[k] = result.status ?? "done";
+            return {
+              ...r,
+              data: { ...r.data, [col.outputKey]: result.value ?? r.data[col.outputKey], ...extraData },
+              cellStatuses: { ...r.cellStatuses, [col.outputKey]: result.status, ...extraStatuses },
+              cellErrors: result.error ? { ...r.cellErrors, [col.outputKey]: result.error } : r.cellErrors,
+            };
+          })
+        );
+      }
+    } catch (error: any) {
+      if (error.name === 'AbortError' || error.message?.includes('abort')) {
+        // Canceled
+      } else {
+        throw error;
+      }
+    } finally {
+      setAbortControllers(prev => { const { [key]: _, ...rest } = prev; return rest; });
+      setOperationIds(prev => { const { [key]: _, ...rest } = prev; return rest; });
+      setRunningRowIds(new Set());
     }
+  }
+
+  function stopSelectedRows() {
+    const key = Object.keys(abortControllers).find(k => k.startsWith('rows:'));
+    const opId = key ? operationIds[key] : undefined;
+
+    // Call server-side cancellation endpoint
+    if (opId) {
+      fetch(`/api/run/column?operationId=${opId}`, { method: 'DELETE' }).catch(console.error);
+    }
+
+    if (key) {
+      const controller = abortControllers[key];
+      if (controller) {
+        controller.abort();
+        setAbortControllers(prev => { const { [key]: _, ...rest } = prev; return rest; });
+      }
+    }
+    if (opId && key) {
+      setOperationIds(prev => { const { [key]: _, ...rest } = prev; return rest; });
+    }
+    setRunningRowIds(new Set());
   }
 
   // ── Delete rows ───────────────────────────────────────────────────────────
@@ -1650,8 +1887,18 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
         <div style={{background:"#fff",borderBottom:"1px solid #e5e7eb",padding:"16px 28px 0",flexShrink:0}}>
           <div style={{marginBottom:6}}>
             <div style={{fontSize:16,fontWeight:700,color:"#111"}}>{caseData.name}</div>
-            <div style={{fontSize:12,color:"#6b7280",marginTop:2}}>
-              {new Date(caseData.createdAt).toLocaleDateString("de-DE")} · {rows.length} Zeilen · {sourceColumns.length} Quellspalten · {caseData.aiColumns.length} KI-Spalten
+            <div style={{fontSize:12,color:"#6b7280",marginTop:2,display:"flex",alignItems:"center",gap:8}}>
+              <span>{new Date(caseData.createdAt).toLocaleDateString("de-DE")} · {rows.length} Zeilen · {sourceColumns.length} Quellspalten · {caseData.aiColumns.length} KI-Spalten</span>
+              {totals.totalTokens > 0 && (
+                <span style={{background:"#f0fdf4",color:"#15803d",padding:"2px 8px",borderRadius:4,fontSize:11,fontWeight:600}}>
+                  🧠 {totals.totalTokens.toLocaleString()} tokens
+                </span>
+              )}
+              {totals.totalCostEur > 0 && (
+                <span style={{background:"#fef3c7",color:"#92400e",padding:"2px 8px",borderRadius:4,fontSize:11,fontWeight:600}}>
+                  💰 €{totals.totalCostEur.toFixed(2)}
+                </span>
+              )}
             </div>
           </div>
           {/* Tabs */}
@@ -1770,11 +2017,19 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
 
             {/* Big run buttons row */}
             <div style={{padding:"8px 16px",display:"flex",alignItems:"center",gap:8}}>
-              <button onClick={runSelectedRows}
-                style={{display:"flex",alignItems:"center",justifyContent:"center",gap:5,padding:"5px 14px",background:"#16a34a",color:"#fff",border:"none",borderRadius:5,cursor:"pointer",fontSize:12,fontWeight:600}}
-              >
-                ▶ Starten — {selCount} Zeilen
-              </button>
+              {runningRowIds.size > 0 ? (
+                <button onClick={stopSelectedRows}
+                  style={{display:"flex",alignItems:"center",justifyContent:"center",gap:5,padding:"5px 14px",background:"#dc2626",color:"#fff",border:"none",borderRadius:5,cursor:"pointer",fontSize:12,fontWeight:600}}
+                >
+                  X Stop — {runningRowIds.size} Zeilen
+                </button>
+              ) : (
+                <button onClick={runSelectedRows}
+                  style={{display:"flex",alignItems:"center",justifyContent:"center",gap:5,padding:"5px 14px",background:"#16a34a",color:"#fff",border:"none",borderRadius:5,cursor:"pointer",fontSize:12,fontWeight:600}}
+                >
+                  ▶ Starten — {selCount} Zeilen
+                </button>
+              )}
               <button
                 onClick={() => setSequentialMode(prev => !prev)}
                 title={sequentialMode ? "Sequenziell: 1 Zeile gleichzeitig" : "Parallel: 5 Zeilen gleichzeitig"}
@@ -1847,6 +2102,8 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
                               onRunEmptyOnly={() => runColumn(aiCol, "empty_only")}
                               onDelete={() => deleteColumn(aiCol.id)}
                               onEdit={() => setEditingPromptCol({ ...aiCol })}
+                              onStop={() => stopColumn(aiCol)}
+                              isRunning={runningColumnId === aiCol.id}
                             />
                           ) : isOrphan ? (
                             <span style={{flex:1,color:"#0d9488",fontSize:11,fontWeight:600}}>{key}</span>
@@ -1979,11 +2236,18 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
 
                                         {/* action buttons — always visible after run, hover-only when idle */}
                                         <div style={{display:"flex",alignItems:"center",gap:1,flexShrink:0}}>
-                                          <button onClick={e=>{e.stopPropagation();runCell(row.id,aiCol);}}
-                                            className={hasRun ? undefined : "opacity-0 group-hover/cell:opacity-100"}
-                                            style={{border:"none",background:"none",cursor:"pointer",padding:"2px",color:"#d1d5db",display:"flex",transition:"opacity .15s"}} title="Erneut ausführen">
-                                            <Play style={{width:9,height:9}}/>
-                                          </button>
+                                          {status === "running" ? (
+                                            <button onClick={e=>{e.stopPropagation();stopCell(row.id,aiCol);}}
+                                              style={{border:"none",background:"none",cursor:"pointer",padding:"2px",color:"#dc2626",display:"flex"}} title="Stop">
+                                              <XCircle style={{width:9,height:9}}/>
+                                            </button>
+                                          ) : (
+                                            <button onClick={e=>{e.stopPropagation();runCell(row.id,aiCol);}}
+                                              className={hasRun ? undefined : "opacity-0 group-hover/cell:opacity-100"}
+                                              style={{border:"none",background:"none",cursor:"pointer",padding:"2px",color:"#d1d5db",display:"flex",transition:"opacity .15s"}} title="Erneut ausführen">
+                                              <Play style={{width:9,height:9}}/>
+                                            </button>
+                                          )}
                                           {/* Info always visible after run */}
                                           <button onClick={e=>{e.stopPropagation();setRunDetailCell({col:aiCol,row});}}
                                             className={hasRun ? undefined : "opacity-0 group-hover/cell:opacity-100"}
@@ -2003,14 +2267,21 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
                         const val = row.data[key]??"";
                         const isEd = editingCell?.rowId===row.id && editingCell.key===key;
                         const isValidated = !isSrc && !aiCol; // orphan multiKey output
+                        const isReasoning = key.startsWith("_reasoning_");
                         return (
                           <td key={key} style={{padding:"6px 12px",borderRight:"1px solid #f3f4f6",maxWidth:200,
-                            background: isValidated ? (val.startsWith("✗")?"#fef2f2":val.startsWith("✓")?"#f0fdf4":undefined) : undefined
-                          }} onDoubleClick={()=>startEdit(row.id,key,val)}>
+                            background: isValidated ? (val.startsWith("✗")?"#fef2f2":val.startsWith("✓")?"#f0fdf4":undefined) : undefined,
+                            cursor: isReasoning && val ? "pointer" : undefined
+                          }} onDoubleClick={()=>startEdit(row.id,key,val)} onClick={() => {
+                            if (isReasoning && val) {
+                              setReasoningModal({ content: val, title: key.replace("_reasoning_", "") });
+                            }
+                          }}>
                             {isEd ? <EditInput rowId={row.id} k={key} /> :
                               <span style={{fontSize:12,display:"block",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",
-                                color: isValidated ? (val.startsWith("✗")?"#dc2626":val.startsWith("✓")?"#15803d":"#4b5563") : key==="company_name"?"#1f2937":"#4b5563"
-                              }} title={val}>{val}</span>}
+                                color: isValidated ? (val.startsWith("✗")?"#dc2626":val.startsWith("✓")?"#15803d":"#4b5563") : isReasoning?"#7c3aed":key==="company_name"?"#1f2937":"#4b5563",
+                                fontStyle: isReasoning?"italic":undefined
+                              }} title={val}>{isReasoning ? `🧠 ${val}` : val}</span>}
                           </td>
                         );
                       })}
@@ -2180,6 +2451,21 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
             setRunDetailCell(prev => prev && prev.row.id === rowId ? { ...prev, row: { ...prev.row, ...patch } } : prev);
           }}
         />
+      )}
+      {reasoningModal && (
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:50}}>
+          <div style={{background:"#fff",borderRadius:12,padding:24,maxWidth:600,width:"90%",maxHeight:"80vh",display:"flex",flexDirection:"column"}}>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16}}>
+              <h3 style={{fontSize:16,fontWeight:700,color:"#1f2937",margin:0}}>🧠 Reasoning: {reasoningModal.title}</h3>
+              <button onClick={()=>setReasoningModal(null)} style={{border:"none",background:"none",cursor:"pointer",padding:4,color:"#9ca3af"}}>
+                <XCircle style={{width:20,height:20}} />
+              </button>
+            </div>
+            <div style={{flex:1,overflowY:"auto",background:"#f9fafb",borderRadius:8,padding:16,fontSize:13,lineHeight:1.6,color:"#374151",whiteSpace:"pre-wrap"}}>
+              {reasoningModal.content}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

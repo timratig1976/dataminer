@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCase, listRows, updateRowCell, getEffectiveApiKey } from "@/lib/db";
 import { inferProviderFromModel, runAiColumn } from "@/lib/ai";
+import { registerOperation, isOperationCancelled, removeOperation, cancelOperation } from "@/lib/operations";
 
 const MAX_RATE_RETRY = 3;
 const MIN_BACKOFF_MS = 500;
@@ -35,18 +36,38 @@ function endpointForModel(provider: "openai" | "cerebras" | "anthropic", model: 
 export async function POST(req: NextRequest) {
   const { caseId, columnId, rowIds, runMode: rawRunMode, concurrency: rawConcurrency } = await req.json();
   const runMode: RunMode = rawRunMode === "empty_only" ? "empty_only" : "all_force";
+  const abortController = new AbortController();
+  const timeout = setTimeout(() => abortController.abort(), 600000); // 10 min timeout for batch
+  if (req.signal) {
+    req.signal.addEventListener('abort', () => abortController.abort());
+  }
 
-  const caseData = getCase(caseId);
-  if (!caseData) return NextResponse.json({ error: "Case not found" }, { status: 404 });
+  // Register operation for server-side cancellation
+  const opId = registerOperation({
+    type: 'column',
+    caseId,
+    columnId,
+    startTime: Date.now(),
+  });
 
-  const column = caseData.aiColumns.find((c) => c.id === columnId);
-  if (!column) return NextResponse.json({ error: "Column not found" }, { status: 404 });
+  try {
+    const caseData = getCase(caseId);
+    if (!caseData) {
+      return NextResponse.json({ error: "Case not found" }, { status: 404 });
+    }
 
-  const provider = inferProviderFromModel(column.model);
-  const model = column.model || "gpt-4o-mini";
-  const endpoint = endpointForModel(provider, model);
-  const apiKey = getEffectiveApiKey(caseData, provider) || "";
-  if (!apiKey) return NextResponse.json({ error: "No API key configured" }, { status: 400 });
+    const column = caseData.aiColumns.find((c) => c.id === columnId);
+    if (!column) {
+      return NextResponse.json({ error: "Column not found" }, { status: 404 });
+    }
+
+    const provider = inferProviderFromModel(column.model);
+    const model = column.model || "gpt-4o-mini";
+    const endpoint = endpointForModel(provider, model);
+    const apiKey = getEffectiveApiKey(caseData, provider) || "";
+    if (!apiKey) {
+      return NextResponse.json({ error: "No API key configured" }, { status: 400 });
+    }
 
   const allRows = listRows(caseId);
   const selectedRows = rowIds ? allRows.filter((r) => rowIds.includes(r.id)) : allRows;
@@ -89,14 +110,33 @@ export async function POST(req: NextRequest) {
 
     const runId = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`;
     const runAt = new Date().toISOString();
-    let result = await runAiColumn(effectiveColumn, row.data, apiKey, provider);
+    let result;
+    try {
+      result = await runAiColumn(effectiveColumn, row.data, apiKey, provider, abortController.signal, opId);
+    } catch (error: any) {
+      if (error.name === 'AbortError' || error.message?.includes('abort') || isOperationCancelled(opId)) {
+        updateRowCell(row.id, col.outputKey, "", "skipped");
+        results[row.id] = { status: "cancelled", metaData: {} };
+        return;
+      }
+      throw error;
+    }
     let retries = 0;
 
     while (result.error && isRateLimitError(result.error) && retries < MAX_RATE_RETRY) {
       retries += 1;
       adaptiveDelayMs = Math.min(MAX_BACKOFF_MS, Math.max(MIN_BACKOFF_MS, adaptiveDelayMs > 0 ? adaptiveDelayMs * 2 : MIN_BACKOFF_MS));
       await sleep(adaptiveDelayMs + Math.floor(Math.random() * 200));
-      result = await runAiColumn(effectiveColumn, row.data, apiKey, provider);
+      try {
+        result = await runAiColumn(effectiveColumn, row.data, apiKey, provider, abortController.signal, opId);
+      } catch (error: any) {
+        if (error.name === 'AbortError' || error.message?.includes('abort') || isOperationCancelled(opId)) {
+          updateRowCell(row.id, col.outputKey, "", "skipped");
+          results[row.id] = { status: "cancelled", metaData: {} };
+          return;
+        }
+        throw error;
+      }
     }
 
     if (result.error && isRateLimitError(result.error)) {
@@ -165,5 +205,26 @@ export async function POST(req: NextRequest) {
     skippedByMode: selectedRows.length - targetRows.length,
     durationMs: Date.now() - startedAt,
     results,
+    operationId: opId,
   });
+  } finally {
+    clearTimeout(timeout);
+    removeOperation(opId);
+  }
+}
+
+export async function DELETE(req: NextRequest) {
+  const { searchParams } = new URL(req.url);
+  const operationId = searchParams.get('operationId');
+
+  if (!operationId) {
+    return NextResponse.json({ error: "operationId required" }, { status: 400 });
+  }
+
+  const cancelled = cancelOperation(operationId);
+  if (cancelled) {
+    return NextResponse.json({ status: "cancelled", operationId });
+  } else {
+    return NextResponse.json({ error: "Operation not found" }, { status: 404 });
+  }
 }

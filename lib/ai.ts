@@ -1,4 +1,5 @@
 import OpenAI from "openai";
+import { isOperationCancelled } from "./operations";
 import type { AiColumn } from "./types";
 import { webSearch, formatSearchResultsForLlm } from "./search";
 
@@ -32,8 +33,9 @@ async function runAnthropicCompletion(params: {
   isJson: boolean;
   maxTokens: number;
   systemOverride?: string;
+  signal?: AbortSignal;
 }): Promise<{ raw: string; tokens?: { prompt: number; completion: number; total: number } }> {
-  const { apiKey, model, prompt, isJson, maxTokens, systemOverride } = params;
+  const { apiKey, model, prompt, isJson, maxTokens, systemOverride, signal } = params;
   const system = systemOverride ?? (isJson
     ? "You are a data enrichment assistant. Return ONLY valid JSON, no markdown, no explanation."
     : "You are a data enrichment assistant. Return only the requested value, nothing else. If you cannot find the information, return exactly: notFound");
@@ -45,6 +47,7 @@ async function runAnthropicCompletion(params: {
       "x-api-key": apiKey,
       "anthropic-version": "2023-06-01",
     },
+    signal,
     body: JSON.stringify({
       model,
       max_tokens: maxTokens,
@@ -232,7 +235,9 @@ export async function runAiColumn(
   column: AiColumn,
   rowData: Record<string, string | null>,
   apiKey: string,
-  provider: LlmProvider = "openai"
+  provider: LlmProvider = "openai",
+  signal?: AbortSignal,
+  operationId?: string
 ): Promise<{ value: string; skipped?: boolean; skipReason?: string; error?: string; multiValues?: Record<string, string>; rawResponse?: string; renderedPrompt?: string; tokens?: { prompt: number; completion: number; total: number }; costUsd?: number; webSearchQuery?: string; webSearchResultCount?: number; webSearchSource?: string }> {
   const requiredCheck = checkRequiredInputs(column, rowData);
   if (requiredCheck.skip) {
@@ -283,6 +288,10 @@ export async function runAiColumn(
   let webSearchResultCount = 0;
   let webSearchQueryRendered: string | undefined;
   if (column.useWebSearch && column.searchQuery) {
+    // Check cancellation before expensive web search
+    if (operationId && isOperationCancelled(operationId)) {
+      throw new Error("Operation cancelled");
+    }
     try {
       const primaryQuery = renderPrompt(column.searchQuery, rowData, column.inputMappings);
       webSearchQueryRendered = primaryQuery;
@@ -376,8 +385,13 @@ export async function runAiColumn(
     const captureReasoning = !!column.captureReasoning;
     const systemMsg = buildSystemMessage(isJson, hasWebSearch, captureReasoning);
 
+    // Check cancellation before expensive LLM call
+    if (operationId && isOperationCancelled(operationId)) {
+      throw new Error("Operation cancelled");
+    }
+
     if (provider === "anthropic") {
-      const anthropic = await runAnthropicCompletion({ apiKey, model, prompt, isJson: isJson, maxTokens, systemOverride: systemMsg });
+      const anthropic = await runAnthropicCompletion({ apiKey, model, prompt, isJson: isJson, maxTokens, systemOverride: systemMsg, signal });
       raw = anthropic.raw;
       tokens = anthropic.tokens;
     } else {
@@ -405,6 +419,7 @@ export async function runAiColumn(
             { role: "user", content: prompt },
           ],
           max_output_tokens: maxTokens,
+          ...(signal ? { signal } : {}),
         });
         const usage = resp.usage;
         raw = extractResponsesText(resp);
@@ -421,11 +436,13 @@ export async function runAiColumn(
             ? {
                 ...baseRequest,
                 max_completion_tokens: maxTokens,
+                ...(signal ? { signal } : {}),
               }
             : {
                 ...baseRequest,
                 max_tokens: maxTokens,
                 temperature: 0,
+                ...(signal ? { signal } : {}),
               }
         );
         const usage = resp.usage;
@@ -560,9 +577,12 @@ Find the official primary domain for the given company name using web search and
    - Cross-reference at least two results before setting confidence "high".
 
 9. Output rules:
-   - Output JSON with camelCase keys only: { "domain": string, "confidence": "high"|"medium"|"low"|"notFound", "sourceUrl": string }
+   - Output JSON with camelCase keys only: { "domain": string, "confidence": "high"|"medium"|"low"|"notFound", "sourceUrl": string, "_reasoning": string }
    - Use "high" ONLY when name AND city are both confirmed; "medium" for plausible but unverified city; "low" when weak signals; "notFound" if no reliable match.
    - For sourceUrl, provide the most authoritative page used (prefer the company homepage or an authoritative directory entry).
+   - For _reasoning: Provide a concise 2-3 sentence explanation in this format:
+     * "Selected [domain] because [brief justification]. Rejected [alternatives] because [reason]. Confidence: [confidence level]."
+     * Example: "Selected sd-gmbh.de because company name and Berlin location match search results. Rejected other results as different entities. Confidence: medium (city not explicitly confirmed)."
 
 #INPUTS#
 Company Name: {company_name}
