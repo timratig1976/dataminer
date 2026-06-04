@@ -297,7 +297,9 @@ export async function runAiColumn(
       webSearchQueryRendered = primaryQuery;
       const serpApiKey = process.env.SERP_API_KEY || undefined;
       const braveApiKey = process.env.BRAVE_API_KEY || undefined;
-      const searchOpts = { serpApiKey, braveApiKey, maxResults: column.searchMaxResults ?? 5, forceLayer: column.searchForceLayer };
+      const scraplingUrl = process.env.SCRAPLING_URL || undefined;
+      const scraplingToken = process.env.SCRAPLING_TOKEN || undefined;
+      const searchOpts = { serpApiKey, braveApiKey, scraplingUrl, scraplingToken, maxResults: column.searchMaxResults ?? 5, forceLayer: column.searchForceLayer };
 
       // Resolve city value directly from rowData (via inputMappings or common field names)
       function resolveCity(): string {

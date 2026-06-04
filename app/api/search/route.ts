@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { webSearch, type SearchLayer } from "@/lib/search";
 
-const VALID_LAYERS = new Set<string>(["serpapi", "duckduckgo", "playwright"]);
+const VALID_LAYERS = new Set<string>(["serpapi", "brave", "duckduckgo", "playwright", "scrapling"]);
 
 function parseLayer(raw: string | null | undefined): SearchLayer | undefined {
   if (!raw) return undefined;
@@ -16,6 +16,12 @@ function clampMaxResults(raw: unknown, fallback = 5): number {
 
 function getSerpApiKey(): string | undefined {
   return process.env.SERP_API_KEY?.trim() || undefined;
+}
+
+function getScraplingOpts(): { scraplingUrl?: string; scraplingToken?: string } {
+  const url = process.env.SCRAPLING_URL?.trim();
+  const token = process.env.SCRAPLING_TOKEN?.trim();
+  return url && token ? { scraplingUrl: url, scraplingToken: token } : {};
 }
 
 export async function POST(req: NextRequest) {
@@ -39,6 +45,7 @@ export async function POST(req: NextRequest) {
 
     const response = await webSearch(query.trim(), {
       serpApiKey: getSerpApiKey(),
+      ...getScraplingOpts(),
       maxResults: clampMaxResults(maxResults),
       forceLayer: parseLayer(typeof forceLayer === "string" ? forceLayer : undefined),
     });
@@ -62,6 +69,7 @@ export async function GET(req: NextRequest) {
 
     const response = await webSearch(query.trim(), {
       serpApiKey: getSerpApiKey(),
+      ...getScraplingOpts(),
       maxResults: clampMaxResults(sp.get("n")),
       forceLayer: parseLayer(sp.get("layer")),
     });

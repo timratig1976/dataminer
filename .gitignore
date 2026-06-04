@@ -48,3 +48,6 @@ __pycache__/
 *.py[cod]
 /cases/
 /dataminer-next/
+
+# Scrapling sidecar
+scrapling-service/.venv/

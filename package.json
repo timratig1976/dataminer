@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "dev:infisical": "infisical run -- npm run dev",
+    "scrapling": "cd scrapling-service && .venv/bin/uvicorn main:app --host 127.0.0.1 --port 8001 --reload",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",

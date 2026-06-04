@@ -23,7 +23,7 @@ export interface SearchResult {
   snippet: string;
 }
 
-export type SearchLayer = "serpapi" | "brave" | "duckduckgo" | "playwright";
+export type SearchLayer = "serpapi" | "brave" | "duckduckgo" | "playwright" | "scrapling";
 
 export interface SearchResponse {
   results: SearchResult[];
@@ -315,6 +315,49 @@ export async function searchViaBrave(
 
 // ── Layer 4: Playwright headless Chromium on Bing ───────────────────────────
 
+// ── Layer 5: Scrapling sidecar (Google bypass / Cloudflare stealth) ──────────
+
+export async function searchViaScrapling(
+  query: string,
+  scraplingUrl: string,
+  scraplingToken: string,
+  maxResults = 5
+): Promise<SearchResult[]> {
+  if (!query.trim()) throw new Error("empty query");
+  if (!scraplingUrl.trim()) throw new Error("missing SCRAPLING_URL");
+  if (!scraplingToken.trim()) throw new Error("missing SCRAPLING_TOKEN");
+
+  const { controller, clear } = withTimeout(45_000);
+  let res: Response;
+  try {
+    res = await fetch(`${scraplingUrl}/search`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-token": scraplingToken,
+      },
+      body: JSON.stringify({ query, max_results: maxResults }),
+      signal: controller.signal,
+    });
+  } finally {
+    clear();
+  }
+
+  if (!res.ok) {
+    await drainBody(res);
+    throw new Error(`Scrapling HTTP ${res.status}`);
+  }
+
+  const data = await res.json() as { results?: Array<{ title?: string; url?: string; snippet?: string }> };
+  return deduplicate(
+    (data.results ?? []).slice(0, maxResults).map((r) => ({
+      title: sanitiseText(r.title ?? "", 200),
+      url: (r.url ?? "").trim(),
+      snippet: sanitiseText(r.snippet ?? "", 400),
+    })).filter((r) => r.url.startsWith("http"))
+  );
+}
+
 export async function searchViaPlaywright(
   query: string,
   maxResults = 5
@@ -457,11 +500,13 @@ export async function webSearch(
   options: {
     serpApiKey?: string;
     braveApiKey?: string;
+    scraplingUrl?: string;
+    scraplingToken?: string;
     maxResults?: number;
     forceLayer?: SearchLayer;
   } = {}
 ): Promise<SearchResponse> {
-  const { serpApiKey, braveApiKey, maxResults = 5, forceLayer } = options;
+  const { serpApiKey, braveApiKey, scraplingUrl, scraplingToken, maxResults = 5, forceLayer } = options;
   const clampedMax = Math.max(1, Math.min(maxResults, 10));
   const layerErrors: Record<string, string> = {};
   const t0 = Date.now();
@@ -509,6 +554,11 @@ export async function webSearch(
       const r = await searchViaPlaywright(query, clampedMax);
       return respond(r, "playwright");
     }
+    if (forceLayer === "scrapling") {
+      if (!scraplingUrl || !scraplingToken) throw new Error("forceLayer=scrapling but no SCRAPLING_URL/TOKEN");
+      const r = await searchViaScrapling(query, scraplingUrl, scraplingToken, clampedMax);
+      return respond(r, "scrapling");
+    }
   }
 
   // ─ Layer 1: SerpAPI ─
@@ -539,9 +589,17 @@ export async function webSearch(
   );
   if (r4 && r4.length > 0) return respond(r4, "playwright");
 
+  // ─ Layer 5: Scrapling (Google bypass / Cloudflare stealth) ─
+  if (scraplingUrl && scraplingToken) {
+    const r5 = await tryLayer("scrapling", () =>
+      searchViaScrapling(query, scraplingUrl!, scraplingToken!, clampedMax)
+    );
+    if (r5 && r5.length > 0) return respond(r5, "scrapling");
+  }
+
   return {
     results: [],
-    source: "playwright",
+    source: "scrapling",
     query,
     latencyMs: Date.now() - t0,
     error: "All search layers failed",
