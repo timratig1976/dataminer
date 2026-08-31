@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { webSearch, type SearchLayer } from "@/lib/search";
 
-const VALID_LAYERS = new Set<string>(["serpapi", "brave", "duckduckgo", "playwright", "scrapling"]);
+const VALID_LAYERS = new Set<string>(["serpapi", "brave", "duckduckgo", "playwright", "scrapling", "firecrawl"]);
 
 function parseLayer(raw: string | null | undefined): SearchLayer | undefined {
   if (!raw) return undefined;
@@ -22,6 +22,11 @@ function getScraplingOpts(): { scraplingUrl?: string; scraplingToken?: string } 
   const url = process.env.SCRAPLING_URL?.trim();
   const token = process.env.SCRAPLING_TOKEN?.trim();
   return url && token ? { scraplingUrl: url, scraplingToken: token } : {};
+}
+
+function getFirecrawlOpts(): { firecrawlApiKey?: string } {
+  const key = process.env.EDEN_API_KEY?.trim();
+  return key ? { firecrawlApiKey: key } : {};
 }
 
 export async function POST(req: NextRequest) {
@@ -46,6 +51,7 @@ export async function POST(req: NextRequest) {
     const response = await webSearch(query.trim(), {
       serpApiKey: getSerpApiKey(),
       ...getScraplingOpts(),
+      ...getFirecrawlOpts(),
       maxResults: clampMaxResults(maxResults),
       forceLayer: parseLayer(typeof forceLayer === "string" ? forceLayer : undefined),
     });
@@ -70,6 +76,7 @@ export async function GET(req: NextRequest) {
     const response = await webSearch(query.trim(), {
       serpApiKey: getSerpApiKey(),
       ...getScraplingOpts(),
+      ...getFirecrawlOpts(),
       maxResults: clampMaxResults(sp.get("n")),
       forceLayer: parseLayer(sp.get("layer")),
     });

@@ -22,7 +22,8 @@ export interface AiColumn {
   useWebSearch?: boolean;           // inject web search results into prompt context
   searchQuery?: string;             // template e.g. "{company_name} Heizung Anbieter"
   searchMaxResults?: number;        // default 5
-  searchForceLayer?: "serpapi" | "brave" | "duckduckgo" | "playwright";
+  searchForceLayer?: "serpapi" | "brave" | "duckduckgo" | "playwright" | "scrapling" | "firecrawl";
+  evidenceMode?: "snippet" | "page" | "auto";  // snippet (default) | page (scrape top results) | auto (retry with pages if empty)
   captureReasoning?: boolean;       // ask LLM to return _reasoning field; stored as _reasoning_{outputKey}
 }
 
@@ -38,6 +39,9 @@ export interface Case {
   cerebrasApiKeyMasked?: string;
   anthropicApiKey?: string;
   anthropicApiKeyMasked?: string;
+  edenApiKey?: string;
+  edenApiKeyMasked?: string;
+  edenRegion?: "eu" | "us";
   modelAllowlist?: string[];
   colOrder?: string[];
   fieldMappings?: Record<string, string>; // e.g. { company_name: "Unternehmensname", city: "Stadt" }

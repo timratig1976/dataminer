@@ -1,12 +1,16 @@
 import OpenAI from "openai";
 import { isOperationCancelled } from "./operations";
 import type { AiColumn } from "./types";
-import { webSearch, formatSearchResultsForLlm } from "./search";
+import { webSearch, formatSearchResultsForLlm, type SearchLayer } from "./search";
+import { isEdenModel, edenChatCompletion, edenScrapeUrl, type EdenRegion } from "./edenai";
+import { isCatalogUrl } from "./search";
 
-type LlmProvider = "openai" | "cerebras" | "anthropic";
+export type LlmProvider = "openai" | "cerebras" | "anthropic" | "edenai";
 
 export function inferProviderFromModel(model?: string): LlmProvider {
   if (!model) return "openai";
+  // Eden AI models are always "provider/model" (contain a slash)
+  if (isEdenModel(model)) return "edenai";
   const m = model.toLowerCase();
   if (m.startsWith("claude")) return "anthropic";
   if (
@@ -237,8 +241,9 @@ export async function runAiColumn(
   apiKey: string,
   provider: LlmProvider = "openai",
   signal?: AbortSignal,
-  operationId?: string
-): Promise<{ value: string; skipped?: boolean; skipReason?: string; error?: string; multiValues?: Record<string, string>; rawResponse?: string; renderedPrompt?: string; tokens?: { prompt: number; completion: number; total: number }; costUsd?: number; webSearchQuery?: string; webSearchResultCount?: number; webSearchSource?: string }> {
+  operationId?: string,
+  edenRegion: EdenRegion = "eu"
+): Promise<{ value: string; skipped?: boolean; skipReason?: string; error?: string; multiValues?: Record<string, string>; rawResponse?: string; renderedPrompt?: string; tokens?: { prompt: number; completion: number; total: number }; costUsd?: number; webSearchQuery?: string; webSearchResultCount?: number; webSearchSource?: string; scrapedUrls?: string[] }> {
   const requiredCheck = checkRequiredInputs(column, rowData);
   if (requiredCheck.skip) {
     return { value: rowData[column.outputKey] ?? "", skipped: true, skipReason: requiredCheck.reason };
@@ -258,11 +263,18 @@ export async function runAiColumn(
   }
 
   // ── System message builder ─────────────────────────────────────────────────
-  function buildSystemMessage(isJson: boolean, hasWebSearch: boolean, captureReasoning: boolean): string {
+  function buildSystemMessage(isJson: boolean, hasWebSearch: boolean, captureReasoning: boolean, hasPageContent = false): string {
     const base = isJson
       ? "You are a data enrichment assistant. Return ONLY valid JSON, no markdown, no explanation."
       : "You are a data enrichment assistant. Return only the requested value, nothing else. If you cannot find the information, return exactly: notFound";
     const parts: string[] = [base];
+    if (hasPageContent) {
+      parts.push(`You have been given the full text content of relevant web pages in the user message (inside the #PAGE CONTENT block). Rules for using it:
+1. Treat page content as PRIMARY evidence — it is the actual site text and is more reliable than search snippets or your training knowledge.
+2. Extract the requested value directly from the page content (e.g. Impressum, About, Contact, footer sections).
+3. If page content contradicts search snippets, prefer the page content.
+4. If the information is not present in the provided pages or snippets, return notFound rather than guessing.`);
+    }
     if (hasWebSearch) {
       parts.push(`You have been given live web search results in the user message (inside the #WEB SEARCH RESULTS block). Rules for using them:
 1. Treat the search results as GROUND TRUTH — prefer them over your internal training knowledge.
@@ -282,179 +294,228 @@ export async function runAiColumn(
     return parts.join("\n\n");
   }
 
-  // ── Web Search injection ──────────────────────────────────────────────────
+  // ── Web Search + Page Evidence injection ─────────────────────────────────
   let webSearchContext = "";
   let webSearchSource: string | undefined;
   let webSearchResultCount = 0;
   let webSearchQueryRendered: string | undefined;
+  let pageContext = "";
+  let scrapedUrls: string[] = [];
+  let searchResults: { title: string; url: string; snippet: string }[] = [];
+  const evidenceMode = column.evidenceMode ?? "snippet";
+  const firecrawlKey = provider === "edenai" ? apiKey : (process.env.EDEN_API_KEY || undefined);
+
+  // Resolve city value directly from rowData (via inputMappings or common field names)
+  function resolveCity(): string {
+    const cityKeys = ["city", "Stadt", "stadt", "Ort", "ort", "location", "Location"];
+    if (column.inputMappings) {
+      for (const [placeholder, sourceKey] of Object.entries(column.inputMappings)) {
+        if (/city|stadt|ort/i.test(placeholder) || /city|stadt|ort/i.test(sourceKey)) {
+          const v = rowData[sourceKey];
+          if (v && v.trim() && v.trim() !== "(not provided)") return v.trim();
+        }
+      }
+    }
+    for (const k of cityKeys) {
+      const v = rowData[k];
+      if (v && v.trim() && v.trim() !== "(not provided)") return v.trim();
+    }
+    return "";
+  }
+
+  // Build fallback queries: strip legal form suffixes, then drop trailing words
+  function buildFallbacks(q: string, city: string): string[] {
+    const noLegal = q.replace(/\b(GmbH|AG|KG|UG|e\.K\.|eG|GbR|OHG|mbH|Co\.|&\s*Co\.?|KGaA|SE|Ltd\.?|Inc\.?|LLC)\b\.?/gi, "").replace(/\s{2,}/g, " ").trim();
+    const noPlaceholder = noLegal.replace(/\(not provided\)/gi, "").replace(/\s{2,}/g, " ").trim();
+    const words = noPlaceholder.split(/\s+/);
+    const shorterForms: string[] = [];
+    for (let i = words.length - 1; i >= 2; i--) {
+      shorterForms.push(words.slice(0, i).join(" "));
+    }
+    const cityPinned = city && shorterForms.length > 0
+      ? [`${shorterForms[0]} "${city}"`]
+      : [];
+    return [...cityPinned, noPlaceholder, ...shorterForms].filter((q2, i, arr) => q2 && arr.indexOf(q2) === i && q2 !== q);
+  }
+
+  // Run the search (primary query + fallbacks) and return raw results
+  async function doSearch(): Promise<{ results: typeof searchResults; source: SearchLayer; query: string }> {
+    const primaryQuery = renderPrompt(column.searchQuery!, rowData, column.inputMappings);
+    const serpApiKey = process.env.SERP_API_KEY || undefined;
+    const braveApiKey = process.env.BRAVE_API_KEY || undefined;
+    const scraplingUrl = process.env.SCRAPLING_URL || undefined;
+    const scraplingToken = process.env.SCRAPLING_TOKEN || undefined;
+    const firecrawlApiKey = provider === "edenai" ? apiKey : (process.env.EDEN_API_KEY || undefined);
+    const searchOpts = { serpApiKey, braveApiKey, scraplingUrl, scraplingToken, firecrawlApiKey, maxResults: column.searchMaxResults ?? 5, forceLayer: column.searchForceLayer };
+
+    const resolvedCity = resolveCity();
+    let effectivePrimary = primaryQuery;
+    if (resolvedCity && !primaryQuery.includes(`"${resolvedCity}"`)) {
+      effectivePrimary = primaryQuery.replace(
+        new RegExp(`\\b${resolvedCity.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i"),
+        `"${resolvedCity}"`
+      );
+    }
+
+    let resp = await webSearch(effectivePrimary, searchOpts);
+    if (resp.results.length === 0) {
+      for (const fallback of buildFallbacks(primaryQuery, resolvedCity)) {
+        console.log(`[ai] 0 results for "${effectivePrimary}", retrying with "${fallback}"`);
+        resp = await webSearch(fallback, searchOpts);
+        if (resp.results.length > 0) {
+          effectivePrimary = fallback;
+          break;
+        }
+      }
+    }
+    webSearchQueryRendered = effectivePrimary;
+    return { results: resp.results, source: resp.source, query: effectivePrimary };
+  }
+
+  // Scrape the top non-catalog result URLs into a #PAGE CONTENT block
+  async function scrapeTopPages(urls: string[], maxPages = 2, maxCharsEach = 15000): Promise<string> {
+    const candidates = urls.filter((u) => u.startsWith("http") && !isCatalogUrl(u)).slice(0, maxPages);
+    if (candidates.length === 0) return "";
+    const blocks: string[] = [];
+    for (const url of candidates) {
+      if (operationId && isOperationCancelled(operationId)) throw new Error("Operation cancelled");
+      try {
+        const { markdown, title } = await edenScrapeUrl({ apiKey: firecrawlKey!, url });
+        if (markdown && markdown.trim()) {
+          blocks.push(`### ${title || url}\nURL: ${url}\n${markdown.slice(0, maxCharsEach)}`);
+        }
+      } catch (e) {
+        console.warn(`[ai] page scrape failed for ${url}:`, (e as Error).message);
+      }
+    }
+    return blocks.join("\n\n---\n\n");
+  }
+
   if (column.useWebSearch && column.searchQuery) {
     // Check cancellation before expensive web search
     if (operationId && isOperationCancelled(operationId)) {
       throw new Error("Operation cancelled");
     }
     try {
-      const primaryQuery = renderPrompt(column.searchQuery, rowData, column.inputMappings);
-      webSearchQueryRendered = primaryQuery;
-      const serpApiKey = process.env.SERP_API_KEY || undefined;
-      const braveApiKey = process.env.BRAVE_API_KEY || undefined;
-      const scraplingUrl = process.env.SCRAPLING_URL || undefined;
-      const scraplingToken = process.env.SCRAPLING_TOKEN || undefined;
-      const searchOpts = { serpApiKey, braveApiKey, scraplingUrl, scraplingToken, maxResults: column.searchMaxResults ?? 5, forceLayer: column.searchForceLayer };
+      const s = await doSearch();
+      searchResults = s.results;
+      webSearchContext = formatSearchResultsForLlm({ results: s.results, source: s.source, query: s.query, latencyMs: 0 });
+      webSearchSource = s.source;
+      webSearchResultCount = s.results.length;
 
-      // Resolve city value directly from rowData (via inputMappings or common field names)
-      function resolveCity(): string {
-        const cityKeys = ["city", "Stadt", "stadt", "Ort", "ort", "location", "Location"];
-        // also check inputMappings values that look like city fields
-        if (column.inputMappings) {
-          for (const [placeholder, sourceKey] of Object.entries(column.inputMappings)) {
-            if (/city|stadt|ort/i.test(placeholder) || /city|stadt|ort/i.test(sourceKey)) {
-              const v = rowData[sourceKey];
-              if (v && v.trim() && v.trim() !== "(not provided)") return v.trim();
-            }
-          }
-        }
-        for (const k of cityKeys) {
-          const v = rowData[k];
-          if (v && v.trim() && v.trim() !== "(not provided)") return v.trim();
-        }
-        return "";
+      if (evidenceMode === "page" || evidenceMode === "auto") {
+        pageContext = await scrapeTopPages(s.results.map((r) => r.url));
+        scrapedUrls = s.results.map((r) => r.url).filter((u) => u.startsWith("http") && !isCatalogUrl(u)).slice(0, 2);
       }
-
-      // Build fallback queries: strip legal form suffixes, then drop trailing words
-      function buildFallbacks(q: string, city: string): string[] {
-        const noLegal = q.replace(/\b(GmbH|AG|KG|UG|e\.K\.|eG|GbR|OHG|mbH|Co\.|&\s*Co\.?|KGaA|SE|Ltd\.?|Inc\.?|LLC)\b\.?/gi, "").replace(/\s{2,}/g, " ").trim();
-        const noPlaceholder = noLegal.replace(/\(not provided\)/gi, "").replace(/\s{2,}/g, " ").trim();
-        const words = noPlaceholder.split(/\s+/);
-        const shorterForms: string[] = [];
-        for (let i = words.length - 1; i >= 2; i--) {
-          shorterForms.push(words.slice(0, i).join(" "));
-        }
-        // If city known: add a city-quoted variant of the shorter form (e.g. "ITU Matuscheck" "Luckenwalde")
-        const cityPinned = city && shorterForms.length > 0
-          ? [`${shorterForms[0]} "${city}"`]
-          : [];
-        return [...cityPinned, noPlaceholder, ...shorterForms].filter((q2, i, arr) => q2 && arr.indexOf(q2) === i && q2 !== q);
-      }
-
-      // Pin city with quotes in primary query if city is known
-      const resolvedCity = resolveCity();
-      let effectivePrimary = primaryQuery;
-      if (resolvedCity && !primaryQuery.includes(`"${resolvedCity}"`)) {
-        // Replace bare city token with quoted version for exact match
-        effectivePrimary = primaryQuery.replace(
-          new RegExp(`\\b${resolvedCity.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i"),
-          `"${resolvedCity}"`
-        );
-        webSearchQueryRendered = effectivePrimary;
-      }
-
-      let searchResp = await webSearch(effectivePrimary, searchOpts);
-      if (searchResp.results.length === 0) {
-        for (const fallback of buildFallbacks(primaryQuery, resolvedCity)) {
-          console.log(`[ai] 0 results for "${effectivePrimary}", retrying with "${fallback}"`);
-          searchResp = await webSearch(fallback, searchOpts);
-          if (searchResp.results.length > 0) {
-            webSearchQueryRendered = fallback;
-            break;
-          }
-        }
-      }
-
-      webSearchContext = formatSearchResultsForLlm(searchResp);
-      webSearchSource = searchResp.source;
-      webSearchResultCount = searchResp.results.length;
     } catch (e) {
       console.warn("[ai] web search failed, continuing without:", (e as Error).message);
     }
   }
 
   const hasWebSearch = !!(column.useWebSearch && webSearchContext);
-  const promptBase = hasWebSearch
-    ? `#WEB SEARCH RESULTS (source: ${webSearchSource ?? "web"}):\n${webSearchContext}\n#END WEB SEARCH RESULTS\n\n${column.prompt}`
-    : column.prompt;
-
-  const prompt = renderPrompt(promptBase, rowData, column.inputMappings);
-  if (!prompt.trim()) return { value: "", error: "Empty prompt after rendering" };
+  let hasPageContent = !!pageContext;
+  const promptBase = [
+    hasWebSearch ? `#WEB SEARCH RESULTS (source: ${webSearchSource ?? "web"}):\n${webSearchContext}\n#END WEB SEARCH RESULTS` : "",
+    hasPageContent ? `#PAGE CONTENT (scraped full pages):\n${pageContext}\n#END PAGE CONTENT` : "",
+    column.prompt,
+  ].filter(Boolean).join("\n\n");
 
   const maxTokens = column.outputMode === "json" ? 1024 : 512;
   const isJson = column.outputMode === "json";
   const model = column.model || "gpt-4o-mini";
 
-  try {
-    let raw = "";
-    let tokens: { prompt: number; completion: number; total: number } | undefined;
+  // ── LLM call (with one "auto" retry using scraped pages if the first pass is empty)
+  let raw = "";
+  let tokens: { prompt: number; completion: number; total: number } | undefined;
+  let costUsdOverride: number | undefined;
+  let prompt = "";
 
+  function llmCall(p: string, sys: string) {
+    if (provider === "edenai") {
+      return edenChatCompletion({ apiKey, region: edenRegion, model, system: sys, prompt: p, maxTokens, signal }).then((r) => ({ raw: r.raw, tokens: r.tokens, cost: r.costUsd }));
+    }
+    if (provider === "anthropic") {
+      return runAnthropicCompletion({ apiKey, model, prompt: p, isJson: isJson, maxTokens, systemOverride: sys, signal }).then((r) => ({ raw: r.raw, tokens: r.tokens, cost: undefined as number | undefined }));
+    }
+    const client = provider === "cerebras"
+      ? new OpenAI({ apiKey, baseURL: "https://api.cerebras.ai/v1", timeout: 45000 })
+      : new OpenAI({ apiKey, timeout: 45000 });
+    const baseRequest = {
+      model,
+      messages: [
+        { role: "system" as const, content: sys },
+        { role: "user" as const, content: p },
+      ],
+    };
+    if (provider === "openai" && isOpenAiResponsesOnlyModel(model)) {
+      return client.responses.create({
+        model,
+        input: [
+          { role: "system", content: sys },
+          { role: "user", content: p },
+        ],
+        max_output_tokens: maxTokens,
+        ...(signal ? { signal } : {}),
+      }).then((resp) => {
+        const usage = resp.usage;
+        return { raw: extractResponsesText(resp), tokens: usage ? { prompt: Number(usage.input_tokens ?? 0), completion: Number(usage.output_tokens ?? 0), total: Number(usage.total_tokens ?? 0) } : undefined, cost: undefined as number | undefined };
+      });
+    }
+    return client.chat.completions.create(
+      provider === "openai" && isOpenAiReasoningModel(model)
+        ? { ...baseRequest, max_completion_tokens: maxTokens, ...(signal ? { signal } : {}) }
+        : { ...baseRequest, max_tokens: maxTokens, temperature: 0, ...(signal ? { signal } : {}) }
+    ).then((resp) => {
+      const usage = resp.usage;
+      return { raw: resp.choices[0]?.message?.content?.trim() ?? "", tokens: usage ? { prompt: usage.prompt_tokens ?? 0, completion: usage.completion_tokens ?? 0, total: usage.total_tokens ?? 0 } : undefined, cost: undefined as number | undefined };
+    });
+  }
+
+  try {
     const captureReasoning = !!column.captureReasoning;
-    const systemMsg = buildSystemMessage(isJson, hasWebSearch, captureReasoning);
 
     // Check cancellation before expensive LLM call
     if (operationId && isOperationCancelled(operationId)) {
       throw new Error("Operation cancelled");
     }
 
-    if (provider === "anthropic") {
-      const anthropic = await runAnthropicCompletion({ apiKey, model, prompt, isJson: isJson, maxTokens, systemOverride: systemMsg, signal });
-      raw = anthropic.raw;
-      tokens = anthropic.tokens;
-    } else {
-      const client = provider === "cerebras"
-        ? new OpenAI({
-            apiKey,
-            baseURL: "https://api.cerebras.ai/v1",
-            timeout: 45000,
-          })
-        : new OpenAI({ apiKey, timeout: 45000 });
+    {
+      const systemMsg = buildSystemMessage(isJson, hasWebSearch, captureReasoning, hasPageContent);
+      prompt = renderPrompt(promptBase, rowData, column.inputMappings);
+      if (!prompt.trim()) return { value: "", error: "Empty prompt after rendering" };
+      const first = await llmCall(prompt, systemMsg);
+      raw = first.raw;
+      tokens = first.tokens;
+      if (first.cost !== undefined) costUsdOverride = first.cost;
 
-      const baseRequest = {
-        model,
-        messages: [
-          { role: "system" as const, content: systemMsg },
-          { role: "user" as const, content: prompt },
-        ],
-      };
-
-      if (provider === "openai" && isOpenAiResponsesOnlyModel(model)) {
-        const resp = await client.responses.create({
-          model,
-          input: [
-            { role: "system", content: systemMsg },
-            { role: "user", content: prompt },
-          ],
-          max_output_tokens: maxTokens,
-          ...(signal ? { signal } : {}),
-        });
-        const usage = resp.usage;
-        raw = extractResponsesText(resp);
-        tokens = usage
-          ? {
-              prompt: Number(usage.input_tokens ?? 0),
-              completion: Number(usage.output_tokens ?? 0),
-              total: Number(usage.total_tokens ?? (Number(usage.input_tokens ?? 0) + Number(usage.output_tokens ?? 0))),
-            }
-          : undefined;
-      } else {
-        const resp = await client.chat.completions.create(
-          provider === "openai" && isOpenAiReasoningModel(model)
-            ? {
-                ...baseRequest,
-                max_completion_tokens: maxTokens,
-                ...(signal ? { signal } : {}),
-              }
-            : {
-                ...baseRequest,
-                max_tokens: maxTokens,
-                temperature: 0,
-                ...(signal ? { signal } : {}),
-              }
-        );
-        const usage = resp.usage;
-        raw = resp.choices[0]?.message?.content?.trim() ?? "";
-        tokens = usage ? { prompt: usage.prompt_tokens ?? 0, completion: usage.completion_tokens ?? 0, total: usage.total_tokens ?? 0 } : undefined;
+      // "auto" mode: if the answer is empty and we haven't scraped pages yet,
+      // scrape the top results and retry once with full page content.
+      if (evidenceMode === "auto" && !hasPageContent && firecrawlKey && searchResults.length > 0) {
+        const answerEmpty = raw.trim() === "" || /^notfound$/i.test(raw.trim()) || (isJson && (raw.includes('"notFound"') || !raw.trim().startsWith("{")));
+        if (answerEmpty) {
+          console.log(`[ai] auto mode: empty answer, scraping top pages and retrying`);
+          pageContext = await scrapeTopPages(searchResults.map((r) => r.url));
+          scrapedUrls = searchResults.map((r) => r.url).filter((u) => u.startsWith("http") && !isCatalogUrl(u)).slice(0, 2);
+          if (pageContext) {
+            hasPageContent = true;
+            const retryBase = [
+              `#WEB SEARCH RESULTS (source: ${webSearchSource ?? "web"}):\n${webSearchContext}\n#END WEB SEARCH RESULTS`,
+              `#PAGE CONTENT (scraped full pages):\n${pageContext}\n#END PAGE CONTENT`,
+              column.prompt,
+            ].filter(Boolean).join("\n\n");
+            const retrySystem = buildSystemMessage(isJson, hasWebSearch, captureReasoning, true);
+            prompt = renderPrompt(retryBase, rowData, column.inputMappings);
+            const second = await llmCall(prompt, retrySystem);
+            raw = second.raw;
+            tokens = second.tokens;
+            if (second.cost !== undefined) costUsdOverride = second.cost;
+          }
+        }
       }
     }
 
     console.log(`[LLM] provider=${provider} model=${model} prompt_tokens=${tokens?.prompt} completion_tokens=${tokens?.completion} raw_length=${raw.length} raw_preview=${raw.slice(0,120)}`);
-    const costUsd = estimateCostUsd(model, tokens);
+    const costUsd = costUsdOverride ?? estimateCostUsd(model, tokens);
 
     // Extract _reasoning if captureReasoning is enabled (JSON mode);
     // for text mode the REASONING: prefix line is stripped below.
@@ -504,17 +565,18 @@ export async function runAiColumn(
         webSearchQuery: webSearchQueryRendered,
         webSearchResultCount,
         webSearchSource,
+        ...(scrapedUrls.length ? { scrapedUrls } : {}),
       };
     }
 
     if (isJson && column.jsonKey) {
       const extracted = extractJsonKey(raw, column.jsonKey);
       const extra = reasoningValue ? { multiValues: { [`_reasoning_${column.outputKey}`]: reasoningValue } } : {};
-      return { value: extracted === "notFound" ? "" : extracted, rawResponse: raw, renderedPrompt: prompt, tokens, costUsd, webSearchQuery: webSearchQueryRendered, webSearchResultCount, webSearchSource, ...extra };
+      return { value: extracted === "notFound" ? "" : extracted, rawResponse: raw, renderedPrompt: prompt, tokens, costUsd, webSearchQuery: webSearchQueryRendered, webSearchResultCount, webSearchSource, ...(scrapedUrls.length ? { scrapedUrls } : {}), ...extra };
     }
 
     const extra = reasoningValue ? { multiValues: { [`_reasoning_${column.outputKey}`]: reasoningValue } } : {};
-    return { value: raw === "notFound" ? "" : raw, rawResponse: raw, renderedPrompt: prompt, tokens, costUsd, webSearchQuery: webSearchQueryRendered, webSearchResultCount, webSearchSource, ...extra };
+    return { value: raw === "notFound" ? "" : raw, rawResponse: raw, renderedPrompt: prompt, tokens, costUsd, webSearchQuery: webSearchQueryRendered, webSearchResultCount, webSearchSource, ...(scrapedUrls.length ? { scrapedUrls } : {}), ...extra };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     return { value: "", error: message };

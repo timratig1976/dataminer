@@ -3,8 +3,9 @@ import OpenAI from "openai";
 import { getCase, getEffectiveApiKey } from "@/lib/db";
 import { inferProviderFromModel } from "@/lib/ai";
 import { DEFAULT_MODEL_OPTIONS, mergeModelOptions } from "@/lib/model-options";
+import { listEdenModels, type EdenModelInfo, type EdenRegion } from "@/lib/edenai";
 
-type Provider = "openai" | "cerebras" | "anthropic";
+type Provider = "openai" | "cerebras" | "anthropic" | "edenai";
 
 const CEREBRAS_CHAT_MODEL_ALLOWLIST = new Set([
   "llama3.1-8b",
@@ -82,6 +83,8 @@ export async function GET(req: NextRequest) {
   let openaiKey = process.env.OPENAI_API_KEY;
   let cerebrasKey = process.env.CEREBRAS_API_KEY;
   let anthropicKey = process.env.ANTHROPIC_API_KEY;
+  let edenKey = process.env.EDEN_API_KEY;
+  let edenRegion: EdenRegion = "eu";
 
   if (caseId) {
     const caseData = getCase(caseId);
@@ -89,6 +92,8 @@ export async function GET(req: NextRequest) {
     openaiKey = getEffectiveApiKey(caseData, "openai");
     cerebrasKey = getEffectiveApiKey(caseData, "cerebras");
     anthropicKey = getEffectiveApiKey(caseData, "anthropic");
+    edenKey = getEffectiveApiKey(caseData, "edenai");
+    edenRegion = caseData.edenRegion ?? "eu";
     modelAllowlist = caseData.modelAllowlist ?? [];
   }
 
@@ -96,6 +101,7 @@ export async function GET(req: NextRequest) {
     openai: [],
     cerebras: [],
     anthropic: [],
+    edenai: [],
   };
 
   const providerErrors: Partial<Record<Provider, string>> = {};
@@ -124,25 +130,36 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  // Eden AI — model list is public (no key required); region filters availability
+  try {
+    const edenModels: EdenModelInfo[] = await listEdenModels(edenRegion, edenKey);
+    providerModels.edenai = edenModels.map((m) => m.id);
+  } catch (e: unknown) {
+    providerErrors.edenai = e instanceof Error ? e.message : String(e);
+  }
+
   const fallbackByProvider: Record<Provider, string[]> = {
     openai: DEFAULT_MODEL_OPTIONS.filter((m) => inferProviderFromModel(m) === "openai"),
     cerebras: DEFAULT_MODEL_OPTIONS.filter((m) => inferProviderFromModel(m) === "cerebras"),
     anthropic: DEFAULT_MODEL_OPTIONS.filter((m) => inferProviderFromModel(m) === "anthropic"),
+    edenai: [],
   };
 
   const effectiveProviderModels: Record<Provider, string[]> = {
     openai: openaiKey ? providerModels.openai : fallbackByProvider.openai,
     cerebras: cerebrasKey ? providerModels.cerebras : fallbackByProvider.cerebras,
     anthropic: anthropicKey ? providerModels.anthropic : fallbackByProvider.anthropic,
+    edenai: providerModels.edenai,
   };
 
   const liveModels = Array.from(new Set([
     ...effectiveProviderModels.openai,
     ...effectiveProviderModels.cerebras,
     ...effectiveProviderModels.anthropic,
+    ...effectiveProviderModels.edenai,
   ]));
 
-  const hasAnyProviderKey = Boolean(openaiKey || cerebrasKey || anthropicKey);
+  const hasAnyProviderKey = Boolean(openaiKey || cerebrasKey || anthropicKey || edenKey);
   const allModels = mergeModelOptions(
     [...liveModels, ...modelAllowlist],
     hasAnyProviderKey ? [] : DEFAULT_MODEL_OPTIONS
@@ -163,7 +180,9 @@ export async function GET(req: NextRequest) {
       openai: Boolean(openaiKey),
       cerebras: Boolean(cerebrasKey),
       anthropic: Boolean(anthropicKey),
+      edenai: Boolean(edenKey),
     },
+    edenRegion,
     providersByModel: Object.fromEntries(allModels.map((m) => [m, inferProviderFromModel(m)])),
   });
 }

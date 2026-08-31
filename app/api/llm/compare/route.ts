@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { appendLog, getCase, getEffectiveApiKey, getRow } from "@/lib/db";
-import { inferProviderFromModel, runAiColumn } from "@/lib/ai";
+import { inferProviderFromModel, runAiColumn, type LlmProvider } from "@/lib/ai";
 import type { AiColumn } from "@/lib/types";
 
 interface CompareRequestBody {
@@ -12,7 +12,7 @@ interface CompareRequestBody {
 
 interface ComparedModelResult {
   model: string;
-  provider: "openai" | "cerebras" | "anthropic";
+  provider: LlmProvider;
   ok: boolean;
   score: number;
   latencyMs: number;
@@ -27,7 +27,8 @@ function isOpenAiResponsesOnlyModel(model: string): boolean {
   return m.startsWith("o3-pro") || m.includes("deep-research");
 }
 
-function endpointForModel(provider: "openai" | "cerebras" | "anthropic", model: string): string {
+function endpointForModel(provider: LlmProvider, model: string): string {
+  if (provider === "edenai") return "/v3/chat/completions";
   if (provider === "anthropic") return "/v1/messages";
   if (provider === "cerebras") return "/v1/chat/completions";
   return isOpenAiResponsesOnlyModel(model) ? "/v1/responses" : "/v1/chat/completions";
@@ -137,7 +138,7 @@ export async function POST(req: NextRequest) {
       conditionField: undefined,
     };
 
-    const run = await runAiColumn(compareColumn, row.data, apiKey, provider);
+    const run = await runAiColumn(compareColumn, row.data, apiKey, provider, undefined, undefined, caseData.edenRegion ?? "eu");
     const latencyMs = Date.now() - started;
 
     if (run.error) {

@@ -27,7 +27,8 @@ function isOpenAiResponsesOnlyModel(model: string): boolean {
   return m.startsWith("o3-pro") || m.includes("deep-research");
 }
 
-function endpointForModel(provider: "openai" | "cerebras" | "anthropic", model: string): string {
+function endpointForModel(provider: "openai" | "cerebras" | "anthropic" | "edenai", model: string): string {
+  if (provider === "edenai") return "/v3/chat/completions";
   if (provider === "anthropic") return "/v1/messages";
   if (provider === "cerebras") return "/v1/chat/completions";
   return isOpenAiResponsesOnlyModel(model) ? "/v1/responses" : "/v1/chat/completions";
@@ -65,6 +66,7 @@ export async function POST(req: NextRequest) {
     const model = column.model || "gpt-4o-mini";
     const endpoint = endpointForModel(provider, model);
     const apiKey = getEffectiveApiKey(caseData, provider) || "";
+    const edenRegion = caseData.edenRegion ?? "eu";
     if (!apiKey) {
       return NextResponse.json({ error: "No API key configured" }, { status: 400 });
     }
@@ -112,7 +114,7 @@ export async function POST(req: NextRequest) {
     const runAt = new Date().toISOString();
     let result;
     try {
-      result = await runAiColumn(effectiveColumn, row.data, apiKey, provider, abortController.signal, opId);
+      result = await runAiColumn(effectiveColumn, row.data, apiKey, provider, abortController.signal, opId, edenRegion);
     } catch (error: any) {
       if (error.name === 'AbortError' || error.message?.includes('abort') || isOperationCancelled(opId)) {
         updateRowCell(row.id, col.outputKey, "", "skipped");
@@ -155,6 +157,7 @@ export async function POST(req: NextRequest) {
     if (result.webSearchQuery) metaData[`_search_query_${col.outputKey}`] = result.webSearchQuery;
     if (result.webSearchResultCount) metaData[`_search_count_${col.outputKey}`] = String(result.webSearchResultCount);
     if (result.webSearchSource) metaData[`_search_source_${col.outputKey}`] = result.webSearchSource;
+    if (result.scrapedUrls?.length) metaData[`_scraped_urls_${col.outputKey}`] = result.scrapedUrls.join(" | ");
     if (result.rawResponse) metaData[`_llm_raw_${col.outputKey}`] = result.rawResponse;
     if (result.renderedPrompt) metaData[`_llm_prompt_${col.outputKey}`] = result.renderedPrompt;
     if (result.tokens) metaData[`_llm_tokens_${col.outputKey}`] = JSON.stringify(result.tokens);

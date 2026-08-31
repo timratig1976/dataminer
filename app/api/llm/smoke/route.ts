@@ -1,12 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
 import { appendLog, getCase, getEffectiveApiKey } from "@/lib/db";
-import { inferProviderFromModel } from "@/lib/ai";
+import { inferProviderFromModel, type LlmProvider } from "@/lib/ai";
 import { DEFAULT_MODEL_OPTIONS } from "@/lib/model-options";
+import { edenChatCompletion } from "@/lib/edenai";
 
 const DEFAULT_SMOKE_MODELS = [...DEFAULT_MODEL_OPTIONS] as const;
-
-type LlmProvider = "openai" | "cerebras" | "anthropic";
 
 interface SmokeResult {
   model: string;
@@ -65,12 +64,13 @@ function extractResponsesText(resp: unknown): string {
 }
 
 function endpointForModel(provider: LlmProvider, model: string): string {
+  if (provider === "edenai") return "/v3/chat/completions";
   if (provider === "anthropic") return "/v1/messages";
   if (provider === "cerebras") return "/v1/chat/completions";
   return isOpenAiResponsesOnlyModel(model) ? "/v1/responses" : "/v1/chat/completions";
 }
 
-async function smokeOneModel(model: string, provider: LlmProvider, apiKey?: string): Promise<SmokeResult> {
+async function smokeOneModel(model: string, provider: LlmProvider, apiKey?: string, edenRegion?: "eu" | "us"): Promise<SmokeResult> {
   const endpoint = endpointForModel(provider, model);
   if (!apiKey) {
     return {
@@ -86,7 +86,17 @@ async function smokeOneModel(model: string, provider: LlmProvider, apiKey?: stri
   const started = Date.now();
   try {
     let content = "";
-    if (provider === "anthropic") {
+    if (provider === "edenai") {
+      const result = await edenChatCompletion({
+        apiKey,
+        region: edenRegion ?? "eu",
+        model,
+        system: "You are a smoke test responder.",
+        prompt: "Reply with exactly: ok",
+        maxTokens: 12,
+      });
+      content = result.raw;
+    } else if (provider === "anthropic") {
       const response = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
         headers: {
@@ -180,6 +190,8 @@ async function runSmokeTest(payload: { caseId?: unknown; models?: unknown }) {
   let openaiKey = process.env.OPENAI_API_KEY;
   let cerebrasKey = process.env.CEREBRAS_API_KEY;
   let anthropicKey = process.env.ANTHROPIC_API_KEY;
+  let edenKey = process.env.EDEN_API_KEY;
+  let edenRegion: "eu" | "us" = "eu";
 
   if (caseId) {
     const caseData = getCase(caseId);
@@ -189,6 +201,8 @@ async function runSmokeTest(payload: { caseId?: unknown; models?: unknown }) {
     openaiKey = getEffectiveApiKey(caseData, "openai");
     cerebrasKey = getEffectiveApiKey(caseData, "cerebras");
     anthropicKey = getEffectiveApiKey(caseData, "anthropic");
+    edenKey = getEffectiveApiKey(caseData, "edenai");
+    edenRegion = caseData.edenRegion ?? "eu";
     appendLog(caseId, `🧪 [SMOKE] Start models=${models.join(", ")}`);
   }
 
@@ -199,8 +213,10 @@ async function runSmokeTest(payload: { caseId?: unknown; models?: unknown }) {
       ? cerebrasKey
       : provider === "anthropic"
         ? anthropicKey
-        : openaiKey;
-    const result = await smokeOneModel(model, provider, key);
+        : provider === "edenai"
+          ? edenKey
+          : openaiKey;
+    const result = await smokeOneModel(model, provider, key, edenRegion);
     results.push(result);
     if (caseId) {
       appendLog(caseId, `${result.ok ? "✅" : "❌"} [SMOKE] model=${result.model} provider=${result.provider} endpoint=${result.endpoint} latency=${result.latencyMs}ms`);
@@ -225,6 +241,7 @@ async function runSmokeTest(payload: { caseId?: unknown; models?: unknown }) {
       openai: Boolean(openaiKey),
       cerebras: Boolean(cerebrasKey),
       anthropic: Boolean(anthropicKey),
+      edenai: Boolean(edenKey),
     },
     results,
   });

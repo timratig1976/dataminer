@@ -1,0 +1,275 @@
+/**
+ * lib/edenai.ts
+ * Eden AI gateway client (v3).
+ *
+ * Endpoints (verified 2026-08):
+ *   GET  {base}/v3/models           → { data: [{ id, owned_by, model_name, context_length, capabilities, pricing, regions }] }
+ *   POST {base}/v3/chat/completions → OpenAI-compatible (model: "provider/model")
+ *   POST {base}/v3/universal-ai     → { status, cost, output } (model: "feature/subfeature/provider[/model]")
+ *
+ * Regions:
+ *   eu → https://api.eu.edenai.run   (EU data residency; auto-filters EU-eligible providers)
+ *   us → https://api.edenai.run      (global; Firecrawl web features are US-only)
+ */
+
+export type EdenRegion = "eu" | "us";
+
+export const EDEN_BASE_URLS: Record<EdenRegion, string> = {
+  eu: "https://api.eu.edenai.run",
+  us: "https://api.edenai.run",
+};
+
+export function edenBaseUrl(region?: string | null): string {
+  return region === "us" ? EDEN_BASE_URLS.us : EDEN_BASE_URLS.eu;
+}
+
+/** True if a model string is an Eden AI model (provider/model format). */
+export function isEdenModel(model?: string | null): boolean {
+  return !!model && model.includes("/") && !model.startsWith("http");
+}
+
+export function edenProviderOf(model: string): string {
+  return model.split("/")[0] || "unknown";
+}
+
+// ── Types ────────────────────────────────────────────────────────────────────
+
+export interface EdenModelInfo {
+  id: string;              // "provider/model" — usable directly as the `model` field
+  provider: string;        // owned_by
+  model_name: string;
+  context_length?: number;
+  capabilities?: {
+    input_modalities?: string[];
+    output_modalities?: string[];
+    supports_reasoning?: boolean;
+    supports_web_search?: boolean;
+    supports_system_messages?: boolean;
+    supports_response_schema?: boolean;
+    supports_function_calling?: boolean;
+  } | null;
+  pricing?: { input_cost_per_token?: number; output_cost_per_token?: number };
+  regions?: Array<{ code: string; name?: string }>;
+}
+
+export interface EdenChatResult {
+  raw: string;
+  tokens?: { prompt: number; completion: number; total: number };
+  costUsd?: number;
+  model?: string;
+}
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+async function edenFetch(url: string, apiKey: string, init: RequestInit, timeoutMs = 60_000): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(new Error(`Eden AI timeout after ${timeoutMs}ms`)), timeoutMs);
+  try {
+    const res = await fetch(url, {
+      ...init,
+      signal: init.signal ?? controller.signal,
+      headers: {
+        "Authorization": `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+        ...(init.headers ?? {}),
+      },
+    });
+    return res;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function edenError(json: any, status: number): Error {
+  const msg =
+    json?.error?.message ||
+    json?.detail?.message ||
+    (typeof json?.detail === "string" ? json.detail : "") ||
+    json?.error?.type ||
+    `HTTP ${status}`;
+  return new Error(msg);
+}
+
+// ── Model discovery ──────────────────────────────────────────────────────────
+
+export async function listEdenModels(
+  region: EdenRegion = "eu",
+  apiKey?: string,
+  opts: { onlyTextChat?: boolean } = {}
+): Promise<EdenModelInfo[]> {
+  const base = edenBaseUrl(region);
+  const headers: Record<string, string> = {};
+  if (apiKey) headers["Authorization"] = `Bearer ${apiKey}`;
+
+  const res = await fetch(`${base}/v3/models`, { headers, signal: AbortSignal.timeout(30_000) });
+  const json = await res.json();
+  if (!res.ok) throw edenError(json, res.status);
+
+  const data: any[] = Array.isArray(json?.data) ? json.data : Array.isArray(json?.models) ? json.models : [];
+  let models: EdenModelInfo[] = data
+    .filter((m) => typeof m?.id === "string" && m.id.includes("/"))
+    .map((m) => ({
+      id: m.id,
+      provider: m.owned_by ?? m.id.split("/")[0],
+      model_name: m.model_name ?? m.id,
+      context_length: m.context_length,
+      capabilities: m.capabilities ?? null,
+      pricing: m.pricing ?? m.list_pricing,
+      regions: m.regions,
+    }));
+
+  if (opts.onlyTextChat !== false) {
+    // Keep models that can at least accept text and output text (chat-capable)
+    models = models.filter((m) => {
+      const caps = m.capabilities;
+      if (!caps) return true; // unknown capabilities → keep
+      const out = caps.output_modalities ?? ["text"];
+      return out.includes("text");
+    });
+  }
+
+  return models;
+}
+
+// ── Chat completion ──────────────────────────────────────────────────────────
+
+export async function edenChatCompletion(params: {
+  apiKey: string;
+  region?: EdenRegion;
+  model: string; // "provider/model"
+  system: string;
+  prompt: string;
+  maxTokens: number;
+  temperature?: number;
+  signal?: AbortSignal;
+}): Promise<EdenChatResult> {
+  const { apiKey, region = "eu", model, system, prompt, maxTokens, temperature = 0, signal } = params;
+  const url = `${edenBaseUrl(region)}/v3/chat/completions`;
+
+  const res = await edenFetch(
+    url,
+    apiKey,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        model,
+        messages: [
+          { role: "system", content: system },
+          { role: "user", content: prompt },
+        ],
+        max_tokens: maxTokens,
+        temperature,
+      }),
+      signal,
+    },
+    120_000
+  );
+
+  const json = await res.json();
+  if (!res.ok) throw edenError(json, res.status);
+
+  const raw: string =
+    typeof json?.choices?.[0]?.message?.content === "string"
+      ? json.choices[0].message.content.trim()
+      : "";
+
+  const usage = json?.usage;
+  const promptTokens = Number(usage?.prompt_tokens ?? 0);
+  const completionTokens = Number(usage?.completion_tokens ?? 0);
+  const tokens = usage
+    ? { prompt: promptTokens, completion: completionTokens, total: Number(usage.total_tokens ?? promptTokens + completionTokens) }
+    : undefined;
+
+  // Eden reports cost in USD on the LLM endpoint when available
+  const costUsd = typeof json?.cost === "number" ? json.cost : undefined;
+
+  return { raw, tokens, costUsd, model: json?.model };
+}
+
+// ── Universal AI: web search / scrape (Firecrawl) ───────────────────────────
+
+export interface EdenWebSearchResult {
+  title: string;
+  url: string;
+  snippet: string;
+}
+
+/**
+ * Firecrawl web search via universal-ai.
+ * NOTE: Firecrawl is only available on the US endpoint (api.edenai.run).
+ */
+export async function edenWebSearch(params: {
+  apiKey: string;
+  query: string;
+  limit?: number;
+}): Promise<{ results: EdenWebSearchResult[]; costUsd?: number }> {
+  const { apiKey, query, limit = 5 } = params;
+  const url = `${EDEN_BASE_URLS.us}/v3/universal-ai`;
+
+  const res = await edenFetch(
+    url,
+    apiKey,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        model: "web/search/firecrawl",
+        input: { query, limit },
+        show_original_response: false,
+      }),
+    },
+    30_000
+  );
+
+  const json = await res.json();
+  if (!res.ok) throw edenError(json, res.status);
+  if (json?.status !== "success") {
+    throw new Error(`Firecrawl search failed: ${json?.error?.message ?? json?.status ?? "unknown"}`);
+  }
+
+  const raw: any[] = json?.output?.results ?? [];
+  const results = raw
+    .map((r) => ({
+      title: String(r?.title ?? "").slice(0, 200),
+      url: String(r?.url ?? "").trim(),
+      snippet: String(r?.content ?? r?.description ?? "").slice(0, 400),
+    }))
+    .filter((r) => r.url.startsWith("http"));
+
+  return { results, costUsd: typeof json?.cost === "number" ? json.cost : undefined };
+}
+
+/**
+ * Firecrawl single-URL scrape via universal-ai (US endpoint).
+ * Returns markdown content of the page.
+ */
+export async function edenScrapeUrl(params: {
+  apiKey: string;
+  url: string;
+}): Promise<{ markdown: string; title?: string; costUsd?: number }> {
+  const { apiKey, url } = params;
+  const endpoint = `${EDEN_BASE_URLS.us}/v3/universal-ai`;
+
+  const res = await edenFetch(
+    endpoint,
+    apiKey,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        model: "web/scraping/firecrawl",
+        input: { url, formats: ["markdown"] },
+        show_original_response: false,
+      }),
+    },
+    45_000
+  );
+
+  const json = await res.json();
+  if (!res.ok) throw edenError(json, res.status);
+  if (json?.status !== "success") {
+    throw new Error(`Firecrawl scrape failed: ${json?.error?.message ?? json?.status ?? "unknown"}`);
+  }
+
+  const data = json?.output?.data ?? json?.output;
+  const markdown = String(data?.markdown ?? data?.content ?? "").trim();
+  return { markdown, costUsd: typeof json?.cost === "number" ? json.cost : undefined, title: String(data?.title ?? "").trim() };
+}

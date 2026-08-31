@@ -60,6 +60,8 @@ function initSchema(db: Database.Database) {
   try { db.exec(`ALTER TABLE cases ADD COLUMN cerebras_api_key TEXT`); } catch {}
   try { db.exec(`ALTER TABLE cases ADD COLUMN anthropic_api_key TEXT`); } catch {}
   try { db.exec(`ALTER TABLE cases ADD COLUMN model_allowlist TEXT NOT NULL DEFAULT '[]'`); } catch {}
+  try { db.exec(`ALTER TABLE cases ADD COLUMN eden_api_key TEXT`); } catch {}
+  try { db.exec(`ALTER TABLE cases ADD COLUMN eden_region TEXT NOT NULL DEFAULT 'eu'`); } catch {}
 }
 
 // ── Cases ────────────────────────────────────────────────────────────────────
@@ -82,10 +84,11 @@ export function createCase(c: Omit<Case, "createdAt" | "updatedAt">): Case {
   const encryptedApiKey = encryptSecret(c.apiKey);
   const encryptedCerebrasApiKey = encryptSecret(c.cerebrasApiKey);
   const encryptedAnthropicApiKey = encryptSecret(c.anthropicApiKey);
+  const encryptedEdenApiKey = encryptSecret(c.edenApiKey);
   db.prepare(`
-    INSERT INTO cases (id, name, ai_columns, api_key, cerebras_api_key, anthropic_api_key, model_allowlist, col_order, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(c.id, c.name, JSON.stringify(c.aiColumns), encryptedApiKey, encryptedCerebrasApiKey, encryptedAnthropicApiKey, JSON.stringify(c.modelAllowlist ?? []), JSON.stringify(c.colOrder ?? []), now, now);
+    INSERT INTO cases (id, name, ai_columns, api_key, cerebras_api_key, anthropic_api_key, eden_api_key, eden_region, model_allowlist, col_order, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(c.id, c.name, JSON.stringify(c.aiColumns), encryptedApiKey, encryptedCerebrasApiKey, encryptedAnthropicApiKey, encryptedEdenApiKey, c.edenRegion ?? "eu", JSON.stringify(c.modelAllowlist ?? []), JSON.stringify(c.colOrder ?? []), now, now);
   return getCase(c.id)!;
 }
 
@@ -102,19 +105,27 @@ export function updateCase(id: string, patch: Partial<Omit<Case, "id" | "created
   const nextAnthropicApiKey = patch.anthropicApiKey !== undefined
     ? encryptSecret(patch.anthropicApiKey)
     : encryptSecret(existing.anthropicApiKey);
+  const nextEdenApiKey = patch.edenApiKey !== undefined
+    ? encryptSecret(patch.edenApiKey)
+    : encryptSecret(existing.edenApiKey);
   const merged = { ...existing, ...patch, updatedAt: new Date().toISOString() };
   db.prepare(`
-    UPDATE cases SET name=?, ai_columns=?, api_key=?, cerebras_api_key=?, anthropic_api_key=?, model_allowlist=?, col_order=?, updated_at=? WHERE id=?
-  `).run(merged.name, JSON.stringify(merged.aiColumns), nextApiKey, nextCerebrasApiKey, nextAnthropicApiKey, JSON.stringify(merged.modelAllowlist ?? []), JSON.stringify(merged.colOrder ?? []), merged.updatedAt, id);
+    UPDATE cases SET name=?, ai_columns=?, api_key=?, cerebras_api_key=?, anthropic_api_key=?, eden_api_key=?, eden_region=?, model_allowlist=?, col_order=?, updated_at=? WHERE id=?
+  `).run(merged.name, JSON.stringify(merged.aiColumns), nextApiKey, nextCerebrasApiKey, nextAnthropicApiKey, nextEdenApiKey, merged.edenRegion ?? "eu", JSON.stringify(merged.modelAllowlist ?? []), JSON.stringify(merged.colOrder ?? []), merged.updatedAt, id);
   return getCase(id)!;
 }
 
-export function getEffectiveApiKey(c: Case, provider: "openai" | "cerebras" | "anthropic" = "openai"): string | undefined {
+export type LlmProviderKey = "openai" | "cerebras" | "anthropic" | "edenai";
+
+export function getEffectiveApiKey(c: Case, provider: LlmProviderKey = "openai"): string | undefined {
   if (provider === "cerebras") {
     return c.cerebrasApiKey || process.env.CEREBRAS_API_KEY || undefined;
   }
   if (provider === "anthropic") {
     return c.anthropicApiKey || process.env.ANTHROPIC_API_KEY || undefined;
+  }
+  if (provider === "edenai") {
+    return c.edenApiKey || process.env.EDEN_API_KEY || undefined;
   }
   return c.apiKey || process.env.OPENAI_API_KEY || undefined;
 }
@@ -221,6 +232,7 @@ function deserializeCase(row: any): Case {
   const decryptedApiKey = decryptSecret(row.api_key ?? undefined);
   const decryptedCerebrasApiKey = decryptSecret(row.cerebras_api_key ?? undefined);
   const decryptedAnthropicApiKey = decryptSecret(row.anthropic_api_key ?? undefined);
+  const decryptedEdenApiKey = decryptSecret(row.eden_api_key ?? undefined);
   return {
     id: row.id,
     name: row.name,
@@ -231,6 +243,9 @@ function deserializeCase(row: any): Case {
     cerebrasApiKeyMasked: maskSecret(decryptedCerebrasApiKey),
     anthropicApiKey: decryptedAnthropicApiKey,
     anthropicApiKeyMasked: maskSecret(decryptedAnthropicApiKey),
+    edenApiKey: decryptedEdenApiKey,
+    edenApiKeyMasked: maskSecret(decryptedEdenApiKey),
+    edenRegion: row.eden_region === "us" ? "us" : "eu",
     modelAllowlist: JSON.parse(row.model_allowlist || "[]"),
     colOrder: JSON.parse(row.col_order || "[]"),
     createdAt: row.created_at,

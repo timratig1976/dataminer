@@ -15,6 +15,8 @@
  *   - All text sanitised before returning (no prompt-injection via title/snippet)
  */
 
+import { edenWebSearch } from "./edenai";
+
 // ── Types ────────────────────────────────────────────────────────────────────
 
 export interface SearchResult {
@@ -23,7 +25,7 @@ export interface SearchResult {
   snippet: string;
 }
 
-export type SearchLayer = "serpapi" | "brave" | "duckduckgo" | "playwright" | "scrapling";
+export type SearchLayer = "serpapi" | "brave" | "duckduckgo" | "playwright" | "scrapling" | "firecrawl";
 
 export interface SearchResponse {
   results: SearchResult[];
@@ -358,6 +360,26 @@ export async function searchViaScrapling(
   );
 }
 
+// ── Layer: Firecrawl via Eden AI (US endpoint) ──────────────────────────────
+
+export async function searchViaFirecrawl(
+  query: string,
+  edenApiKey: string,
+  maxResults = 5
+): Promise<SearchResult[]> {
+  if (!query.trim()) throw new Error("empty query");
+  if (!edenApiKey.trim()) throw new Error("missing Eden AI key for Firecrawl");
+
+  const { results } = await edenWebSearch({ apiKey: edenApiKey, query, limit: maxResults });
+  return deduplicate(
+    results.map((r) => ({
+      title: sanitiseText(r.title, 200),
+      url: r.url,
+      snippet: sanitiseText(r.snippet, 400),
+    })).filter((r) => r.url.startsWith("http"))
+  );
+}
+
 export async function searchViaPlaywright(
   query: string,
   maxResults = 5
@@ -502,11 +524,12 @@ export async function webSearch(
     braveApiKey?: string;
     scraplingUrl?: string;
     scraplingToken?: string;
+    firecrawlApiKey?: string;
     maxResults?: number;
     forceLayer?: SearchLayer;
   } = {}
 ): Promise<SearchResponse> {
-  const { serpApiKey, braveApiKey, scraplingUrl, scraplingToken, maxResults = 5, forceLayer } = options;
+  const { serpApiKey, braveApiKey, scraplingUrl, scraplingToken, firecrawlApiKey, maxResults = 5, forceLayer } = options;
   const clampedMax = Math.max(1, Math.min(maxResults, 10));
   const layerErrors: Record<string, string> = {};
   const t0 = Date.now();
@@ -558,8 +581,11 @@ export async function webSearch(
       if (!scraplingUrl || !scraplingToken) throw new Error("forceLayer=scrapling but no SCRAPLING_URL/TOKEN");
       const r = await searchViaScrapling(query, scraplingUrl, scraplingToken, clampedMax);
       return respond(r, "scrapling");
-    }
-  }
+    }    if (forceLayer === "firecrawl") {
+      if (!firecrawlApiKey) throw new Error("forceLayer=firecrawl but no Eden AI key");
+      const r = await searchViaFirecrawl(query, firecrawlApiKey!, clampedMax);
+      return respond(r, "firecrawl");
+    }  }
 
   // ─ Layer 1: SerpAPI ─
   if (serpApiKey) {
@@ -575,6 +601,14 @@ export async function webSearch(
       searchViaBrave(query, braveApiKey!, clampedMax)
     );
     if (r && r.length > 0) return respond(r, "brave");
+  }
+
+  // ─ Layer 2b: Firecrawl via Eden AI (structured, reliable; US endpoint) ─
+  if (firecrawlApiKey) {
+    const r = await tryLayer("firecrawl", () =>
+      searchViaFirecrawl(query, firecrawlApiKey!, clampedMax)
+    );
+    if (r && r.length > 0) return respond(r, "firecrawl");
   }
 
   // ─ Layer 3: DuckDuckGo HTML scraping ─

@@ -8,7 +8,8 @@ function isOpenAiResponsesOnlyModel(model: string): boolean {
   return m.startsWith("o3-pro") || m.includes("deep-research");
 }
 
-function endpointForModel(provider: "openai" | "cerebras" | "anthropic", model: string): string {
+function endpointForModel(provider: "openai" | "cerebras" | "anthropic" | "edenai", model: string): string {
+  if (provider === "edenai") return "/v3/chat/completions";
   if (provider === "anthropic") return "/v1/messages";
   if (provider === "cerebras") return "/v1/chat/completions";
   return isOpenAiResponsesOnlyModel(model) ? "/v1/responses" : "/v1/chat/completions";
@@ -74,7 +75,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ status: "cancelled", message: "Operation cancelled", operationId: opId });
     }
 
-    result = await runAiColumn(column, row.data, apiKey, provider, abortController.signal, opId);
+    result = await runAiColumn(column, row.data, apiKey, provider, abortController.signal, opId, caseData.edenRegion ?? "eu");
   } catch (error: any) {
     clearTimeout(timeout);
     removeOperation(opId);
@@ -104,6 +105,7 @@ export async function POST(req: NextRequest) {
   if (result.webSearchQuery) metaData[`_search_query_${column.outputKey}`] = result.webSearchQuery;
   if (result.webSearchResultCount) metaData[`_search_count_${column.outputKey}`] = String(result.webSearchResultCount);
   if (result.webSearchSource) metaData[`_search_source_${column.outputKey}`] = result.webSearchSource;
+  if (result.scrapedUrls?.length) metaData[`_scraped_urls_${column.outputKey}`] = result.scrapedUrls.join(" | ");
   if (result.rawResponse) metaData[`_llm_raw_${column.outputKey}`] = result.rawResponse;
   if (result.renderedPrompt) metaData[`_llm_prompt_${column.outputKey}`] = result.renderedPrompt;
   if (result.tokens) metaData[`_llm_tokens_${column.outputKey}`] = JSON.stringify(result.tokens);

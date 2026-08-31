@@ -42,6 +42,7 @@ export function AddColumnModal({ caseId, onClose, onAdded, availableFields = [] 
   const [searchQuery, setSearchQuery] = useState("");
   const [searchMaxResults, setSearchMaxResults] = useState(5);
   const [searchForceLayer, setSearchForceLayer] = useState<"" | "serpapi" | "duckduckgo" | "playwright">("" );
+  const [evidenceMode, setEvidenceMode] = useState<"snippet" | "page" | "auto">("snippet");
   const [captureReasoning, setCaptureReasoning] = useState(false);
   const [saving, setSaving] = useState(false);
   const promptTextareaId = useId();
@@ -72,6 +73,7 @@ export function AddColumnModal({ caseId, onClose, onAdded, availableFields = [] 
     setConditionField(p.conditionField || "");
     setOutputMode(p.outputMode || "text");
     setJsonKey(p.jsonKey || "");
+    setEvidenceMode(p.evidenceMode || "snippet");
     const nextRequired = p.requiredFields || [];
     setRequiredFields(nextRequired);
     const nextMappings: Record<string, string> = {};
@@ -129,6 +131,7 @@ export function AddColumnModal({ caseId, onClose, onAdded, availableFields = [] 
         searchQuery: useWebSearch && searchQuery.trim() ? searchQuery.trim() : undefined,
         searchMaxResults: useWebSearch ? searchMaxResults : undefined,
         searchForceLayer: useWebSearch && searchForceLayer ? searchForceLayer : undefined,
+        evidenceMode: useWebSearch && evidenceMode !== "snippet" ? evidenceMode : undefined,
         captureReasoning: captureReasoning || undefined,
       };
       const caseRes = await fetch(`/api/cases/${caseId}`).then((r) => r.json());
@@ -372,8 +375,19 @@ export function AddColumnModal({ caseId, onClose, onAdded, availableFields = [] 
                               </select>
                             </div>
                           </div>
+                          <div>
+                            <label className="text-[11px] font-semibold text-blue-700 uppercase tracking-wide">Evidenz-Tiefe (Firecrawl)</label>
+                            <select value={evidenceMode} onChange={e => setEvidenceMode(e.target.value as typeof evidenceMode)}
+                              className="mt-1 w-full border border-blue-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                              <option value="snippet">Snippets (schnell, günstig)</option>
+                              <option value="page">Ganze Seiten lesen (Firecrawl-Scrape)</option>
+                              <option value="auto">Auto: erst Snippets, bei leerer Antwort Seiten lesen</option>
+                            </select>
+                          </div>
                           <p className="text-[11px] text-blue-600 leading-relaxed">
                             Suchergebnisse werden als Kontext <strong>vor deinem Prompt</strong> eingefügt. Platzhalter wie <code className="bg-blue-100 px-1 rounded">{"{company_name}"}</code> erzeugen zeilenspezifische Suchen.
+                            <br />
+                            <span className="text-blue-500">„Ganze Seiten" lädt die Top-2 Treffer per Firecrawl als Markdown ins Prompt — nötig für Infos, die nicht im Snippet stehen (Impressum, Adresse, Gründungsjahr …). Benötigt Eden-AI-Key. +1–3s pro Zeile.</span>
                           </p>
                         </div>
                       )}

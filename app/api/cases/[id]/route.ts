@@ -8,6 +8,7 @@ function sanitizeCase(c: Case) {
     apiKey: undefined,
     cerebrasApiKey: undefined,
     anthropicApiKey: undefined,
+    edenApiKey: undefined,
   };
 }
 

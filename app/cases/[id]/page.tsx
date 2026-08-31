@@ -696,8 +696,21 @@ function EditPromptModal({ col, caseId, onSave, onClose, cellContext, onRunCell,
                     </div>
                   </div>
 
+                  <div>
+                    <label style={{...lbl,color:"#1d4ed8",marginBottom:3}}>Evidenz-Tiefe (Firecrawl)</label>
+                    <select style={{...inp,borderColor:"#93c5fd"}}
+                      value={draft.evidenceMode || "snippet"}
+                      onChange={e => setDraft(d => ({...d, evidenceMode: (e.target.value === "snippet" ? undefined : e.target.value) as typeof d.evidenceMode}))}>
+                      <option value="snippet">Snippets (schnell, günstig)</option>
+                      <option value="page">Ganze Seiten lesen (Firecrawl-Scrape)</option>
+                      <option value="auto">Auto: erst Snippets, bei leerer Antwort Seiten lesen</option>
+                    </select>
+                  </div>
+
                   <div style={{fontSize:11,color:"#3b82f6",lineHeight:1.5}}>
                     Die Suchergebnisse werden automatisch als Kontext <strong>vor deinem Prompt</strong> eingefügt. Nutze Platzhalter wie <code style={{background:"#dbeafe",padding:"0 4px",borderRadius:3}}>{"{company_name}"}</code> um zeilenspezifische Suchen zu bauen.
+                    <br />
+                    <span style={{color:"#60a5fa"}}>„Ganze Seiten" lädt die Top-2 Treffer per Firecrawl als Markdown ins Prompt — für Infos, die nicht im Snippet stehen (Impressum, Adresse, Gründungsjahr …). Benötigt Eden-AI-Key, +1–3s pro Zeile.</span>
                   </div>
                 </div>
               )}
