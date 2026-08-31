@@ -52,6 +52,13 @@ function initSchema(db: Database.Database) {
       created_at TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS scrape_cache (
+      url TEXT PRIMARY KEY,
+      markdown TEXT NOT NULL,
+      title TEXT,
+      fetched_at TEXT NOT NULL
+    );
+
     CREATE INDEX IF NOT EXISTS idx_rows_case_id ON rows(case_id, row_index);
     CREATE INDEX IF NOT EXISTS idx_logs_case_id ON logs(case_id, id DESC);
   `);
@@ -224,6 +231,29 @@ export function getLogs(caseId: string, limit = 200): { id: number; message: str
 
 export function clearLogs(caseId: string): void {
   getDb().prepare("DELETE FROM logs WHERE case_id = ?").run(caseId);
+}
+
+// ── Scrape cache ─────────────────────────────────────────────────────────────
+
+const SCRAPE_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+
+export function getCachedScrape(url: string): { markdown: string; title?: string } | null {
+  const db = getDb();
+  const row = db.prepare("SELECT markdown, title, fetched_at FROM scrape_cache WHERE url = ?").get(url) as
+    | { markdown: string; title: string | null; fetched_at: string }
+    | undefined;
+  if (!row) return null;
+  const age = Date.now() - new Date(row.fetched_at).getTime();
+  if (Number.isFinite(age) && age > SCRAPE_CACHE_TTL_MS) return null;
+  return { markdown: row.markdown, title: row.title ?? undefined };
+}
+
+export function setCachedScrape(url: string, markdown: string, title?: string): void {
+  const db = getDb();
+  db.prepare(`
+    INSERT INTO scrape_cache (url, markdown, title, fetched_at) VALUES (?, ?, ?, ?)
+    ON CONFLICT(url) DO UPDATE SET markdown=excluded.markdown, title=excluded.title, fetched_at=excluded.fetched_at
+  `).run(url, markdown, title ?? null, new Date().toISOString());
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────

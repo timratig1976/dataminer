@@ -1,9 +1,9 @@
 import OpenAI from "openai";
 import { isOperationCancelled } from "./operations";
 import type { AiColumn } from "./types";
-import { webSearch, formatSearchResultsForLlm, type SearchLayer } from "./search";
+import { webSearch, formatSearchResultsForLlm, type SearchLayer, isCatalogUrl } from "./search";
 import { isEdenModel, edenChatCompletion, edenScrapeUrl, type EdenRegion } from "./edenai";
-import { isCatalogUrl } from "./search";
+import { getCachedScrape, setCachedScrape } from "./db";
 
 export type LlmProvider = "openai" | "cerebras" | "anthropic" | "edenai";
 
@@ -372,15 +372,25 @@ export async function runAiColumn(
     return { results: resp.results, source: resp.source, query: effectivePrimary };
   }
 
-  // Scrape the top non-catalog result URLs into a #PAGE CONTENT block
+  // Scrape the top non-catalog result URLs into a #PAGE CONTENT block.
+  // Uses the local scrape cache (7-day TTL) to avoid re-paying Firecrawl for
+  // URLs we already fetched (common in bulk runs / re-runs).
   async function scrapeTopPages(urls: string[], maxPages = 2, maxCharsEach = 15000): Promise<string> {
     const candidates = urls.filter((u) => u.startsWith("http") && !isCatalogUrl(u)).slice(0, maxPages);
     if (candidates.length === 0) return "";
     const blocks: string[] = [];
+    let cacheHits = 0;
     for (const url of candidates) {
       if (operationId && isOperationCancelled(operationId)) throw new Error("Operation cancelled");
       try {
-        const { markdown, title } = await edenScrapeUrl({ apiKey: firecrawlKey!, url });
+        const cached = getCachedScrape(url);
+        let { markdown, title } = cached ?? {};
+        if (!markdown) {
+          ({ markdown, title } = await edenScrapeUrl({ apiKey: firecrawlKey!, url }));
+          if (markdown && markdown.trim()) setCachedScrape(url, markdown, title);
+        } else {
+          cacheHits++;
+        }
         if (markdown && markdown.trim()) {
           blocks.push(`### ${title || url}\nURL: ${url}\n${markdown.slice(0, maxCharsEach)}`);
         }
@@ -388,6 +398,7 @@ export async function runAiColumn(
         console.warn(`[ai] page scrape failed for ${url}:`, (e as Error).message);
       }
     }
+    if (cacheHits > 0) console.log(`[ai] scrape cache: ${cacheHits}/${candidates.length} hit(s)`);
     return blocks.join("\n\n---\n\n");
   }
 
@@ -835,5 +846,46 @@ Website: {official_domain}
 Return ONLY in format: PLZ City (e.g. 80331 München). If not found, return: notFound`,
     condition: "empty",
     conditionField: "city",
+  },
+  {
+    name: "Impressum / Firmendaten",
+    outputKey: "address",
+    model: "gpt-4o-mini",
+    outputMode: "json",
+    multiKeys: [
+      { jsonKey: "address", outputKey: "address" },
+      { jsonKey: "legal_name", outputKey: "legal_name" },
+      { jsonKey: "phone", outputKey: "phone" },
+      { jsonKey: "email", outputKey: "impressum_email" },
+      { jsonKey: "managing_director", outputKey: "managing_director" },
+      { jsonKey: "ust_id", outputKey: "ust_id" },
+    ],
+    useWebSearch: true,
+    searchQuery: "{company_name} {official_domain} impressum",
+    evidenceMode: "page",
+    requiredFields: ["company_name"],
+    inputMappings: { company_name: "company_name", official_domain: "official_domain" },
+    condition: "empty",
+    conditionField: "address",
+    prompt: `#CONTEXT#
+You are a German business data researcher. The user message contains web search results and — when available — the full text of the company's website pages (look for the Impressum section).
+
+#OBJECTIVE#
+Extract the company's official registration data from its Impressum (or, if no Impressum is present, from Contact/About/company-info pages).
+
+#INSTRUCTIONS#
+1. Prefer the official Impressum content of the company's own website over third-party directories.
+2. Extract the following fields exactly as written on the page:
+   - legal_name: the full legal company name (e.g. "Ostsee Fisch GmbH & Co. Produktions- und Vertriebs KG")
+   - address: the complete postal address on one line (street, PLZ, city)
+   - phone: the main phone number (keep country code, e.g. +49 ...)
+   - email: the primary contact email
+   - managing_director: name(s) of the managing director(s) (Geschäftsführer)
+   - ust_id: the USt-IdNr / VAT ID (e.g. DE123456789)
+3. If a field is not present in the provided content, use "notFound" for that field.
+4. NEVER guess or invent data. Only extract what is actually in the provided page content or snippets.
+5. Ignore data from other companies that may appear in the same page (e.g. parent companies, subsidiaries, web agencies).
+
+Return ONLY valid JSON with the keys: legal_name, address, phone, email, managing_director, ust_id, _reasoning`,
   },
 ];
