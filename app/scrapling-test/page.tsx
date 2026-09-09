@@ -7,12 +7,21 @@ import {
   CheckCircle2, XCircle, Globe, Search, ArrowLeft, Wifi, WifiOff,
 } from "lucide-react";
 
-type Mode = "search" | "scrape";
+type Mode = "search" | "scrape" | "providers";
 
 interface SearchResult { title: string; url: string; snippet: string; }
 interface SearchResponse { results: SearchResult[]; query: string; }
 interface ScrapeResponse { url: string; text: string; }
 interface DebugResponse { query: string; html_snippet: string; page_title: string; all_links: string[]; }
+interface ProviderLog {
+  provider: string;
+  ok: boolean;
+  latencyMs: number;
+  httpStatus?: number;
+  requestUrl?: string;
+  raw?: unknown;
+  error?: string;
+}
 
 const SCRAPLING_URL = "http://127.0.0.1:8001";
 const TOKEN = "dev-local-token";
@@ -31,6 +40,9 @@ export default function ScraplingTestPage() {
   const [checkingService, setCheckingService] = useState(false);
   const [debugData, setDebugData] = useState<DebugResponse | null>(null);
   const [debugLoading, setDebugLoading] = useState(false);
+  const [providerLogs, setProviderLogs] = useState<ProviderLog[] | null>(null);
+  const [providerLogsLoading, setProviderLogsLoading] = useState(false);
+  const [expandedLog, setExpandedLog] = useState<string | null>(null);
   const [maxResults, setMaxResults] = useState(10);
   const [currentPage, setCurrentPage] = useState(1);
 
@@ -47,6 +59,22 @@ export default function ScraplingTestPage() {
       setDebugData(await res.json());
     } catch (e) { setError((e as Error).message); }
     finally { setDebugLoading(false); }
+  }
+
+  async function runProviderLogs() {
+    if (!query.trim()) return;
+    setProviderLogsLoading(true); setProviderLogs(null); setError(null);
+    try {
+      const res = await fetch("/api/search/debug", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query: query.trim() }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+      const data = await res.json();
+      setProviderLogs(data.logs ?? []);
+    } catch (e) { setError((e as Error).message); }
+    finally { setProviderLogsLoading(false); }
   }
 
   async function checkService() {
@@ -212,6 +240,15 @@ export default function ScraplingTestPage() {
                 <Globe className="w-4 h-4" />
                 Page Scrape
               </button>
+              <button
+                onClick={() => setMode("providers")}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                  mode === "providers" ? "bg-violet-600 text-white" : "bg-white border border-gray-200 text-gray-600 hover:bg-gray-50"
+                }`}
+              >
+                <Bug className="w-4 h-4" />
+                Alle Quellen (Logs)
+              </button>
             </div>
 
             {/* Input */}
@@ -255,6 +292,30 @@ export default function ScraplingTestPage() {
                     </button>
                   </div>
                 </>
+              ) : mode === "providers" ? (
+                <>
+                  <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">Suchanfrage (alle Quellen parallel)</label>
+                  <div className="flex gap-2">
+                    <input
+                      value={query}
+                      onChange={e => setQuery(e.target.value)}
+                      onKeyDown={e => e.key === "Enter" && runProviderLogs()}
+                      placeholder="z.B. Marketingagenturen Rostock"
+                      className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400"
+                    />
+                    <button
+                      onClick={runProviderLogs}
+                      disabled={providerLogsLoading || !query.trim()}
+                      className="flex items-center gap-2 bg-violet-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-violet-700 disabled:opacity-50"
+                    >
+                      {providerLogsLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Bug className="w-4 h-4" />}
+                      Alle abfragen
+                    </button>
+                  </div>
+                  <p className="text-xs text-gray-400">
+                    Fragt jede Quelle einzeln ab (kein Fallback) und zeigt die rohe Antwort: Firecrawl/Eden, SerpApi, Brave, DuckDuckGo, Scrapling, Google Maps.
+                  </p>
+                </>
               ) : (
                 <>
                   <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">URL</label>
@@ -289,6 +350,54 @@ export default function ScraplingTestPage() {
                     <div className="mt-1 text-xs text-red-500">Service läuft nicht? → <code>npm run scrapling</code></div>
                   )}
                 </div>
+              </div>
+            )}
+
+            {/* Provider Logs (all sources) */}
+            {providerLogs !== null && (
+              <div className="space-y-3">
+                <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                  Provider-Logs — rohe Antworten ({providerLogs.length} Quellen)
+                </div>
+                {providerLogs.map((log) => {
+                  const key = log.provider;
+                  const expanded = expandedLog === key;
+                  const rawText = typeof log.raw === "string" ? log.raw : JSON.stringify(log.raw, null, 2);
+                  return (
+                    <div key={key} className={`border rounded-xl overflow-hidden ${log.ok ? "border-green-200" : "border-red-200"}`}>
+                      <button
+                        onClick={() => setExpandedLog(expanded ? null : key)}
+                        className="w-full flex items-center gap-3 px-4 py-3 bg-white hover:bg-gray-50 text-left"
+                      >
+                        {log.ok ? <CheckCircle2 className="w-4 h-4 text-green-500 shrink-0" /> : <XCircle className="w-4 h-4 text-red-500 shrink-0" />}
+                        <span className="text-sm font-medium text-gray-800">{log.provider}</span>
+                        <span className="text-xs text-gray-400">{log.latencyMs}ms</span>
+                        {log.httpStatus !== undefined && (
+                          <span className={`text-xs px-1.5 py-0.5 rounded ${log.httpStatus < 400 ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700"}`}>
+                            HTTP {log.httpStatus}
+                          </span>
+                        )}
+                        {log.error && <span className="text-xs text-red-600 truncate">{log.error}</span>}
+                        <span className="ml-auto text-xs text-gray-400">{expanded ? "▲ zuklappen" : "▼ rohe Antwort"}</span>
+                      </button>
+                      {expanded && (
+                        <div className="px-4 py-3 bg-gray-50 border-t border-gray-200 space-y-2">
+                          {log.requestUrl && (
+                            <div className="text-xs text-gray-500 break-all">
+                              <span className="font-medium">Request:</span> <code className="text-[11px]">{log.requestUrl}</code>
+                            </div>
+                          )}
+                          <div>
+                            <div className="text-xs font-medium text-gray-500 mb-1">Rohe Antwort:</div>
+                            <pre className="text-[11px] text-gray-700 whitespace-pre-wrap break-words max-h-96 overflow-auto font-mono bg-white border border-gray-200 p-2 rounded">
+                              {rawText ?? "(leer)"}
+                            </pre>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             )}
 

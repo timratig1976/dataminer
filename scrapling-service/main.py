@@ -112,6 +112,30 @@ def _is_real_url(url: str) -> bool:
 def _parse_google_page(page, max_results: int) -> list[SearchResult]:
     results: list[SearchResult] = []
 
+    # Strategy 0 (2026 DOM): result links are relative /goto redirects; the real
+    # URL lives in the <cite> inside the same anchor (or data-pcu attr on ads).
+    for a in page.css("a[href^='/goto']"):
+        if len(results) >= max_results:
+            break
+        h3_els = a.css("h3")
+        if not h3_els:
+            continue
+        title = (h3_els[0].text or "").strip()
+        if not title:
+            continue
+        cite_els = a.css("cite")
+        url = (cite_els[0].text or "").strip() if cite_els else ""
+        if not url:
+            url = a.attrib.get("data-pcu", "")
+        if not url.startswith("http"):
+            continue
+        snippet_els = a.css(".VwiC3b, .lEBKkf, .IsZvec, .st, [data-sncf], span[style]")
+        snippet = (snippet_els[0].text or "").strip() if snippet_els else ""
+        results.append(SearchResult(title=title, url=url, snippet=snippet))
+
+    if results:
+        return results
+
     # Strategy 1: classic #search .g cards
     for card in page.css("#search .g, #search [data-sokoban-container], div.g"):
         if len(results) >= max_results:
@@ -177,6 +201,42 @@ def _parse_google_page(page, max_results: int) -> list[SearchResult]:
     return results
 
 
+def _google_kwargs() -> dict:
+    kwargs = dict(
+        headless=True,
+        network_idle=True,
+        google_search=False,
+        disable_resources=False,
+        locale="de-DE",
+    )
+    if PROXY_URL:
+        kwargs["proxy"] = PROXY_URL
+    return kwargs
+
+
+def _fetch_google_search(search_url: str):
+    """Fetch a Google SERP.
+
+    Google often parks on a language/redirect interstitial ("Klicke hier, wenn
+    du … weitergeleitet wirst") that goes network-idle BEFORE its JS redirect to
+    the real results page. So we wait explicitly for the results container
+    (#search) and fall back to a plain fetch if the selector never appears.
+    """
+    kwargs = _google_kwargs()
+    _human_delay()
+    try:
+        return StealthyFetcher.fetch(
+            search_url,
+            wait_selector="#search",
+            wait_selector_state="attached",
+            timeout=60_000,
+            **kwargs,
+        )
+    except Exception:
+        _human_delay()
+        return StealthyFetcher.fetch(search_url, timeout=60_000, **kwargs)
+
+
 @app.post("/search", response_model=SearchResponse)
 def search(req: SearchRequest, x_api_token: str = Header(...)):
     _auth(x_api_token)
@@ -184,22 +244,12 @@ def search(req: SearchRequest, x_api_token: str = Header(...)):
         raise HTTPException(status_code=400, detail="Empty query")
 
     import urllib.parse
-    kwargs = dict(
-        headless=True,
-        network_idle=True,
-        google_search=False,
-        disable_resources=False,
-    )
-    if PROXY_URL:
-        kwargs["proxy"] = PROXY_URL
-
-    _human_delay()
     encoded = urllib.parse.quote_plus(req.query.strip())
     per_page = min(req.max_results, 100)
     start = (max(req.page, 1) - 1) * per_page  # Google start= offset
     num = min(per_page, 10)  # Google caps at 10 reliably; we fetch multiple pages if needed
     search_url = f"https://www.google.com/search?q={encoded}&hl=de&gl=de&num={num}&start={start}"
-    fetched_page = StealthyFetcher.fetch(search_url, **kwargs)
+    fetched_page = _fetch_google_search(search_url)
     results = _parse_google_page(fetched_page, per_page)
     return SearchResponse(results=results, query=req.query, page=max(req.page, 1), per_page=per_page)
 
