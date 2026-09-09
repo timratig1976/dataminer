@@ -473,11 +473,11 @@ export async function runAiColumn(
     for (const url of candidates) {
       if (operationId && isOperationCancelled(operationId)) throw new Error("Operation cancelled");
       try {
-        const cached = getCachedScrape(url);
+        const cached = await getCachedScrape(url);
         let { markdown, title } = cached ?? {};
         if (!markdown) {
           ({ markdown, title } = await edenScrapeUrl({ apiKey: firecrawlKey!, url }));
-          if (markdown && markdown.trim()) setCachedScrape(url, markdown, title);
+          if (markdown && markdown.trim()) await setCachedScrape(url, markdown, title);
         } else {
           cacheHits++;
         }

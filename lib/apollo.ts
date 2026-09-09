@@ -380,7 +380,7 @@ export async function lookupApolloContacts(
   budget?: ApolloBudget
 ): Promise<ApolloLookupResult> {
   const key = apolloCacheKey(q);
-  const cached = getApolloCache(key);
+  const cached = await getApolloCache(key);
   if (Array.isArray(cached)) {
     budget?.recordCacheHit();
     return { contacts: cached as ApolloContact[], fromCache: true, transport: "cache", queryKey: key };
@@ -391,6 +391,6 @@ export async function lookupApolloContacts(
   const contacts = await adapter.searchPeople(q);
 
   // Cache even empty results — repeated misses for the same company shouldn't re-hit the API
-  setApolloCache(key, contacts);
+  await setApolloCache(key, contacts);
   return { contacts, fromCache: false, transport: adapter.transport, queryKey: key };
 }

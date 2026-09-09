@@ -6,7 +6,7 @@ import type { RowData } from "@/lib/types";
 export async function POST(req: NextRequest) {
   const { caseId, rows, columnKeys } = await req.json();
 
-  const caseData = getCase(caseId);
+  const caseData = await getCase(caseId);
   if (!caseData) return NextResponse.json({ error: "Case not found" }, { status: 404 });
 
   const selectedColumns: string[] = Array.isArray(columnKeys)
@@ -35,10 +35,10 @@ export async function POST(req: NextRequest) {
     updatedAt: new Date().toISOString(),
   }));
 
-  bulkInsertRows(rowData);
+  await bulkInsertRows(rowData);
 
   if (selectedColumns.length) {
-    updateCase(caseId, { updatedAt: new Date().toISOString() });
+    await updateCase(caseId, { updatedAt: new Date().toISOString() });
   }
 
   return NextResponse.json({ imported: rowData.length });

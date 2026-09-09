@@ -10,13 +10,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     return NextResponse.json({ error: "key required" }, { status: 400 });
   }
 
-  const caseData = getCase(id);
+  const caseData = await getCase(id);
   if (!caseData) return NextResponse.json({ error: "Case not found" }, { status: 404 });
 
-  const rows = listRows(id);
+  const rows = await listRows(id);
   for (const row of rows) {
     if (!(key in row.data)) {
-      upsertRow({ ...row, data: { ...row.data, [key]: "" } });
+      await upsertRow({ ...row, data: { ...row.data, [key]: "" } });
     }
   }
 

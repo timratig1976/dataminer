@@ -87,7 +87,7 @@ export async function GET(req: NextRequest) {
   let edenRegion: EdenRegion = "eu";
 
   if (caseId) {
-    const caseData = getCase(caseId);
+    const caseData = await getCase(caseId);
     if (!caseData) return NextResponse.json({ error: "Case not found" }, { status: 404 });
     openaiKey = getEffectiveApiKey(caseData, "openai");
     cerebrasKey = getEffectiveApiKey(caseData, "cerebras");

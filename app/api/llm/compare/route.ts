@@ -96,10 +96,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "caseId, rowId, and column are required" }, { status: 400 });
   }
 
-  const caseData = getCase(caseId);
+  const caseData = await getCase(caseId);
   if (!caseData) return NextResponse.json({ error: "Case not found" }, { status: 404 });
 
-  const row = getRow(rowId);
+  const row = await getRow(rowId);
   if (!row) return NextResponse.json({ error: "Row not found" }, { status: 404 });
 
   const models = normalizeModels(body.models, column.model);

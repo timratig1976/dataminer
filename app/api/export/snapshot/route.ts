@@ -5,10 +5,10 @@ export async function GET(req: NextRequest) {
   const caseId = req.nextUrl.searchParams.get("caseId");
   if (!caseId) return NextResponse.json({ error: "caseId required" }, { status: 400 });
 
-  const caseData = getCase(caseId);
+  const caseData = await getCase(caseId);
   if (!caseData) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const rows = listRows(caseId);
+  const rows = await listRows(caseId);
 
   const snapshot = {
     _version: 1,

@@ -11,8 +11,10 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 const cache = new Map<string, unknown>();
 vi.mock("./db", () => ({
-  getApolloCache: (key: string) => cache.get(key) ?? null,
-  setApolloCache: (key: string, payload: unknown) => cache.set(key, payload),
+  getApolloCache: async (key: string) => cache.get(key) ?? null,
+  setApolloCache: async (key: string, payload: unknown) => {
+    cache.set(key, payload);
+  },
 }));
 
 import {

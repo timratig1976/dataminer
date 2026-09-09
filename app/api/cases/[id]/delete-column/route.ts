@@ -10,10 +10,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     return NextResponse.json({ error: "key required" }, { status: 400 });
   }
 
-  const caseData = getCase(id);
+  const caseData = await getCase(id);
   if (!caseData) return NextResponse.json({ error: "Case not found" }, { status: 404 });
 
-  const rows = listRows(id);
+  const rows = await listRows(id);
   for (const row of rows) {
     if (key in row.data) {
       const newData = { ...row.data };
@@ -22,7 +22,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       delete newStatuses[key];
       const newErrors = { ...row.cellErrors };
       delete newErrors[key];
-      upsertRow({ ...row, data: newData, cellStatuses: newStatuses, cellErrors: newErrors });
+      await upsertRow({ ...row, data: newData, cellStatuses: newStatuses, cellErrors: newErrors });
     }
   }
 

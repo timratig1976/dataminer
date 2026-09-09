@@ -6,7 +6,7 @@ import type { RowData } from "@/lib/types";
 export async function GET(req: NextRequest) {
   const caseId = req.nextUrl.searchParams.get("caseId");
   if (!caseId) return NextResponse.json({ error: "caseId required" }, { status: 400 });
-  return NextResponse.json(listRows(caseId));
+  return NextResponse.json(await listRows(caseId));
 }
 
 export async function POST(req: NextRequest) {
@@ -21,5 +21,5 @@ export async function POST(req: NextRequest) {
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
-  return NextResponse.json(upsertRow(row), { status: 201 });
+  return NextResponse.json(await upsertRow(row), { status: 201 });
 }

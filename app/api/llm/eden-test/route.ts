@@ -28,7 +28,7 @@ export async function POST(req: NextRequest) {
   // Use the key typed in the settings form if present, else the stored key
   let apiKey = body.apiKey?.trim() || undefined;
   if (!apiKey && body.caseId) {
-    const c = getCase(body.caseId);
+    const c = await getCase(body.caseId);
     if (c) apiKey = getEffectiveApiKey(c, "edenai");
   }
   if (!apiKey) {

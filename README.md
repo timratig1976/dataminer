@@ -2,7 +2,28 @@ This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-
 
 ## Getting Started
 
-First, run the development server:
+### Database (PostgreSQL)
+
+DataMiner uses PostgreSQL via Drizzle ORM. Locally with Homebrew:
+
+```bash
+brew services start postgresql@17
+createdb dataminer
+cp .env.example .env.local   # adjust DATABASE_URL if needed
+```
+
+Schema is auto-created on first request. Drizzle helpers:
+
+```bash
+npm run db:generate        # generate SQL migrations after schema changes (lib/db/schema.ts)
+npm run db:push            # push schema directly (dev)
+npm run db:studio          # browse data (drizzle-studio)
+npm run db:migrate-sqlite  # one-shot import from legacy data/dataminer.db
+```
+
+### Run the dev server
+
+Run the development server:
 
 ```bash
 npm run dev

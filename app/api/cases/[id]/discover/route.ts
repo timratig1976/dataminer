@@ -62,7 +62,7 @@ export async function POST(
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
-  const caseData = getCase(caseId);
+  const caseData = await getCase(caseId);
   if (!caseData) return NextResponse.json({ error: "Case not found" }, { status: 404 });
 
   const hits: DiscoveryHit[] = Array.isArray(body?.hits) ? body.hits : [];
@@ -167,8 +167,8 @@ export async function POST(
     updatedAt: new Date().toISOString(),
   }));
 
-  const { inserted, duplicates } = appendDiscoveryRows(caseId, rowData);
-  appendLog(caseId, `Discovery: ${inserted} leads added (${duplicates} duplicates skipped)${extractedNames ? `, ${extractedNames} names extracted` : ""}`);
+  const { inserted, duplicates } = await appendDiscoveryRows(caseId, rowData);
+  await appendLog(caseId, `Discovery: ${inserted} leads added (${duplicates} duplicates skipped)${extractedNames ? `, ${extractedNames} names extracted` : ""}`);
 
   // ── Optional: pre-fill scrape cache with top pages (Firecrawl) ──
   let scraped = 0;
@@ -183,12 +183,12 @@ export async function POST(
         try {
           const { markdown, title } = await edenScrapeUrl({ apiKey: edenKey, url });
           if (markdown && markdown.trim()) {
-            setCachedScrape(url, markdown, title);
+            await setCachedScrape(url, markdown, title);
             scraped++;
           }
         } catch { /* keep going — cache pre-fill is best-effort */ }
       }
-      if (scraped > 0) appendLog(caseId, `Discovery: pre-scraped ${scraped} page(s) into cache`);
+      if (scraped > 0) await appendLog(caseId, `Discovery: pre-scraped ${scraped} page(s) into cache`);
     } else {
       extendErrors.push("scrapePages requested but no Eden AI key configured");
     }
@@ -204,7 +204,7 @@ async function extractCompanyNames(
   caseId: string,
   model: string
 ): Promise<string[]> {
-  const caseData = getCase(caseId);
+  const caseData = await getCase(caseId);
   const provider = inferProviderFromModel(model);
   const apiKey = caseData ? getEffectiveApiKey(caseData, provider) : undefined;
   if (!apiKey) throw new Error(`No API key for provider ${provider}`);

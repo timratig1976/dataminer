@@ -14,7 +14,7 @@ function sanitizeCase(c: Case) {
 
 export async function GET() {
   try {
-    const cases = listCases();
+    const cases = await listCases();
     return NextResponse.json(cases.map(sanitizeCase));
   } catch (e: unknown) {
     const message = e instanceof Error ? e.message : String(e);
@@ -25,7 +25,7 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const c = createCase({
+    const c = await createCase({
       id: randomUUID(),
       name: body.name || "New Case",
       aiColumns: body.aiColumns || [],

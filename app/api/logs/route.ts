@@ -5,12 +5,12 @@ export async function GET(req: NextRequest) {
   const caseId = req.nextUrl.searchParams.get("caseId");
   if (!caseId) return NextResponse.json({ error: "caseId required" }, { status: 400 });
   const limit = parseInt(req.nextUrl.searchParams.get("limit") ?? "200", 10);
-  return NextResponse.json(getLogs(caseId, limit));
+  return NextResponse.json(await getLogs(caseId, limit));
 }
 
 export async function DELETE(req: NextRequest) {
   const caseId = req.nextUrl.searchParams.get("caseId");
   if (!caseId) return NextResponse.json({ error: "caseId required" }, { status: 400 });
-  clearLogs(caseId);
+  await clearLogs(caseId);
   return NextResponse.json({ ok: true });
 }

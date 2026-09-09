@@ -53,7 +53,7 @@ export async function POST(req: NextRequest) {
   });
 
   try {
-    const caseData = getCase(caseId);
+    const caseData = await getCase(caseId);
     if (!caseData) {
       return NextResponse.json({ error: "Case not found" }, { status: 404 });
     }
@@ -74,7 +74,7 @@ export async function POST(req: NextRequest) {
     // Shared budget guard for deterministic Apollo lookups across this run
     const apolloBudget = column.tool === "apollo_contacts" ? new ApolloBudget() : undefined;
 
-  const allRows = listRows(caseId);
+  const allRows = await listRows(caseId);
   const selectedRows = rowIds ? allRows.filter((r) => rowIds.includes(r.id)) : allRows;
   const targetRows = runMode === "empty_only"
     ? selectedRows.filter((row) => isEmptyOrNotFound(row.data[column.outputKey]))
@@ -107,7 +107,7 @@ export async function POST(req: NextRequest) {
       await sleep(adaptiveDelayMs + jitter);
     }
 
-    updateRowCell(row.id, col.outputKey, row.data[col.outputKey] ?? "", "running");
+    await updateRowCell(row.id, col.outputKey, row.data[col.outputKey] ?? "", "running");
 
     const effectiveColumn = runMode === "all_force"
       ? { ...col, condition: undefined, conditionField: undefined }
@@ -120,7 +120,7 @@ export async function POST(req: NextRequest) {
       result = await runAiColumn(effectiveColumn, row.data, apiKey, provider, abortController.signal, opId, edenRegion, apolloBudget);
     } catch (error: any) {
       if (error.name === 'AbortError' || error.message?.includes('abort') || isOperationCancelled(opId)) {
-        updateRowCell(row.id, col.outputKey, "", "skipped");
+        await updateRowCell(row.id, col.outputKey, "", "skipped");
         results[row.id] = { status: "cancelled", metaData: {} };
         return;
       }
@@ -136,7 +136,7 @@ export async function POST(req: NextRequest) {
         result = await runAiColumn(effectiveColumn, row.data, apiKey, provider, abortController.signal, opId, edenRegion, apolloBudget);
       } catch (error: any) {
         if (error.name === 'AbortError' || error.message?.includes('abort') || isOperationCancelled(opId)) {
-          updateRowCell(row.id, col.outputKey, "", "skipped");
+          await updateRowCell(row.id, col.outputKey, "", "skipped");
           results[row.id] = { status: "cancelled", metaData: {} };
           return;
         }
@@ -167,24 +167,24 @@ export async function POST(req: NextRequest) {
     if (result.costUsd !== undefined) metaData[`_llm_cost_${col.outputKey}`] = String(result.costUsd);
 
     if (result.skipped) {
-      updateRowCell(row.id, col.outputKey, result.value, "skipped");
-      for (const [key, val] of Object.entries(metaData)) updateRowCell(row.id, key, val, "done");
+      await updateRowCell(row.id, col.outputKey, result.value, "skipped");
+      for (const [key, val] of Object.entries(metaData)) await updateRowCell(row.id, key, val, "done");
       results[row.id] = { status: "skipped", value: result.value, metaData };
       return;
     }
 
     if (result.error) {
-      updateRowCell(row.id, col.outputKey, "", "error", result.error);
-      for (const [key, val] of Object.entries(metaData)) updateRowCell(row.id, key, val, "done");
+      await updateRowCell(row.id, col.outputKey, "", "error", result.error);
+      for (const [key, val] of Object.entries(metaData)) await updateRowCell(row.id, key, val, "done");
       results[row.id] = { status: "error", error: result.error, metaData };
       return;
     }
 
-    for (const [key, val] of Object.entries(metaData)) updateRowCell(row.id, key, val, "done");
+    for (const [key, val] of Object.entries(metaData)) await updateRowCell(row.id, key, val, "done");
     if (result.multiValues) {
-      for (const [key, val] of Object.entries(result.multiValues)) updateRowCell(row.id, key, val, "done");
+      for (const [key, val] of Object.entries(result.multiValues)) await updateRowCell(row.id, key, val, "done");
     } else {
-      updateRowCell(row.id, col.outputKey, result.value, "done");
+      await updateRowCell(row.id, col.outputKey, result.value, "done");
     }
     results[row.id] = {
       status: "done",

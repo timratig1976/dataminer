@@ -24,7 +24,7 @@ export async function POST(req: NextRequest) {
   const newCaseId = randomUUID();
   const now = new Date().toISOString();
 
-  createCase({
+  await createCase({
     id: newCaseId,
     name: caseConfig.name,
     aiColumns: Array.isArray(caseConfig.aiColumns) ? caseConfig.aiColumns as never : [],
@@ -41,7 +41,7 @@ export async function POST(req: NextRequest) {
     updatedAt: now,
   }));
 
-  bulkInsertRows(rowData);
+  await bulkInsertRows(rowData);
 
   return NextResponse.json({ caseId: newCaseId, imported: rowData.length });
 }

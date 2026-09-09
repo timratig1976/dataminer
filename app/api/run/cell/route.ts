@@ -23,13 +23,13 @@ export async function POST(req: NextRequest) {
     req.signal.addEventListener('abort', () => abortController.abort());
   }
 
-  const caseData = getCase(caseId);
+  const caseData = await getCase(caseId);
   if (!caseData) {
     clearTimeout(timeout);
     return NextResponse.json({ error: "Case not found" }, { status: 404 });
   }
 
-  const row = getRow(rowId);
+  const row = await getRow(rowId);
   if (!row) {
     clearTimeout(timeout);
     return NextResponse.json({ error: "Row not found" }, { status: 404 });
@@ -51,8 +51,8 @@ export async function POST(req: NextRequest) {
   }
 
   const company = row.data["company_name"] ?? row.data[Object.keys(row.data).find(k => k.toLowerCase().includes("name") || k.toLowerCase().includes("unternehmen")) ?? ""] ?? rowId;
-  appendLog(caseId, `▶ [${column.name}] ${company} model=${model} provider=${provider} endpoint=${endpoint}`);
-  updateRowCell(rowId, column.outputKey, row.data[column.outputKey] ?? "", "running");
+  await appendLog(caseId, `▶ [${column.name}] ${company} model=${model} provider=${provider} endpoint=${endpoint}`);
+  await updateRowCell(rowId, column.outputKey, row.data[column.outputKey] ?? "", "running");
 
   const runId = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`;
   const runAt = new Date().toISOString();
@@ -70,8 +70,8 @@ export async function POST(req: NextRequest) {
   try {
     // Check cancellation before starting
     if (isOperationCancelled(opId)) {
-      updateRowCell(rowId, column.outputKey, "", "skipped");
-      appendLog(caseId, `⏹ [${column.name}] ${company} — cancelled before start`);
+      await updateRowCell(rowId, column.outputKey, "", "skipped");
+      await appendLog(caseId, `⏹ [${column.name}] ${company} — cancelled before start`);
       return NextResponse.json({ status: "cancelled", message: "Operation cancelled", operationId: opId });
     }
 
@@ -80,8 +80,8 @@ export async function POST(req: NextRequest) {
     clearTimeout(timeout);
     removeOperation(opId);
     if (error.name === 'AbortError' || error.message?.includes('abort') || isOperationCancelled(opId)) {
-      updateRowCell(rowId, column.outputKey, "", "skipped");
-      appendLog(caseId, `⏹ [${column.name}] ${company} — cancelled`);
+      await updateRowCell(rowId, column.outputKey, "", "skipped");
+      await appendLog(caseId, `⏹ [${column.name}] ${company} — cancelled`);
       return NextResponse.json({ status: "cancelled", message: "Operation cancelled", operationId: opId });
     }
     throw error;
@@ -90,9 +90,9 @@ export async function POST(req: NextRequest) {
   removeOperation(opId);
 
   if (result.webSearchQuery) {
-    appendLog(caseId, `🔍 [${column.name}] ${company} — web search: "${result.webSearchQuery}" → ${result.webSearchResultCount ?? 0} result(s) via ${result.webSearchSource ?? "?"}`);
+    await appendLog(caseId, `🔍 [${column.name}] ${company} — web search: "${result.webSearchQuery}" → ${result.webSearchResultCount ?? 0} result(s) via ${result.webSearchSource ?? "?"}`);
   } else if (column.useWebSearch) {
-    appendLog(caseId, `⚠ [${column.name}] ${company} — web search enabled but no results (check searchQuery template or SERP_API_KEY)`);
+    await appendLog(caseId, `⚠ [${column.name}] ${company} — web search enabled but no results (check searchQuery template or SERP_API_KEY)`);
   }
 
   const metaData: Record<string, string> = {
@@ -112,37 +112,37 @@ export async function POST(req: NextRequest) {
   if (result.costUsd !== undefined) metaData[`_llm_cost_${column.outputKey}`] = String(result.costUsd);
 
   if (result.skipped) {
-    updateRowCell(rowId, column.outputKey, result.value, "skipped");
+    await updateRowCell(rowId, column.outputKey, result.value, "skipped");
     for (const [key, val] of Object.entries(metaData)) {
-      updateRowCell(rowId, key, val, "done");
+      await updateRowCell(rowId, key, val, "done");
     }
-    appendLog(caseId, `⏭ [${column.name}] ${company} — skipped: ${result.skipReason}`);
+    await appendLog(caseId, `⏭ [${column.name}] ${company} — skipped: ${result.skipReason}`);
     return NextResponse.json({ status: "skipped", value: result.value, reason: result.skipReason, operationId: opId, ...metaData });
   }
 
   if (result.error) {
-    updateRowCell(rowId, column.outputKey, "", "error", result.error);
+    await updateRowCell(rowId, column.outputKey, "", "error", result.error);
     for (const [key, val] of Object.entries(metaData)) {
-      updateRowCell(rowId, key, val, "done");
+      await updateRowCell(rowId, key, val, "done");
     }
-    appendLog(caseId, `❌ [${column.name}] ${company} — ${result.error}`);
+    await appendLog(caseId, `❌ [${column.name}] ${company} — ${result.error}`);
     return NextResponse.json({ status: "error", error: result.error, operationId: opId, ...metaData }, { status: 500 });
   }
 
   for (const [key, val] of Object.entries(metaData)) {
-    updateRowCell(rowId, key, val, "done");
+    await updateRowCell(rowId, key, val, "done");
   }
   if (result.multiValues) {
     for (const [key, val] of Object.entries(result.multiValues)) {
-      updateRowCell(rowId, key, val, "done");
+      await updateRowCell(rowId, key, val, "done");
     }
-    appendLog(caseId, `✅ [${column.name}] ${company} → ${result.value || "(empty)"}`);
+    await appendLog(caseId, `✅ [${column.name}] ${company} → ${result.value || "(empty)"}`);
     for (const [key, val] of Object.entries(result.multiValues)) {
-      if (val) appendLog(caseId, `   ↳ ${key}: ${val}`);
+      if (val) await appendLog(caseId, `   ↳ ${key}: ${val}`);
     }
   } else {
-    updateRowCell(rowId, column.outputKey, result.value, "done");
-    appendLog(caseId, `✅ [${column.name}] ${company} → ${result.value || "(empty)"}`);
+    await updateRowCell(rowId, column.outputKey, result.value, "done");
+    await appendLog(caseId, `✅ [${column.name}] ${company} → ${result.value || "(empty)"}`);
   }
   return NextResponse.json({ status: "done", value: result.value, multiValues: result.multiValues, rawResponse: result.rawResponse, renderedPrompt: result.renderedPrompt, tokens: result.tokens, costUsd: result.costUsd, operationId: opId, ...metaData });
 }

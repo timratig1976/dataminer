@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { listCases, listRows } from "@/lib/db";
 
 export async function GET() {
-  const cases = listCases();
+  const cases = await listCases();
 
   let totalRows = 0;
   let totalCells = 0;
@@ -12,7 +12,7 @@ export async function GET() {
 
   const caseStats: unknown[] = [];
   for (const c of cases) {
-    const rows = listRows(c.id);
+    const rows = await listRows(c.id);
     const aiKeys = c.aiColumns.map((col) => col.outputKey);
     let caseDone = 0;
     let caseError = 0;

@@ -87,7 +87,7 @@ async function runDiscovery(
   // Merge client-provided exclusions with domains already stored in the case
   const exclusions = new Set<string>();
   if (typeof caseId === "string" && caseId) {
-    for (const d of getExistingDomains(caseId)) exclusions.add(d);
+    for (const d of await getExistingDomains(caseId)) exclusions.add(d);
   }
   if (Array.isArray(excludeDomains)) {
     for (const d of excludeDomains) {

@@ -194,7 +194,7 @@ async function runSmokeTest(payload: { caseId?: unknown; models?: unknown }) {
   let edenRegion: "eu" | "us" = "eu";
 
   if (caseId) {
-    const caseData = getCase(caseId);
+    const caseData = await getCase(caseId);
     if (!caseData) {
       return NextResponse.json({ error: "Case not found" }, { status: 404 });
     }
