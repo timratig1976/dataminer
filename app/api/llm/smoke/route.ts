@@ -203,7 +203,7 @@ async function runSmokeTest(payload: { caseId?: unknown; models?: unknown }) {
     anthropicKey = getEffectiveApiKey(caseData, "anthropic");
     edenKey = getEffectiveApiKey(caseData, "edenai");
     edenRegion = caseData.edenRegion ?? "eu";
-    appendLog(caseId, `🧪 [SMOKE] Start models=${models.join(", ")}`);
+    void appendLog(caseId, `🧪 [SMOKE] Start models=${models.join(", ")}`);
   }
 
   const results: SmokeResult[] = [];

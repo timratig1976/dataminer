@@ -59,6 +59,12 @@ function initSchema(db: Database.Database) {
       fetched_at TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS apollo_cache (
+      lookup_key TEXT PRIMARY KEY,
+      payload TEXT NOT NULL,
+      fetched_at TEXT NOT NULL
+    );
+
     CREATE INDEX IF NOT EXISTS idx_rows_case_id ON rows(case_id, row_index);
     CREATE INDEX IF NOT EXISTS idx_logs_case_id ON logs(case_id, id DESC);
   `);
@@ -213,6 +219,100 @@ export function bulkInsertRows(rows: RowData[]): void {
     }
   });
   insert(rows);
+}
+
+// ── Discovery helpers ────────────────────────────────────────────────────────
+
+/** Highest row_index in a case (-1 when empty). Used to append discovered rows. */
+export function getMaxRowIndex(caseId: string): number {
+  const row = getDb()
+    .prepare("SELECT MAX(row_index) AS max_idx FROM rows WHERE case_id = ?")
+    .get(caseId) as { max_idx: number | null };
+  return row?.max_idx ?? -1;
+}
+
+/**
+ * All normalised domains already present in a case, collected from the
+ * `source_domain` and `official_domain` fields of each row's JSON data.
+ */
+export function getExistingDomains(caseId: string): string[] {
+  const rows = getDb()
+    .prepare("SELECT data FROM rows WHERE case_id = ?")
+    .all(caseId) as { data: string }[];
+  const domains = new Set<string>();
+  for (const r of rows) {
+    try {
+      const data = JSON.parse(r.data || "{}") as Record<string, unknown>;
+      for (const key of ["source_domain", "official_domain", "domain"]) {
+        const v = data[key];
+        if (typeof v === "string") {
+          const normalised = v
+            .replace(/^https?:\/\//, "")
+            .replace(/^www\./, "")
+            .replace(/\/.*$/, "")
+            .toLowerCase()
+            .trim();
+          if (normalised.includes(".")) domains.add(normalised);
+        }
+      }
+    } catch { /* skip malformed */ }
+  }
+  return Array.from(domains);
+}
+
+/**
+ * Append discovery seed rows to a case, skipping duplicate domains (both
+ * against existing rows and within the batch). Returns counts for the UI.
+ */
+export function appendDiscoveryRows(
+  caseId: string,
+  seeds: RowData[]
+): { inserted: number; duplicates: number } {
+  const existing = new Set(getExistingDomains(caseId));
+  const maxIdx = getMaxRowIndex(caseId);
+  let duplicates = 0;
+  const toInsert: RowData[] = [];
+  let nextIdx = maxIdx + 1;
+
+  for (const seed of seeds) {
+    const domain = String(seed.data.source_domain ?? "").toLowerCase().trim();
+    if (domain && existing.has(domain)) {
+      duplicates++;
+      continue;
+    }
+    if (domain) existing.add(domain);
+    toInsert.push({ ...seed, rowIndex: nextIdx++ });
+  }
+
+  if (toInsert.length > 0) bulkInsertRows(toInsert);
+  return { inserted: toInsert.length, duplicates };
+}
+
+// ── Apollo cache ─────────────────────────────────────────────────────────────
+
+const APOLLO_CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days — saves paid lookups
+
+export function getApolloCache(lookupKey: string): unknown | null {
+  const row = getDb()
+    .prepare("SELECT payload, fetched_at FROM apollo_cache WHERE lookup_key = ?")
+    .get(lookupKey) as { payload: string; fetched_at: string } | undefined;
+  if (!row) return null;
+  const age = Date.now() - new Date(row.fetched_at).getTime();
+  if (Number.isFinite(age) && age > APOLLO_CACHE_TTL_MS) return null;
+  try {
+    return JSON.parse(row.payload);
+  } catch {
+    return null;
+  }
+}
+
+export function setApolloCache(lookupKey: string, payload: unknown): void {
+  getDb()
+    .prepare(`
+      INSERT INTO apollo_cache (lookup_key, payload, fetched_at) VALUES (?, ?, ?)
+      ON CONFLICT(lookup_key) DO UPDATE SET payload=excluded.payload, fetched_at=excluded.fetched_at
+    `)
+    .run(lookupKey, JSON.stringify(payload), new Date().toISOString());
 }
 
 // ── Logs ─────────────────────────────────────────────────────────────────────

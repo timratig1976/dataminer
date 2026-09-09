@@ -10,7 +10,8 @@ export async function GET() {
   let errorCells = 0;
   let totalCostUsd = 0;
 
-  const caseStats = cases.map((c) => {
+  const caseStats: unknown[] = [];
+  for (const c of cases) {
     const rows = listRows(c.id);
     const aiKeys = c.aiColumns.map((col) => col.outputKey);
     let caseDone = 0;
@@ -35,7 +36,7 @@ export async function GET() {
     errorCells += caseError;
     totalCostUsd += caseCost;
 
-    return {
+    caseStats.push({
       id: c.id,
       name: c.name,
       rowCount: rows.length,
@@ -44,8 +45,8 @@ export async function GET() {
       errorCells: caseError,
       costUsd: caseCost,
       updatedAt: c.updatedAt,
-    };
-  });
+    });
+  }
 
   return NextResponse.json({
     totalCases: cases.length,

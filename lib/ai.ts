@@ -4,6 +4,7 @@ import type { AiColumn } from "./types";
 import { webSearch, formatSearchResultsForLlm, type SearchLayer, isCatalogUrl } from "./search";
 import { isEdenModel, edenChatCompletion, edenScrapeUrl, type EdenRegion } from "./edenai";
 import { getCachedScrape, setCachedScrape } from "./db";
+import { lookupApolloContacts, ApolloBudget } from "./apollo";
 
 export type LlmProvider = "openai" | "cerebras" | "anthropic" | "edenai";
 
@@ -235,6 +236,89 @@ async function validateDomain(
   return { valid: false, reason: "unreachable" };
 }
 
+// ── Apollo.io tool column ────────────────────────────────────────────────────
+
+function stripDomain(raw: string | null | undefined): string {
+  if (!raw) return "";
+  return raw
+    .replace(/^https?:\/\//, "")
+    .replace(/^www\./, "")
+    .replace(/\/.*$/, "")
+    .toLowerCase()
+    .trim();
+}
+
+/**
+ * Deterministic tool: find contacts for a company via Apollo.io.
+ * Uses only the 0-credit search endpoint (never reveal/enrich).
+ * Writes a JSON array into column.outputKey.
+ */
+async function runApolloContactsTool(
+  column: AiColumn,
+  rowData: Record<string, string | null>,
+  budget?: ApolloBudget
+): Promise<{ value: string; error?: string; multiValues?: Record<string, string> }> {
+  const companyName = String(
+    rowData["company_name"] ?? rowData["legal_name"] ?? ""
+  ).trim();
+  const domain = stripDomain(rowData["official_domain"] ?? rowData["source_domain"] ?? "");
+
+  if (!companyName && !domain) {
+    return { value: "", error: "Apollo contacts: company_name or official_domain required" };
+  }
+
+  if (!process.env.APOLLO_API_KEY?.trim()) {
+    return { value: "", error: "Apollo contacts: APOLLO_API_KEY not configured" };
+  }
+
+  try {
+    const { contacts, fromCache, transport } = await lookupApolloContacts(
+      {
+        companyName: companyName || undefined,
+        domain: domain || undefined,
+        titles: column.toolApolloTitles,
+        limit: column.toolApolloLimit ?? 10,
+      },
+      budget
+    );
+
+    if (contacts.length === 0) {
+      return {
+        value: "",
+        multiValues: {
+          [column.outputKey]: "",
+          [`_apollo_transport_${column.outputKey}`]: fromCache ? "cache" : transport,
+          [`_apollo_count_${column.outputKey}`]: "0",
+        },
+      };
+    }
+
+    const serialised = contacts.map((c) => ({
+      name: c.name,
+      title: c.title ?? "",
+      organisation: c.organisation ?? "",
+      linkedin: c.linkedinUrl ?? "",
+      email_status: c.emailStatus ?? "",
+      city: c.city ?? "",
+      apollo_id: c.id,
+    }));
+
+    const multiValues: Record<string, string> = {
+      [column.outputKey]: JSON.stringify(serialised),
+      [`_apollo_transport_${column.outputKey}`]: fromCache ? "cache" : transport,
+      [`_apollo_count_${column.outputKey}`]: String(contacts.length),
+      // convenience: primary contact in separate columns
+      [`${column.outputKey}_primary_name`]: contacts[0]?.name ?? "",
+      [`${column.outputKey}_primary_title`]: contacts[0]?.title ?? "",
+      [`${column.outputKey}_primary_linkedin`]: contacts[0]?.linkedinUrl ?? "",
+    };
+
+    return { value: multiValues[column.outputKey], multiValues };
+  } catch (e) {
+    return { value: "", error: `Apollo contacts: ${(e as Error).message}` };
+  }
+}
+
 export async function runAiColumn(
   column: AiColumn,
   rowData: Record<string, string | null>,
@@ -242,7 +326,8 @@ export async function runAiColumn(
   provider: LlmProvider = "openai",
   signal?: AbortSignal,
   operationId?: string,
-  edenRegion: EdenRegion = "eu"
+  edenRegion: EdenRegion = "eu",
+  apolloBudget?: ApolloBudget
 ): Promise<{ value: string; skipped?: boolean; skipReason?: string; error?: string; multiValues?: Record<string, string>; rawResponse?: string; renderedPrompt?: string; tokens?: { prompt: number; completion: number; total: number }; costUsd?: number; webSearchQuery?: string; webSearchResultCount?: number; webSearchSource?: string; scrapedUrls?: string[] }> {
   const requiredCheck = checkRequiredInputs(column, rowData);
   if (requiredCheck.skip) {
@@ -260,6 +345,11 @@ export async function runAiColumn(
     const company = rowData["company_name"] ?? "";
     const result = await validateDomain(domain, company);
     return { value: result.valid ? domain : `invalid (${result.reason})` };
+  }
+
+  // Apollo.io contacts — deterministic tool column, no LLM, 0-credit search endpoint
+  if (column.tool === "apollo_contacts") {
+    return await runApolloContactsTool(column, rowData, apolloBudget);
   }
 
   // ── System message builder ─────────────────────────────────────────────────
@@ -869,7 +959,6 @@ Return ONLY in format: PLZ City (e.g. 80331 München). If not found, return: not
     conditionField: "address",
     prompt: `#CONTEXT#
 You are a German business data researcher. The user message contains web search results and — when available — the full text of the company's website pages (look for the Impressum section).
-
 #OBJECTIVE#
 Extract the company's official registration data from its Impressum (or, if no Impressum is present, from Contact/About/company-info pages).
 
@@ -887,5 +976,16 @@ Extract the company's official registration data from its Impressum (or, if no I
 5. Ignore data from other companies that may appear in the same page (e.g. parent companies, subsidiaries, web agencies).
 
 Return ONLY valid JSON with the keys: legal_name, address, phone, email, managing_director, ust_id, _reasoning`,
+  },
+  {
+    name: "Apollo Contacts",
+    outputKey: "apollo_contacts",
+    model: "apollo-tool",
+    tool: "apollo_contacts",
+    toolApolloLimit: 10,
+    outputMode: "json",
+    prompt: "", // deterministic tool — no LLM prompt
+    condition: "empty",
+    conditionField: "apollo_contacts",
   },
 ];

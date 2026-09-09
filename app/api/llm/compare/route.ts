@@ -103,7 +103,7 @@ export async function POST(req: NextRequest) {
   if (!row) return NextResponse.json({ error: "Row not found" }, { status: 404 });
 
   const models = normalizeModels(body.models, column.model);
-  appendLog(caseId, `🧪 [COMPARE] Start row=${row.id} column=${column.name} outputKey=${column.outputKey} models=${models.join(", ")}`);
+  void appendLog(caseId, `🧪 [COMPARE] Start row=${row.id} column=${column.name} outputKey=${column.outputKey} models=${models.join(", ")}`);
 
   const results: ComparedModelResult[] = [];
 

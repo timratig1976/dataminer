@@ -42,10 +42,10 @@ export async function POST(req: NextRequest) {
   }
 
   const provider = inferProviderFromModel(column.model);
-  const model = column.model || "gpt-4o-mini";
-  const endpoint = endpointForModel(provider, model);
+  const model = column.tool === "apollo_contacts" ? "apollo-tool" : (column.model || "gpt-4o-mini");
+  const endpoint = column.tool === "apollo_contacts" ? "tool/apollo_contacts" : endpointForModel(provider, model);
   const apiKey = getEffectiveApiKey(caseData, provider) || "";
-  if (!apiKey) {
+  if (!apiKey && !column.tool) {
     clearTimeout(timeout);
     return NextResponse.json({ error: "No API key configured" }, { status: 400 });
   }

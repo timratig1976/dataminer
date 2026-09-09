@@ -7,6 +7,7 @@ Start:  uvicorn main:app --host 127.0.0.1 --port 8001 --reload
 """
 
 import os
+import re
 import time
 import random
 from fastapi import FastAPI, Header, HTTPException
@@ -232,3 +233,179 @@ def debug_search(req: SearchRequest, x_api_token: str = Header(...)):
         page_title=page_title,
         all_links=all_links,
     )
+
+# ── /maps/search ──────────────────────────────────────────────────────────────
+# Google Maps local results via StealthyFetcher (free fallback for SerpApi).
+# Parses the results feed (div.Nv2PK cards): name, address, phone, website,
+# rating, reviews. Scrolls the feed to load more results.
+
+class MapsSearchRequest(BaseModel):
+    query: str
+    max_results: int = 20
+    ll: str | None = None  # "lat,lng" bias, optional
+
+class MapsPlace(BaseModel):
+    name: str
+    address: str = ""
+    phone: str = ""
+    website: str = ""
+    rating: float | None = None
+    reviews: int | None = None
+    category: str = ""
+    maps_url: str = ""
+
+class MapsSearchResponse(BaseModel):
+    places: list[MapsPlace]
+    query: str
+
+
+_PHONE_RE = re.compile(r"\+?\d[\d\s/().-]{6,}\d")
+_PLZ_RE = re.compile(r"\d{4,5}\s+\S")
+
+
+def _parse_maps_feed(page, max_results: int) -> list[MapsPlace]:
+    places: list[MapsPlace] = []
+    seen: set[str] = set()
+
+    for card in page.css("div.Nv2PK"):
+        if len(places) >= max_results:
+            break
+
+        a_els = card.css("a.hfpxzc")
+        if not a_els:
+            a_els = card.css("a[href*='/maps/place/']")
+        if not a_els:
+            continue
+
+        name = (a_els[0].attrib.get("aria-label") or "").strip()
+        maps_url = (a_els[0].attrib.get("href") or "").strip()
+        if not name or maps_url in seen:
+            continue
+        seen.add(maps_url)
+
+        # website button (only present when the place has one)
+        website = ""
+        w_els = card.css("a[data-value='Website']")
+        if w_els:
+            website = (w_els[0].attrib.get("href") or "").strip()
+
+        # rating + review count
+        rating = None
+        reviews = None
+        r_els = card.css("span.MW4etd")
+        if r_els and r_els[0].text:
+            try:
+                rating = float(r_els[0].text.strip().replace(",", "."))
+            except ValueError:
+                pass
+        c_els = card.css("span.UY7F9")
+        if c_els and c_els[0].text:
+            txt = c_els[0].text.strip().strip("()").replace(".", "").replace(",", "")
+            if txt.isdigit():
+                reviews = int(txt)
+
+        # The info lines (category · address · phone) live in span.W4Efsd rows
+        lines: list[str] = []
+        for span in card.css("span.W4Efsd"):
+            t = span.text.strip() if span.text else ""
+            if t:
+                lines.append(t)
+        # cards render each info block nested/duplicated → dedupe, keep order
+        clean: list[str] = []
+        for chunk in lines:
+            parts = [p.strip() for p in chunk.split("·") if p.strip()]
+            for p in parts:
+                if p not in clean:
+                    clean.append(p)
+
+        phone = ""
+        address = ""
+        category = ""
+        for p in clean:
+            if not phone and _PHONE_RE.fullmatch(p):
+                phone = p
+            elif not address and (_PLZ_RE.search(p) or p.lower().endswith(("straße", "strasse", "str.", "weg", "platz", "allee"))):
+                address = p
+            elif not category and p not in (phone, address) and "€" not in p:
+                category = p
+
+        places.append(MapsPlace(
+            name=name,
+            address=address,
+            phone=phone,
+            website=website,
+            rating=rating,
+            reviews=reviews,
+            category=category,
+            maps_url=maps_url,
+        ))
+
+    return places
+
+
+def _maps_scroll_action(max_results: int):
+    """Playwright page callback: scroll the results feed until enough cards."""
+    def action(page):
+        import time as _t
+        feed = None
+        for sel in ("div[role='feed']", "div.m6QErb[aria-label]"):
+            try:
+                locator = page.locator(sel).first
+                if locator.count() > 0:
+                    feed = locator
+                    break
+            except Exception:
+                continue
+        if feed is None:
+            _t.sleep(3)
+            return
+        last_count = 0
+        for _ in range(30):  # bounded scroll loop
+            try:
+                feed.evaluate("el => el.scrollBy(0, el.scrollHeight)")
+            except Exception:
+                break
+            _t.sleep(1.5)
+            count = page.locator("div.Nv2PK").count()
+            # Maps shows a "You've reached the end" sentinel when exhausted
+            end = page.locator("text=Sie haben das Ende der Liste erreicht").count() + \
+                  page.locator("text=You've reached the end of the list").count()
+            if count >= max_results or (count == last_count and end > 0):
+                break
+            last_count = count
+    return action
+
+
+@app.post("/maps/search", response_model=MapsSearchResponse)
+def maps_search(req: MapsSearchRequest, x_api_token: str = Header(...)):
+    _auth(x_api_token)
+    if not req.query.strip():
+        raise HTTPException(status_code=400, detail="Empty query")
+
+    import urllib.parse
+    max_results = min(max(req.max_results, 1), 100)
+    encoded = urllib.parse.quote(req.query.strip())
+
+    if req.ll and "," in req.ll:
+        maps_url = f"https://www.google.com/maps/search/{encoded}/@{req.ll},12z"
+    else:
+        maps_url = f"https://www.google.com/maps/search/{encoded}?hl=de"
+
+    kwargs = dict(
+        headless=True,
+        network_idle=False,  # maps keeps streaming tiles; wait via page_action instead
+        google_search=False,
+        disable_resources=False,
+    )
+    if PROXY_URL:
+        kwargs["proxy"] = PROXY_URL
+
+    _human_delay()
+    try:
+        page = StealthyFetcher.fetch(maps_url, page_action=_maps_scroll_action(max_results), **kwargs)
+    except TypeError:
+        # older Scrapling without page_action support → plain fetch
+        page = StealthyFetcher.fetch(maps_url, **kwargs)
+
+    places = _parse_maps_feed(page, max_results)
+    return MapsSearchResponse(places=places, query=req.query)

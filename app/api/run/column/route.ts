@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getCase, listRows, updateRowCell, getEffectiveApiKey } from "@/lib/db";
 import { inferProviderFromModel, runAiColumn } from "@/lib/ai";
 import { registerOperation, isOperationCancelled, removeOperation, cancelOperation } from "@/lib/operations";
+import { ApolloBudget } from "@/lib/apollo";
 
 const MAX_RATE_RETRY = 3;
 const MIN_BACKOFF_MS = 500;
@@ -63,13 +64,15 @@ export async function POST(req: NextRequest) {
     }
 
     const provider = inferProviderFromModel(column.model);
-    const model = column.model || "gpt-4o-mini";
-    const endpoint = endpointForModel(provider, model);
+    const model = column.tool === "apollo_contacts" ? "apollo-tool" : (column.model || "gpt-4o-mini");
+    const endpoint = column.tool === "apollo_contacts" ? "tool/apollo_contacts" : endpointForModel(provider, model);
     const apiKey = getEffectiveApiKey(caseData, provider) || "";
     const edenRegion = caseData.edenRegion ?? "eu";
-    if (!apiKey) {
+    if (!apiKey && !column.tool) {
       return NextResponse.json({ error: "No API key configured" }, { status: 400 });
     }
+    // Shared budget guard for deterministic Apollo lookups across this run
+    const apolloBudget = column.tool === "apollo_contacts" ? new ApolloBudget() : undefined;
 
   const allRows = listRows(caseId);
   const selectedRows = rowIds ? allRows.filter((r) => rowIds.includes(r.id)) : allRows;
@@ -114,7 +117,7 @@ export async function POST(req: NextRequest) {
     const runAt = new Date().toISOString();
     let result;
     try {
-      result = await runAiColumn(effectiveColumn, row.data, apiKey, provider, abortController.signal, opId, edenRegion);
+      result = await runAiColumn(effectiveColumn, row.data, apiKey, provider, abortController.signal, opId, edenRegion, apolloBudget);
     } catch (error: any) {
       if (error.name === 'AbortError' || error.message?.includes('abort') || isOperationCancelled(opId)) {
         updateRowCell(row.id, col.outputKey, "", "skipped");
@@ -130,7 +133,7 @@ export async function POST(req: NextRequest) {
       adaptiveDelayMs = Math.min(MAX_BACKOFF_MS, Math.max(MIN_BACKOFF_MS, adaptiveDelayMs > 0 ? adaptiveDelayMs * 2 : MIN_BACKOFF_MS));
       await sleep(adaptiveDelayMs + Math.floor(Math.random() * 200));
       try {
-        result = await runAiColumn(effectiveColumn, row.data, apiKey, provider, abortController.signal, opId);
+        result = await runAiColumn(effectiveColumn, row.data, apiKey, provider, abortController.signal, opId, edenRegion, apolloBudget);
       } catch (error: any) {
         if (error.name === 'AbortError' || error.message?.includes('abort') || isOperationCancelled(opId)) {
           updateRowCell(row.id, col.outputKey, "", "skipped");

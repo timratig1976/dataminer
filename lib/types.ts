@@ -25,6 +25,14 @@ export interface AiColumn {
   searchForceLayer?: "serpapi" | "brave" | "duckduckgo" | "playwright" | "scrapling" | "firecrawl";
   evidenceMode?: "snippet" | "page" | "auto";  // snippet (default) | page (scrape top results) | auto (retry with pages if empty)
   captureReasoning?: boolean;       // ask LLM to return _reasoning field; stored as _reasoning_{outputKey}
+
+  // ── Deterministic tool columns (no LLM) ──────────────────────────────────
+  /** "apollo_contacts": look up decision makers via Apollo.io (MCP/REST) */
+  tool?: "apollo_contacts";
+  /** Optional Apollo title filter keywords */
+  toolApolloTitles?: string[];
+  /** Max contacts to fetch (default 10) */
+  toolApolloLimit?: number;
 }
 
 export interface Case {

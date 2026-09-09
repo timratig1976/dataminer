@@ -527,10 +527,12 @@ export async function webSearch(
     firecrawlApiKey?: string;
     maxResults?: number;
     forceLayer?: SearchLayer;
+    /** Upper bound for maxResults clamp (default 10; discovery passes higher) */
+    limitCap?: number;
   } = {}
 ): Promise<SearchResponse> {
-  const { serpApiKey, braveApiKey, scraplingUrl, scraplingToken, firecrawlApiKey, maxResults = 5, forceLayer } = options;
-  const clampedMax = Math.max(1, Math.min(maxResults, 10));
+  const { serpApiKey, braveApiKey, scraplingUrl, scraplingToken, firecrawlApiKey, maxResults = 5, forceLayer, limitCap = 10 } = options;
+  const clampedMax = Math.max(1, Math.min(maxResults, limitCap));
   const layerErrors: Record<string, string> = {};
   const t0 = Date.now();
 

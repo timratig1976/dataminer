@@ -6,11 +6,12 @@ import {
   ArrowLeft, Plus, Play, Upload, Trash2, Settings, Save, Sparkles,
   Loader2, CheckCircle2, XCircle, SkipForward, Zap,
   Download, ScrollText, ChevronLeft, ChevronRight, GripVertical,
-  Database, Info, CheckCircle, AlertCircle
+  Database, Info, CheckCircle, AlertCircle, Search
 } from "lucide-react";
 import type { Case, RowData, AiColumn, CellStatus } from "@/lib/types";
 import { AddColumnModal } from "@/components/AddColumnModal";
 import { ImportModal } from "@/components/ImportModal";
+import { DiscoveryModal } from "@/components/DiscoveryModal";
 import { ColumnHeaderMenu } from "@/components/ColumnHeaderMenu";
 import { DEFAULT_MODEL_OPTIONS, mergeModelOptions } from "@/lib/model-options";
 
@@ -1306,6 +1307,7 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
   const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
   const [showAddCol, setShowAddCol] = useState(false);
   const [showImport, setShowImport] = useState(false);
+  const [showDiscovery, setShowDiscovery] = useState(false);
   const [editingCell, setEditingCell] = useState<{ rowId: string; key: string } | null>(null);
   const [editValue, setEditValue] = useState("");
   const [runningCells, setRunningCells] = useState<Set<string>>(new Set()); // "rowId:colId"
@@ -1944,6 +1946,10 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
                     style={{display:"flex",alignItems:"center",gap:6,padding:"5px 12px",border:"1px solid #d1d5db",borderRadius:6,background:"#fff",cursor:"pointer",fontSize:12,color:"#374151"}}>
                     <Upload style={{width:13,height:13}} /> CSV importieren
                   </button>
+                  <button onClick={() => setShowDiscovery(true)}
+                    style={{display:"flex",alignItems:"center",gap:6,padding:"5px 12px",border:"1px solid #d1d5db",borderRadius:6,background:"#fff",cursor:"pointer",fontSize:12,color:"#374151"}}>
+                    <Search style={{width:13,height:13}} /> Leads entdecken
+                  </button>
                 </div>
               )}
             </div>
@@ -2415,6 +2421,7 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
       }}
         availableFields={[...sourceColumns, ...caseData.aiColumns.map(c=>c.outputKey)]} />}
       {showImport && <ImportModal caseId={caseId} onClose={()=>setShowImport(false)} onImported={()=>{setShowImport(false);refresh();}} />}
+      {showDiscovery && <DiscoveryModal caseId={caseId} rows={rows} sourceColumns={sourceColumns} onClose={()=>setShowDiscovery(false)} onImported={()=>{refresh();}} />}
       {(editingPromptCol || editingPromptCell) && caseData && (
         <EditPromptModal
           col={editingPromptCell?.col ?? editingPromptCol!}
