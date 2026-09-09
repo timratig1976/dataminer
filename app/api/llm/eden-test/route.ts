@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getCase, getEffectiveApiKey } from "@/lib/db";
+import { getCase, resolveEdenKey } from "@/lib/db";
 import { listEdenModels, edenChatCompletion, edenWebSearch, type EdenRegion } from "@/lib/edenai";
 
 interface TestBody {
@@ -29,8 +29,9 @@ export async function POST(req: NextRequest) {
   let apiKey = body.apiKey?.trim() || undefined;
   if (!apiKey && body.caseId) {
     const c = await getCase(body.caseId);
-    if (c) apiKey = getEffectiveApiKey(c, "edenai");
+    if (c) apiKey = await resolveEdenKey(c);
   }
+  if (!apiKey) apiKey = await resolveEdenKey();
   if (!apiKey) {
     return NextResponse.json(
       { ok: false, region, checks: {}, error: "No Eden AI API key provided or stored." },

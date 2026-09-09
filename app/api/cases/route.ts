@@ -6,9 +6,7 @@ import type { Case } from "@/lib/types";
 function sanitizeCase(c: Case) {
   return {
     ...c,
-    apiKey: undefined,
-    cerebrasApiKey: undefined,
-    anthropicApiKey: undefined,
+    edenApiKey: undefined,
   };
 }
 
@@ -29,9 +27,7 @@ export async function POST(req: NextRequest) {
       id: randomUUID(),
       name: body.name || "New Case",
       aiColumns: body.aiColumns || [],
-      apiKey: body.apiKey,
-      cerebrasApiKey: body.cerebrasApiKey,
-      anthropicApiKey: body.anthropicApiKey,
+      edenApiKey: body.edenApiKey,
     });
     return NextResponse.json(sanitizeCase(c), { status: 201 });
   } catch (e: unknown) {

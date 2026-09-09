@@ -32,6 +32,62 @@ export function edenProviderOf(model: string): string {
   return model.split("/")[0] || "unknown";
 }
 
+/**
+ * Normalise a model ID to Eden's "provider/model" format.
+ * Legacy bare IDs from the old multi-provider era are mapped to their
+ * Eden provider prefix (e.g. "gpt-4o-mini" → "openai/gpt-4o-mini",
+ * "claude-3-5-haiku-20241022" → "anthropic/claude-3-5-haiku-20241022",
+ * "llama3.3-70b" → "meta/llama3.3-70b"). IDs that already contain a
+ * provider prefix are returned unchanged. Special non-LLM markers
+ * ("validator", "apollo-tool") are returned unchanged.
+ */
+export function normalizeEdenModel(model: string): string {
+  if (!model || model.includes("/")) return model;
+  if (model === "validator" || model === "apollo-tool") return model;
+  const m = model.toLowerCase();
+  if (m.startsWith("claude")) return `anthropic/${model}`;
+  if (m.startsWith("gemini")) return `google/${model}`;
+  if (m.startsWith("mistral") || m.startsWith("codestral") || m.startsWith("mixtral")) return `mistral/${model}`;
+  if (m.startsWith("llama") || m.startsWith("gpt-oss") || m.startsWith("qwen") || m.startsWith("deepseek") || m.startsWith("kimi") || m.startsWith("minimax") || m.startsWith("glm") || m.startsWith("zai")) {
+    return `meta/${model}`;
+  }
+  // default: OpenAI family on Eden
+  return `openai/${model}`;
+}
+
+export type ReasoningEffort = "none" | "low" | "medium" | "high";
+
+/** OpenAI reasoning models (o-series, gpt-5.x) — mirrors contentor's detection. */
+export function isOpenAiReasoningModel(model: string): boolean {
+  return /\b(o1|o3|o4|gpt-5)/.test(model.toLowerCase());
+}
+
+/**
+ * Provider-specific reasoning params for Eden v3 chat/completions
+ * (pattern adopted from the contentor project's EdenAIChatGenerator):
+ *  - anthropic   → output_config.effort
+ *  - openai/azure o-series|gpt-5 → reasoning_effort
+ *  - google      → thinking_config.thinking_budget
+ *  - others      → ignored
+ */
+export function reasoningParams(model: string, reasoning?: ReasoningEffort): Record<string, unknown> {
+  const level = (reasoning ?? "none").toLowerCase();
+  if (level !== "low" && level !== "medium" && level !== "high") return {};
+  const provider = edenProviderOf(model);
+  const cleanModel = model.slice(provider.length + 1);
+  if (provider === "anthropic") {
+    return { output_config: { effort: level } };
+  }
+  if ((provider === "openai" || provider === "azure") && isOpenAiReasoningModel(cleanModel)) {
+    return { reasoning_effort: level };
+  }
+  if (provider === "google") {
+    const budgets: Record<string, number> = { low: 128, medium: 1024, high: 4096 };
+    return { thinking_config: { thinking_budget: budgets[level] } };
+  }
+  return {};
+}
+
 // ── Types ────────────────────────────────────────────────────────────────────
 
 export interface EdenModelInfo {
@@ -141,9 +197,10 @@ export async function edenChatCompletion(params: {
   prompt: string;
   maxTokens: number;
   temperature?: number;
+  reasoning?: ReasoningEffort;
   signal?: AbortSignal;
 }): Promise<EdenChatResult> {
-  const { apiKey, region = "eu", model, system, prompt, maxTokens, temperature = 0, signal } = params;
+  const { apiKey, region = "eu", model, system, prompt, maxTokens, temperature = 0, reasoning, signal } = params;
   const url = `${edenBaseUrl(region)}/v3/chat/completions`;
 
   const res = await edenFetch(
@@ -159,10 +216,11 @@ export async function edenChatCompletion(params: {
         ],
         max_tokens: maxTokens,
         temperature,
+        ...reasoningParams(model, reasoning),
       }),
       signal,
     },
-    120_000
+    180_000
   );
 
   const json = await res.json();

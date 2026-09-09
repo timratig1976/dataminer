@@ -1,92 +1,22 @@
-import OpenAI from "openai";
 import { isOperationCancelled } from "./operations";
 import type { AiColumn } from "./types";
 import { webSearch, formatSearchResultsForLlm, type SearchLayer, isCatalogUrl } from "./search";
-import { isEdenModel, edenChatCompletion, edenScrapeUrl, type EdenRegion } from "./edenai";
+import { normalizeEdenModel, edenChatCompletion, edenScrapeUrl, type EdenRegion } from "./edenai";
 import { getCachedScrape, setCachedScrape } from "./db";
 import { lookupApolloContacts, ApolloBudget } from "./apollo";
 
-export type LlmProvider = "openai" | "cerebras" | "anthropic" | "edenai";
+/**
+ * Eden AI is the ONLY LLM provider. Model IDs use the "provider/model" format
+ * served by the OpenAI-compatible /v3 endpoint (one API key for all models).
+ * Legacy bare IDs (e.g. "gpt-4o-mini") are auto-normalised to "openai/…".
+ */
+export const DEFAULT_EDEN_MODEL = "openai/gpt-4o-mini";
 
-export function inferProviderFromModel(model?: string): LlmProvider {
-  if (!model) return "openai";
-  // Eden AI models are always "provider/model" (contain a slash)
-  if (isEdenModel(model)) return "edenai";
-  const m = model.toLowerCase();
-  if (m.startsWith("claude")) return "anthropic";
-  if (
-    m.startsWith("llama") ||
-    m.includes("cerebras") ||
-    m.includes("qwen") ||
-    m.includes("gpt-oss") ||
-    m.includes("zai-glm") ||
-    m.startsWith("glm") ||
-    m.includes("deepseek") ||
-    m.includes("kimi") ||
-    m.includes("minimax") ||
-    m.includes("mistral")
-  ) {
-    return "cerebras";
-  }
-  return "openai";
-}
+/** Kept for metadata/logging compatibility — always "edenai" now. */
+export type LlmProvider = "edenai";
 
-async function runAnthropicCompletion(params: {
-  apiKey: string;
-  model: string;
-  prompt: string;
-  isJson: boolean;
-  maxTokens: number;
-  systemOverride?: string;
-  signal?: AbortSignal;
-}): Promise<{ raw: string; tokens?: { prompt: number; completion: number; total: number } }> {
-  const { apiKey, model, prompt, isJson, maxTokens, systemOverride, signal } = params;
-  const system = systemOverride ?? (isJson
-    ? "You are a data enrichment assistant. Return ONLY valid JSON, no markdown, no explanation."
-    : "You are a data enrichment assistant. Return only the requested value, nothing else. If you cannot find the information, return exactly: notFound");
-
-  const resp = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-api-key": apiKey,
-      "anthropic-version": "2023-06-01",
-    },
-    signal,
-    body: JSON.stringify({
-      model,
-      max_tokens: maxTokens,
-      system,
-      messages: [{ role: "user", content: prompt }],
-    }),
-  });
-
-  const json = await resp.json();
-  if (!resp.ok) {
-    const msg = json?.error?.message || json?.error?.type || `HTTP ${resp.status}`;
-    throw new Error(msg);
-  }
-
-  const raw = Array.isArray(json?.content)
-    ? json.content
-        .filter((c: { type?: string }) => c?.type === "text")
-        .map((c: { text?: string }) => c?.text ?? "")
-        .join("\n")
-        .trim()
-    : "";
-
-  const usage = json?.usage;
-  const promptTokens = Number(usage?.input_tokens ?? 0);
-  const completionTokens = Number(usage?.output_tokens ?? 0);
-  const tokens = usage
-    ? {
-        prompt: promptTokens,
-        completion: completionTokens,
-        total: promptTokens + completionTokens,
-      }
-    : undefined;
-
-  return { raw, tokens };
+export function inferProviderFromModel(_model?: string): LlmProvider {
+  return "edenai";
 }
 
 function estimateCostUsd(model: string, tokens?: { prompt: number; completion: number; total: number }): number | undefined {
@@ -102,38 +32,6 @@ function estimateCostUsd(model: string, tokens?: { prompt: number; completion: n
   }
 
   return undefined;
-}
-
-function isOpenAiReasoningModel(model: string): boolean {
-  const m = model.toLowerCase();
-  return m.startsWith("o1") || m.startsWith("o3") || m.startsWith("o4");
-}
-
-function isOpenAiResponsesOnlyModel(model: string): boolean {
-  const m = model.toLowerCase();
-  return m.startsWith("o3-pro") || m.includes("deep-research");
-}
-
-function extractResponsesText(resp: unknown): string {
-  const r = resp as {
-    output_text?: unknown;
-    output?: Array<{ content?: Array<{ type?: string; text?: string }> }>;
-  };
-
-  if (typeof r.output_text === "string" && r.output_text.trim()) {
-    return r.output_text.trim();
-  }
-
-  if (Array.isArray(r.output)) {
-    return r.output
-      .flatMap((item) => Array.isArray(item?.content) ? item.content : [])
-      .filter((part) => part?.type === "output_text" || part?.type === "text")
-      .map((part) => part?.text ?? "")
-      .join("\n")
-      .trim();
-  }
-
-  return "";
 }
 
 function renderPrompt(template: string, data: Record<string, string | null>, mapping?: Record<string, string>): string {
@@ -323,7 +221,7 @@ export async function runAiColumn(
   column: AiColumn,
   rowData: Record<string, string | null>,
   apiKey: string,
-  provider: LlmProvider = "openai",
+  provider: LlmProvider = "edenai",
   signal?: AbortSignal,
   operationId?: string,
   edenRegion: EdenRegion = "eu",
@@ -393,7 +291,8 @@ export async function runAiColumn(
   let scrapedUrls: string[] = [];
   let searchResults: { title: string; url: string; snippet: string }[] = [];
   const evidenceMode = column.evidenceMode ?? "snippet";
-  const firecrawlKey = provider === "edenai" ? apiKey : (process.env.EDEN_API_KEY || undefined);
+  // Firecrawl uses the same single Eden key as the LLM
+  const firecrawlKey = apiKey || process.env.EDEN_API_KEY || undefined;
 
   // Resolve city value directly from rowData (via inputMappings or common field names)
   function resolveCity(): string {
@@ -435,7 +334,7 @@ export async function runAiColumn(
     const braveApiKey = process.env.BRAVE_API_KEY || undefined;
     const scraplingUrl = process.env.SCRAPLING_URL || undefined;
     const scraplingToken = process.env.SCRAPLING_TOKEN || undefined;
-    const firecrawlApiKey = provider === "edenai" ? apiKey : (process.env.EDEN_API_KEY || undefined);
+    const firecrawlApiKey = apiKey || process.env.EDEN_API_KEY || undefined;
     const searchOpts = { serpApiKey, braveApiKey, scraplingUrl, scraplingToken, firecrawlApiKey, maxResults: column.searchMaxResults ?? 5, forceLayer: column.searchForceLayer };
 
     const resolvedCity = resolveCity();
@@ -523,53 +422,26 @@ export async function runAiColumn(
 
   const maxTokens = column.outputMode === "json" ? 1024 : 512;
   const isJson = column.outputMode === "json";
-  const model = column.model || "gpt-4o-mini";
+  // Bare legacy IDs (e.g. "gpt-4o-mini") are normalised to Eden "provider/model" format
+  const model = column.tool ? (column.model || "") : normalizeEdenModel(column.model || DEFAULT_EDEN_MODEL);
 
-  // ── LLM call (with one "auto" retry using scraped pages if the first pass is empty)
+  // ── LLM call via Eden AI (with one "auto" retry using scraped pages if the first pass is empty)
   let raw = "";
   let tokens: { prompt: number; completion: number; total: number } | undefined;
   let costUsdOverride: number | undefined;
   let prompt = "";
 
   function llmCall(p: string, sys: string) {
-    if (provider === "edenai") {
-      return edenChatCompletion({ apiKey, region: edenRegion, model, system: sys, prompt: p, maxTokens, signal }).then((r) => ({ raw: r.raw, tokens: r.tokens, cost: r.costUsd }));
-    }
-    if (provider === "anthropic") {
-      return runAnthropicCompletion({ apiKey, model, prompt: p, isJson: isJson, maxTokens, systemOverride: sys, signal }).then((r) => ({ raw: r.raw, tokens: r.tokens, cost: undefined as number | undefined }));
-    }
-    const client = provider === "cerebras"
-      ? new OpenAI({ apiKey, baseURL: "https://api.cerebras.ai/v1", timeout: 45000 })
-      : new OpenAI({ apiKey, timeout: 45000 });
-    const baseRequest = {
+    return edenChatCompletion({
+      apiKey,
+      region: edenRegion,
       model,
-      messages: [
-        { role: "system" as const, content: sys },
-        { role: "user" as const, content: p },
-      ],
-    };
-    if (provider === "openai" && isOpenAiResponsesOnlyModel(model)) {
-      return client.responses.create({
-        model,
-        input: [
-          { role: "system", content: sys },
-          { role: "user", content: p },
-        ],
-        max_output_tokens: maxTokens,
-        ...(signal ? { signal } : {}),
-      }).then((resp) => {
-        const usage = resp.usage;
-        return { raw: extractResponsesText(resp), tokens: usage ? { prompt: Number(usage.input_tokens ?? 0), completion: Number(usage.output_tokens ?? 0), total: Number(usage.total_tokens ?? 0) } : undefined, cost: undefined as number | undefined };
-      });
-    }
-    return client.chat.completions.create(
-      provider === "openai" && isOpenAiReasoningModel(model)
-        ? { ...baseRequest, max_completion_tokens: maxTokens, ...(signal ? { signal } : {}) }
-        : { ...baseRequest, max_tokens: maxTokens, temperature: 0, ...(signal ? { signal } : {}) }
-    ).then((resp) => {
-      const usage = resp.usage;
-      return { raw: resp.choices[0]?.message?.content?.trim() ?? "", tokens: usage ? { prompt: usage.prompt_tokens ?? 0, completion: usage.completion_tokens ?? 0, total: usage.total_tokens ?? 0 } : undefined, cost: undefined as number | undefined };
-    });
+      system: sys,
+      prompt: p,
+      maxTokens,
+      reasoning: column.reasoning,
+      signal,
+    }).then((r) => ({ raw: r.raw, tokens: r.tokens, cost: r.costUsd }));
   }
 
   try {
@@ -688,7 +560,7 @@ export const DEFAULT_PRESETS: Omit<AiColumn, "id">[] = [
   {
     name: "Official Domain",
     outputKey: "official_domain",
-    model: "gpt-4o-mini",
+    model: "openai/gpt-4o-mini",
     outputMode: "json",
     jsonKey: "domain",
     multiKeys: [
@@ -764,7 +636,7 @@ Input URL hint (if available): {input_url}`,
   {
     name: "Industry Keywords",
     outputKey: "industry_keywords",
-    model: "gpt-4o-mini",
+    model: "openai/gpt-4o-mini",
     outputMode: "json",
     jsonKey: "keywords",
     prompt: `#CONTEXT#
@@ -793,7 +665,7 @@ Return JSON: { "keywords": ["keyword1", "keyword2", ...] }`,
   {
     name: "Decision Makers",
     outputKey: "decision_makers_json",
-    model: "gpt-4o-mini",
+    model: "openai/gpt-4o-mini",
     outputMode: "json",
     jsonKey: "contacts",
     prompt: `#CONTEXT#
@@ -827,7 +699,7 @@ Return JSON: { "contacts": [ { "name": "", "firstname": "", "surname": "", "jobt
   {
     name: "Social Profiles",
     outputKey: "social_profiles_json",
-    model: "gpt-4o-mini",
+    model: "openai/gpt-4o-mini",
     outputMode: "json",
     jsonKey: "LinkedIn",
     prompt: `#CONTEXT#
@@ -857,7 +729,7 @@ Return JSON: { "LinkedIn": "", "Xing": "", "X": "", "Instagram": "", "Facebook":
   {
     name: "Background Check",
     outputKey: "background_check_json",
-    model: "gpt-4o-mini",
+    model: "openai/gpt-4o-mini",
     outputMode: "json",
     jsonKey: "public_mentions",
     prompt: `#CONTEXT#
@@ -888,7 +760,7 @@ Return JSON: { "name": "", "hobbies_interests": "", "public_mentions": "", "refe
   {
     name: "Email",
     outputKey: "email",
-    model: "gpt-4o-mini",
+    model: "openai/gpt-4o-mini",
     outputMode: "text",
     prompt: `Find the general contact email address for this company.
 Company: {company_name}
@@ -901,7 +773,7 @@ Return ONLY the email address. If not found, return: notFound`,
   {
     name: "Phone",
     outputKey: "phone",
-    model: "gpt-4o-mini",
+    model: "openai/gpt-4o-mini",
     outputMode: "text",
     prompt: `Find the main phone number for this company.
 Company: {company_name}
@@ -914,7 +786,7 @@ Return ONLY the phone number in international format. If not found, return: notF
   {
     name: "LinkedIn (Company)",
     outputKey: "linkedin",
-    model: "gpt-4o-mini",
+    model: "openai/gpt-4o-mini",
     outputMode: "text",
     prompt: `Find the LinkedIn company page URL for this company.
 Company: {company_name}
@@ -927,7 +799,7 @@ Return ONLY the full LinkedIn URL (https://www.linkedin.com/company/...). If not
   {
     name: "City / PLZ",
     outputKey: "city",
-    model: "gpt-4o-mini",
+    model: "openai/gpt-4o-mini",
     outputMode: "text",
     prompt: `Find the city and postal code (PLZ) of the headquarters of this company.
 Company: {company_name}
@@ -940,7 +812,7 @@ Return ONLY in format: PLZ City (e.g. 80331 München). If not found, return: not
   {
     name: "Impressum / Firmendaten",
     outputKey: "address",
-    model: "gpt-4o-mini",
+    model: "openai/gpt-4o-mini",
     outputMode: "json",
     multiKeys: [
       { jsonKey: "address", outputKey: "address" },

@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import {
   Database, Rows3, Sparkles, CheckCircle2, XCircle,
   DollarSign, ArrowRight, Plus, TrendingUp, Loader2,
-  LayoutDashboard, Bug,
+  LayoutDashboard, Bug, Key,
 } from "lucide-react";
 
 interface CaseStat {
@@ -93,7 +93,13 @@ export default function DashboardPage() {
           </button>
         </nav>
         <div className="px-3 py-3 border-t border-gray-100 space-y-1">
-          <div className="text-[11px] text-gray-400 mb-2">🔑 Global API Key (Fallback)</div>
+          <button
+            onClick={() => router.push("/settings")}
+            className="w-full flex items-center gap-2 px-2 py-1.5 text-xs text-gray-500 hover:text-violet-600 hover:bg-violet-50 rounded-lg text-left transition-colors"
+          >
+            <Key className="w-3.5 h-3.5" />
+            🔑 Globale Einstellungen
+          </button>
           <button
             onClick={() => router.push("/scrapling-test")}
             className="w-full flex items-center gap-2 px-2 py-1.5 text-xs text-gray-400 hover:text-violet-600 hover:bg-violet-50 rounded-lg text-left transition-colors"

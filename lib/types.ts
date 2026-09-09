@@ -25,6 +25,8 @@ export interface AiColumn {
   searchForceLayer?: "serpapi" | "brave" | "duckduckgo" | "playwright" | "scrapling" | "firecrawl";
   evidenceMode?: "snippet" | "page" | "auto";  // snippet (default) | page (scrape top results) | auto (retry with pages if empty)
   captureReasoning?: boolean;       // ask LLM to return _reasoning field; stored as _reasoning_{outputKey}
+  /** Reasoning effort mapping per model family (see lib/edenai.ts). Default: none */
+  reasoning?: "none" | "low" | "medium" | "high";
 
   // ── Deterministic tool columns (no LLM) ──────────────────────────────────
   /** "apollo_contacts": look up decision makers via Apollo.io (MCP/REST) */
@@ -41,12 +43,7 @@ export interface Case {
   createdAt: string;
   updatedAt: string;
   aiColumns: AiColumn[];
-  apiKey?: string;
-  apiKeyMasked?: string;
-  cerebrasApiKey?: string;
-  cerebrasApiKeyMasked?: string;
-  anthropicApiKey?: string;
-  anthropicApiKeyMasked?: string;
+  /** Optional per-case Eden AI key; falls back to EDEN_API_KEY env */
   edenApiKey?: string;
   edenApiKeyMasked?: string;
   edenRegion?: "eu" | "us";

@@ -30,7 +30,7 @@ export function AddColumnModal({ caseId, onClose, onAdded, availableFields = [] 
   const [name, setName] = useState("");
   const [outputKey, setOutputKey] = useState("");
   const [prompt, setPrompt] = useState("");
-  const [model, setModel] = useState("gpt-4o-mini");
+  const [model, setModel] = useState(DEFAULT_MODEL_OPTIONS[0] as string);
   const [condition, setCondition] = useState("");
   const [conditionField, setConditionField] = useState("");
   const [outputMode, setOutputMode] = useState<"text" | "json">("text");
@@ -68,7 +68,7 @@ export function AddColumnModal({ caseId, onClose, onAdded, availableFields = [] 
     setName(p.name);
     setOutputKey(p.outputKey);
     setPrompt(p.prompt);
-    setModel(p.model || "gpt-4o-mini");
+    setModel(p.model || "openai/gpt-4o-mini");
     setCondition(p.condition || "");
     setConditionField(p.conditionField || "");
     setOutputMode(p.outputMode || "text");

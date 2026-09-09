@@ -1,18 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getCase, getRow, updateRowCell, appendLog, getEffectiveApiKey } from "@/lib/db";
+import { getCase, getRow, updateRowCell, appendLog, resolveEdenKey, resolveEdenRegion } from "@/lib/db";
 import { inferProviderFromModel, runAiColumn } from "@/lib/ai";
 import { registerOperation, isOperationCancelled, removeOperation, cancelOperation } from "@/lib/operations";
 
-function isOpenAiResponsesOnlyModel(model: string): boolean {
-  const m = model.toLowerCase();
-  return m.startsWith("o3-pro") || m.includes("deep-research");
-}
-
-function endpointForModel(provider: "openai" | "cerebras" | "anthropic" | "edenai", model: string): string {
-  if (provider === "edenai") return "/v3/chat/completions";
-  if (provider === "anthropic") return "/v1/messages";
-  if (provider === "cerebras") return "/v1/chat/completions";
-  return isOpenAiResponsesOnlyModel(model) ? "/v1/responses" : "/v1/chat/completions";
+// Eden AI is the sole LLM provider — a single OpenAI-compatible endpoint.
+function endpointForModel(_provider: string, _model: string): string {
+  return "/v3/chat/completions";
 }
 
 export async function POST(req: NextRequest) {
@@ -42,9 +35,9 @@ export async function POST(req: NextRequest) {
   }
 
   const provider = inferProviderFromModel(column.model);
-  const model = column.tool === "apollo_contacts" ? "apollo-tool" : (column.model || "gpt-4o-mini");
+  const model = column.tool === "apollo_contacts" ? "apollo-tool" : (column.model || "openai/gpt-4o-mini");
   const endpoint = column.tool === "apollo_contacts" ? "tool/apollo_contacts" : endpointForModel(provider, model);
-  const apiKey = getEffectiveApiKey(caseData, provider) || "";
+  const apiKey = (await resolveEdenKey(caseData)) || "";
   if (!apiKey && !column.tool) {
     clearTimeout(timeout);
     return NextResponse.json({ error: "No API key configured" }, { status: 400 });
@@ -75,7 +68,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ status: "cancelled", message: "Operation cancelled", operationId: opId });
     }
 
-    result = await runAiColumn(column, row.data, apiKey, provider, abortController.signal, opId, caseData.edenRegion ?? "eu");
+    result = await runAiColumn(column, row.data, apiKey, provider, abortController.signal, opId, await resolveEdenRegion(caseData));
   } catch (error: any) {
     clearTimeout(timeout);
     removeOperation(opId);

@@ -4,16 +4,15 @@ import {
   getCase,
   appendDiscoveryRows,
   appendLog,
-  getEffectiveApiKey,
+  resolveEdenKey,
+  resolveEdenRegion,
   setCachedScrape,
 } from "@/lib/db";
-import { inferProviderFromModel } from "@/lib/ai";
-import { edenChatCompletion, edenScrapeUrl } from "@/lib/edenai";
+import { edenChatCompletion, edenScrapeUrl, normalizeEdenModel } from "@/lib/edenai";
 import { discoverySearch } from "@/lib/discovery";
 import { hitToSeedRow, type DiscoveryHit, type DiscoverySource } from "@/lib/discovery";
 import { placeToSeedExtras, type MapsPlace } from "@/lib/maps";
 import type { RowData } from "@/lib/types";
-import OpenAI from "openai";
 
 const VALID_DISCOVERY_SOURCES = new Set<DiscoverySource>([
   "auto", "firecrawl", "serpapi", "brave", "duckduckgo", "scrapling",
@@ -205,9 +204,8 @@ async function extractCompanyNames(
   model: string
 ): Promise<string[]> {
   const caseData = await getCase(caseId);
-  const provider = inferProviderFromModel(model);
-  const apiKey = caseData ? getEffectiveApiKey(caseData, provider) : undefined;
-  if (!apiKey) throw new Error(`No API key for provider ${provider}`);
+  const apiKey = await resolveEdenKey(caseData);
+  if (!apiKey) throw new Error("No EDEN_API_KEY (case, global settings or env)");
 
   // Chunk to keep prompts small (50 items ≈ one call)
   const CHUNK = 50;
@@ -221,27 +219,15 @@ async function extractCompanyNames(
       "You extract company names from search result snippets. Return ONLY a JSON array of strings, same length and order as the input list. Use the official company name (keep legal form like GmbH). If no company name can be determined for an item, return an empty string for that item.";
     const prompt = `Extract the company name for each numbered item:\n\n${list}\n\nReturn JSON: ["name1", "name2", ...]`;
 
-    let raw = "";
-    if (provider === "edenai") {
-      const r = await edenChatCompletion({ apiKey, model, system, prompt, maxTokens: 2048 });
-      raw = r.raw;
-    } else {
-      const client = new OpenAI({
-        apiKey,
-        baseURL: provider === "cerebras" ? "https://api.cerebras.ai/v1" : undefined,
-        timeout: 60000,
-      });
-      const r = await client.chat.completions.create({
-        model,
-        messages: [
-          { role: "system", content: system },
-          { role: "user", content: prompt },
-        ],
-        max_tokens: 2048,
-        temperature: 0,
-      });
-      raw = r.choices[0]?.message?.content?.trim() ?? "";
-    }
+    const r = await edenChatCompletion({
+      apiKey,
+      region: await resolveEdenRegion(caseData),
+      model: normalizeEdenModel(model),
+      system,
+      prompt,
+      maxTokens: 2048,
+    });
+    const raw = r.raw;
 
     // Parse the JSON array (tolerate markdown fences)
     const cleaned = raw.replace(/^```(?:json)?/i, "").replace(/```$/, "").trim();

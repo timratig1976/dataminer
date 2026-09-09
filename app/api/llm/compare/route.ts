@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { appendLog, getCase, getEffectiveApiKey, getRow } from "@/lib/db";
+import { appendLog, getCase, resolveEdenKey, resolveEdenRegion, getRow } from "@/lib/db";
 import { inferProviderFromModel, runAiColumn, type LlmProvider } from "@/lib/ai";
 import type { AiColumn } from "@/lib/types";
 
@@ -22,16 +22,9 @@ interface ComparedModelResult {
   error?: string;
 }
 
-function isOpenAiResponsesOnlyModel(model: string): boolean {
-  const m = model.toLowerCase();
-  return m.startsWith("o3-pro") || m.includes("deep-research");
-}
-
-function endpointForModel(provider: LlmProvider, model: string): string {
-  if (provider === "edenai") return "/v3/chat/completions";
-  if (provider === "anthropic") return "/v1/messages";
-  if (provider === "cerebras") return "/v1/chat/completions";
-  return isOpenAiResponsesOnlyModel(model) ? "/v1/responses" : "/v1/chat/completions";
+// Eden AI is the sole LLM provider — a single OpenAI-compatible endpoint.
+function endpointForModel(_provider: LlmProvider, _model: string): string {
+  return "/v3/chat/completions";
 }
 
 function scoreValue(value: string, outputMode?: "text" | "json"): number {
@@ -110,13 +103,13 @@ export async function POST(req: NextRequest) {
   for (const model of models) {
     const provider = inferProviderFromModel(model);
     const endpoint = endpointForModel(provider, model);
-    const apiKey = getEffectiveApiKey(caseData, provider);
+    const apiKey = await resolveEdenKey(caseData);
     const started = Date.now();
 
-    appendLog(caseId, `▶ [COMPARE] model=${model} provider=${provider} endpoint=${endpoint}`);
+    void appendLog(caseId, `▶ [COMPARE] model=${model} provider=${provider} endpoint=${endpoint}`);
 
     if (!apiKey) {
-      appendLog(caseId, `❌ [COMPARE] model=${model} provider=${provider} endpoint=${endpoint} missing API key`);
+      void appendLog(caseId, `❌ [COMPARE] model=${model} missing EDEN_API_KEY`);
       results.push({
         model,
         provider,
@@ -125,8 +118,8 @@ export async function POST(req: NextRequest) {
         latencyMs: 0,
         value: "",
         validation: "fail",
-        validationReason: `Missing ${provider.toUpperCase()} API key`,
-        error: `Missing ${provider.toUpperCase()} API key`,
+        validationReason: "Missing EDEN_API_KEY",
+        error: "Missing EDEN_API_KEY (case-level or env)",
       });
       continue;
     }
@@ -138,7 +131,7 @@ export async function POST(req: NextRequest) {
       conditionField: undefined,
     };
 
-    const run = await runAiColumn(compareColumn, row.data, apiKey, provider, undefined, undefined, caseData.edenRegion ?? "eu");
+    const run = await runAiColumn(compareColumn, row.data, apiKey, provider, undefined, undefined, await resolveEdenRegion(caseData));
     const latencyMs = Date.now() - started;
 
     if (run.error) {

@@ -15,14 +15,24 @@ export const cases = pgTable("cases", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
   aiColumns: jsonb("ai_columns").$type<AiColumn[]>().notNull().default([]),
-  apiKey: text("api_key"),
-  cerebrasApiKey: text("cerebras_api_key"),
-  anthropicApiKey: text("anthropic_api_key"),
   edenApiKey: text("eden_api_key"),
   edenRegion: text("eden_region").notNull().default("eu"),
   modelAllowlist: jsonb("model_allowlist").$type<string[]>().notNull().default([]),
   colOrder: jsonb("col_order").$type<string[]>().notNull().default([]),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+});
+
+/**
+ * Global app settings (single row, id='global').
+ * Eden AI is the only LLM provider: one global key + region; a case-level
+ * edenApiKey overrides the global key when set. EDEN_API_KEY env is the
+ * last-resort fallback.
+ */
+export const settings = pgTable("settings", {
+  id: text("id").primaryKey().default("global"),
+  edenApiKey: text("eden_api_key"),
+  edenRegion: text("eden_region").notNull().default("eu"),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
 });
 

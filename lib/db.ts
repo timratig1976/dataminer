@@ -17,12 +17,10 @@ import fs from "fs";
 import path from "path";
 import type { Case, RowData } from "./types";
 import { decryptSecret, encryptSecret, maskSecret } from "./secrets";
-import { cases, rows, logs, scrapeCache, apolloCache } from "./db/schema";
-
-export type LlmProviderKey = "openai" | "cerebras" | "anthropic" | "edenai";
+import { cases, rows, logs, scrapeCache, apolloCache, settings } from "./db/schema";
 
 // Re-export schema tables for scripts/migration tooling
-export { cases, rows, logs, scrapeCache, apolloCache };
+export { cases, rows, logs, scrapeCache, apolloCache, settings };
 
 const DEFAULT_URL = `postgres://${process.env.USER ?? "postgres"}@localhost:5432/dataminer`;
 const databaseUrl = process.env.DATABASE_URL?.trim() || DEFAULT_URL;
@@ -94,6 +92,13 @@ async function ensureSchema(client: postgres.Sql): Promise<void> {
         payload JSONB NOT NULL,
         fetched_at TIMESTAMPTZ NOT NULL
       );
+
+      CREATE TABLE IF NOT EXISTS settings (
+        id TEXT PRIMARY KEY DEFAULT 'global',
+        eden_api_key TEXT,
+        eden_region TEXT NOT NULL DEFAULT 'eu',
+        updated_at TIMESTAMPTZ NOT NULL
+      );
     `);
   }
 }
@@ -119,20 +124,11 @@ type CaseRow = typeof cases.$inferSelect;
 type RowRow = typeof rows.$inferSelect;
 
 function deserializeCase(row: CaseRow): Case {
-  const apiKey = decryptSecret(row.apiKey ?? undefined);
-  const cerebrasApiKey = decryptSecret(row.cerebrasApiKey ?? undefined);
-  const anthropicApiKey = decryptSecret(row.anthropicApiKey ?? undefined);
   const edenApiKey = decryptSecret(row.edenApiKey ?? undefined);
   return {
     id: row.id,
     name: row.name,
     aiColumns: (row.aiColumns ?? []) as Case["aiColumns"],
-    apiKey,
-    apiKeyMasked: maskSecret(apiKey),
-    cerebrasApiKey,
-    cerebrasApiKeyMasked: maskSecret(cerebrasApiKey),
-    anthropicApiKey,
-    anthropicApiKeyMasked: maskSecret(anthropicApiKey),
     edenApiKey,
     edenApiKeyMasked: maskSecret(edenApiKey),
     edenRegion: row.edenRegion === "us" ? "us" : "eu",
@@ -179,9 +175,6 @@ export async function createCase(c: Omit<Case, "createdAt" | "updatedAt">): Prom
       id: c.id,
       name: c.name,
       aiColumns: c.aiColumns ?? [],
-      apiKey: encryptSecret(c.apiKey),
-      cerebrasApiKey: encryptSecret(c.cerebrasApiKey),
-      anthropicApiKey: encryptSecret(c.anthropicApiKey),
       edenApiKey: encryptSecret(c.edenApiKey),
       edenRegion: c.edenRegion ?? "eu",
       modelAllowlist: c.modelAllowlist ?? [],
@@ -202,9 +195,6 @@ export async function updateCase(id: string, patch: Partial<Omit<Case, "id" | "c
     .set({
       name: merged.name,
       aiColumns: merged.aiColumns ?? [],
-      apiKey: encryptSecret(merged.apiKey),
-      cerebrasApiKey: encryptSecret(merged.cerebrasApiKey),
-      anthropicApiKey: encryptSecret(merged.anthropicApiKey),
       edenApiKey: encryptSecret(merged.edenApiKey),
       edenRegion: merged.edenRegion ?? "eu",
       modelAllowlist: merged.modelAllowlist ?? [],
@@ -215,18 +205,85 @@ export async function updateCase(id: string, patch: Partial<Omit<Case, "id" | "c
   return (await getCase(id))!;
 }
 
-/** Pure function — no DB access, stays synchronous. */
-export function getEffectiveApiKey(c: Case, provider: LlmProviderKey = "openai"): string | undefined {
-  if (provider === "cerebras") {
-    return c.cerebrasApiKey || process.env.CEREBRAS_API_KEY || undefined;
-  }
-  if (provider === "anthropic") {
-    return c.anthropicApiKey || process.env.ANTHROPIC_API_KEY || undefined;
-  }
-  if (provider === "edenai") {
-    return c.edenApiKey || process.env.EDEN_API_KEY || undefined;
-  }
-  return c.apiKey || process.env.OPENAI_API_KEY || undefined;
+/**
+ * Effective Eden AI key: case-level key first, then EDEN_API_KEY env.
+ * Eden AI is the only LLM provider — one key serves all models (provider/model IDs).
+ * Pure function — no DB access, stays synchronous.
+ */
+export function getEffectiveApiKey(c: Case): string | undefined {
+  return c.edenApiKey || process.env.EDEN_API_KEY || undefined;
+}
+
+// ── Global settings (single 'global' row) ───────────────────────────────
+
+export interface GlobalSettings {
+  edenApiKey?: string;
+  edenApiKeyMasked?: string;
+  edenRegion: "eu" | "us";
+  updatedAt: string;
+}
+
+const GLOBAL_SETTINGS_ID = "global";
+
+export async function getGlobalSettings(): Promise<GlobalSettings> {
+  await initDb();
+  const result = await getDb()
+    .select()
+    .from(settings)
+    .where(eq(settings.id, GLOBAL_SETTINGS_ID))
+    .limit(1);
+  const row = result[0];
+  const key = row ? decryptSecret(row.edenApiKey ?? undefined) : undefined;
+  return {
+    edenApiKey: key,
+    edenApiKeyMasked: maskSecret(key),
+    edenRegion: row?.edenRegion === "us" ? "us" : "eu",
+    updatedAt: row ? toIso(row.updatedAt) : new Date().toISOString(),
+  };
+}
+
+/** Save global settings. An undefined/empty key clears the stored key. */
+export async function saveGlobalSettings(patch: { edenApiKey?: string; edenRegion?: "eu" | "us" }): Promise<GlobalSettings> {
+  await initDb();
+  const now = new Date();
+  const region = patch.edenRegion === "us" ? "us" : "eu";
+  const encrypted = patch.edenApiKey !== undefined ? encryptSecret(patch.edenApiKey) : null;
+  await getDb()
+    .insert(settings)
+    .values({
+      id: GLOBAL_SETTINGS_ID,
+      edenApiKey: encrypted,
+      edenRegion: region,
+      updatedAt: now,
+    })
+    .onConflictDoUpdate({
+      target: settings.id,
+      set: {
+        // keep the old key when the patch does not provide one (undefined)
+        edenApiKey: patch.edenApiKey !== undefined ? encrypted : sql`${settings.edenApiKey}`,
+        edenRegion: region,
+        updatedAt: now,
+      },
+    });
+  return getGlobalSettings();
+}
+
+/**
+ * Central key resolution — cascade: case key → global settings key → env.
+ * Routes should call this instead of getEffectiveApiKey so a key entered once
+ * on the global settings page works for every case.
+ */
+export async function resolveEdenKey(c?: Case | null): Promise<string | undefined> {
+  if (c?.edenApiKey) return c.edenApiKey;
+  const global = await getGlobalSettings();
+  return global.edenApiKey || process.env.EDEN_API_KEY || undefined;
+}
+
+/** Central region resolution — cascade: case region → global region → "eu". */
+export async function resolveEdenRegion(c?: Case | null): Promise<"eu" | "us"> {
+  if (c?.edenRegion === "us" || c?.edenRegion === "eu") return c.edenRegion;
+  const global = await getGlobalSettings();
+  return global.edenRegion;
 }
 
 export async function deleteCase(id: string): Promise<void> {

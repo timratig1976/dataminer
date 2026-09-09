@@ -26,15 +26,15 @@ function RunDetailModal({ col, row: initialRow, caseId, onClose, onRowUpdate }: 
   const [row, setRow] = useState(initialRow);
   const [running, setRunning] = useState(false);
   const [runError, setRunError] = useState<string|null>(null);
-  const [compareModels, setCompareModels] = useState<string[]>([col.model || "gpt-4o-mini"]);
+  const [compareModels, setCompareModels] = useState<string[]>([col.model || "openai/gpt-4o-mini"]);
   const [compareLoading, setCompareLoading] = useState(false);
   const [compareError, setCompareError] = useState<string | null>(null);
-  const [compareResults, setCompareResults] = useState<Array<{ model: string; provider: "openai" | "cerebras" | "anthropic"; ok: boolean; score: number; latencyMs: number; value: string; validation: "pass" | "fail"; validationReason: string; error?: string }>>([]);
+  const [compareResults, setCompareResults] = useState<Array<{ model: string; provider: string; ok: boolean; score: number; latencyMs: number; value: string; validation: "pass" | "fail"; validationReason: string; error?: string }>>([]);
   const [recommendedModel, setRecommendedModel] = useState<string | null>(null);
   const [modelOptions, setModelOptions] = useState<string[]>([...DEFAULT_MODEL_OPTIONS]);
   const [smokeLoading, setSmokeLoading] = useState(false);
   const [smokeError, setSmokeError] = useState<string | null>(null);
-  const [smokeResults, setSmokeResults] = useState<Array<{ model: string; provider: "openai" | "cerebras" | "anthropic"; ok: boolean; latencyMs: number; preview?: string; error?: string }>>([]);
+  const [smokeResults, setSmokeResults] = useState<Array<{ model: string; provider: string; ok: boolean; latencyMs: number; preview?: string; error?: string }>>([]);
 
   const multiKeys = col.multiKeys ?? [];
   const extraOutputKeys = col.validateDomain
@@ -196,7 +196,7 @@ function RunDetailModal({ col, row: initialRow, caseId, onClose, onRowUpdate }: 
           <div style={{flex:1,minWidth:0}}>
             <span style={{fontWeight:700,fontSize:13,color:"#111"}}>{col.name}</span>
             {companyName && <span style={{fontSize:12,color:"#9ca3af",marginLeft:8}}>— {companyName}</span>}
-            <span style={{fontSize:11,color:"#d1d5db",marginLeft:8}}>{col.model ?? "gpt-4o-mini"}</span>
+            <span style={{fontSize:11,color:"#d1d5db",marginLeft:8}}>{col.model ?? "openai/gpt-4o-mini"}</span>
           </div>
           <button onClick={handleRun} disabled={running}
             style={{display:"flex",alignItems:"center",gap:5,padding:"5px 14px",background:running?"#86efac":"#16a34a",color:"#fff",border:"none",borderRadius:6,cursor:running?"not-allowed":"pointer",fontSize:12,fontWeight:600,flexShrink:0}}>
@@ -405,10 +405,10 @@ function EditPromptModal({ col, caseId, onSave, onClose, cellContext, onRunCell,
 }) {
   const [draft, setDraft] = useState<AiColumn>({...col});
   const [saving, setSaving] = useState(false);
-  const [compareModels, setCompareModels] = useState<string[]>([col.model || "gpt-4o-mini"]);
+  const [compareModels, setCompareModels] = useState<string[]>([col.model || "openai/gpt-4o-mini"]);
   const [compareLoading, setCompareLoading] = useState(false);
   const [compareError, setCompareError] = useState<string | null>(null);
-  const [compareResults, setCompareResults] = useState<Array<{ model: string; provider: "openai" | "cerebras" | "anthropic"; ok: boolean; score: number; latencyMs: number; value: string; validation: "pass" | "fail"; validationReason: string; error?: string }>>([]);
+  const [compareResults, setCompareResults] = useState<Array<{ model: string; provider: string; ok: boolean; score: number; latencyMs: number; value: string; validation: "pass" | "fail"; validationReason: string; error?: string }>>([]);
   const [recommendedModel, setRecommendedModel] = useState<string | null>(null);
   const [modelOptions, setModelOptions] = useState<string[]>([...DEFAULT_MODEL_OPTIONS]);
   const promptRef = useRef<HTMLTextAreaElement>(null);
@@ -740,8 +740,8 @@ function EditPromptModal({ col, caseId, onSave, onClose, cellContext, onRunCell,
 
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12}}>
             <div><label style={lbl}>Modell</label>
-              <select style={inp} value={draft.model||"gpt-4o-mini"} onChange={e=>setDraft(d=>({...d,model:e.target.value}))}>
-                {mergeModelOptions([draft.model || "gpt-4o-mini"], modelOptions).map((m) => <option key={m}>{m}</option>)}
+              <select style={inp} value={draft.model||"openai/gpt-4o-mini"} onChange={e=>setDraft(d=>({...d,model:e.target.value}))}>
+                {mergeModelOptions([draft.model || "openai/gpt-4o-mini"], modelOptions).map((m) => <option key={m}>{m}</option>)}
               </select>
             </div>
             <div><label style={lbl}>Output-Modus</label>
@@ -945,19 +945,15 @@ function EditPromptModal({ col, caseId, onSave, onClose, cellContext, onRunCell,
 function SettingsPanel({ caseId, onCaseUpdated }: { caseId: string; onCaseUpdated: (c: Case) => void }) {
   const [caseData, setCaseData] = useState<Case | null>(null);
   const [name, setName] = useState("");
-  const [apiKey, setApiKey] = useState("");
-  const [apiKeyMasked, setApiKeyMasked] = useState<string | undefined>(undefined);
-  const [cerebrasApiKey, setCerebrasApiKey] = useState("");
-  const [cerebrasApiKeyMasked, setCerebrasApiKeyMasked] = useState<string | undefined>(undefined);
-  const [anthropicApiKey, setAnthropicApiKey] = useState("");
-  const [anthropicApiKeyMasked, setAnthropicApiKeyMasked] = useState<string | undefined>(undefined);
+  const [edenApiKey, setEdenApiKey] = useState("");
+  const [edenApiKeyMasked, setEdenApiKeyMasked] = useState<string | undefined>(undefined);
   const [modelCatalog, setModelCatalog] = useState<string[]>([]);
   const [enabledModels, setEnabledModels] = useState<string[]>([]);
   const [modelsSaving, setModelsSaving] = useState(false);
   const [modelsSavedMsg, setModelsSavedMsg] = useState(false);
   const [smokeLoading, setSmokeLoading] = useState(false);
   const [smokeError, setSmokeError] = useState<string | null>(null);
-  const [smokeResults, setSmokeResults] = useState<Array<{ model: string; provider: "openai" | "cerebras" | "anthropic"; ok: boolean; latencyMs: number; preview?: string; error?: string }>>([]);
+  const [smokeResults, setSmokeResults] = useState<Array<{ model: string; provider: string; ok: boolean; latencyMs: number; preview?: string; error?: string }>>([]);
   const [saving, setSaving] = useState(false);
   const [savedMsg, setSavedMsg] = useState(false);
   const [editingCol, setEditingCol] = useState<AiColumn | null>(null);
@@ -967,9 +963,7 @@ function SettingsPanel({ caseId, onCaseUpdated }: { caseId: string; onCaseUpdate
   useEffect(() => {
     fetch(`/api/cases/${caseId}`).then(r => r.json()).then((c: Case) => {
       setCaseData(c); setName(c.name);
-      setApiKey(""); setApiKeyMasked(c.apiKeyMasked);
-      setCerebrasApiKey(""); setCerebrasApiKeyMasked(c.cerebrasApiKeyMasked);
-      setAnthropicApiKey(""); setAnthropicApiKeyMasked(c.anthropicApiKeyMasked);
+      setEdenApiKey(""); setEdenApiKeyMasked(c.edenApiKeyMasked);
     });
   }, [caseId]);
 
@@ -994,20 +988,14 @@ function SettingsPanel({ caseId, onCaseUpdated }: { caseId: string; onCaseUpdate
       method: "PATCH", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         name: name.trim(),
-        apiKey: apiKey.trim() || undefined,
-        cerebrasApiKey: cerebrasApiKey.trim() || undefined,
-        anthropicApiKey: anthropicApiKey.trim() || undefined,
+        edenApiKey: edenApiKey.trim() || undefined,
       }),
     });
     const updated = await res.json();
     setCaseData(updated);
     onCaseUpdated(updated);
-    setApiKey("");
-    setCerebrasApiKey("");
-    setAnthropicApiKey("");
-    setApiKeyMasked(updated.apiKeyMasked);
-    setCerebrasApiKeyMasked(updated.cerebrasApiKeyMasked);
-    setAnthropicApiKeyMasked(updated.anthropicApiKeyMasked);
+    setEdenApiKey("");
+    setEdenApiKeyMasked(updated.edenApiKeyMasked);
     setSaving(false); setSavedMsg(true); setTimeout(() => setSavedMsg(false), 2000);
   }
 
@@ -1074,7 +1062,7 @@ function SettingsPanel({ caseId, onCaseUpdated }: { caseId: string; onCaseUpdate
     if (!caseData || !newCol.name || !newCol.prompt || !newCol.outputKey) return;
     const col: AiColumn = {
       id: crypto.randomUUID(), name: newCol.name, prompt: newCol.prompt,
-      outputKey: newCol.outputKey, model: newCol.model || "gpt-4o-mini",
+      outputKey: newCol.outputKey, model: newCol.model || "openai/gpt-4o-mini",
       outputMode: newCol.outputMode as "text"|"json"|undefined,
       jsonKey: newCol.jsonKey, condition: newCol.condition, conditionField: newCol.conditionField,
     };
@@ -1104,8 +1092,8 @@ function SettingsPanel({ caseId, onCaseUpdated }: { caseId: string; onCaseUpdate
         </div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12}}>
           <div><label style={lbl}>Modell</label>
-            <select style={inp} value={col.model||"gpt-4o-mini"} onChange={e=>onChange({...col,model:e.target.value})}>
-              <option>gpt-4o-mini</option><option>gpt-4o</option><option>gpt-4-turbo</option><option>llama3.1-8b</option><option>llama3.3-70b</option><option>qwen-3-32b</option><option>gpt-oss-120b</option><option>gpt-oss-20b</option><option>zai-glm-4.7</option><option>glm-5.1</option><option>deepseek-v3.2</option><option>kimi-k2.6</option><option>minimax-m2</option><option>mistral-large-3</option><option>claude-3-5-haiku-20241022</option><option>claude-3-5-sonnet-20241022</option><option>claude-3-7-sonnet-20250219</option>
+            <select style={inp} value={col.model||"openai/gpt-4o-mini"} onChange={e=>onChange({...col,model:e.target.value})}>
+              {DEFAULT_MODEL_OPTIONS.map((m) => <option key={m} value={m}>{m}</option>)}
             </select>
           </div>
           <div><label style={lbl}>Output-Modus</label>
@@ -1143,19 +1131,9 @@ function SettingsPanel({ caseId, onCaseUpdated }: { caseId: string; onCaseUpdate
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginBottom:16}}>
           <div><label style={lbl}>Case-Name</label><input style={inp} value={name} onChange={e=>setName(e.target.value)} /></div>
           <div>
-            <label style={lbl}>OpenAI API Key</label>
-            <input style={{...inp,fontFamily:"monospace"}} type="password" value={apiKey} onChange={e=>setApiKey(e.target.value)} placeholder={apiKeyMasked ? `Gespeichert: ${apiKeyMasked}` : "sk-..."} />
-            <div style={{fontSize:11,color:"#9ca3af",marginTop:3}}>Wird serverseitig verschlüsselt gespeichert. Empfohlen: OPENAI_API_KEY via Infisical als Fallback.</div>
-          </div>
-          <div>
-            <label style={lbl}>Cerebras API Key</label>
-            <input style={{...inp,fontFamily:"monospace"}} type="password" value={cerebrasApiKey} onChange={e=>setCerebrasApiKey(e.target.value)} placeholder={cerebrasApiKeyMasked ? `Gespeichert: ${cerebrasApiKeyMasked}` : "csk-..."} />
-            <div style={{fontSize:11,color:"#9ca3af",marginTop:3}}>Für Modelle wie llama3.x/qwen via Cerebras. Fallback: CEREBRAS_API_KEY via Infisical.</div>
-          </div>
-          <div>
-            <label style={lbl}>Anthropic API Key</label>
-            <input style={{...inp,fontFamily:"monospace"}} type="password" value={anthropicApiKey} onChange={e=>setAnthropicApiKey(e.target.value)} placeholder={anthropicApiKeyMasked ? `Gespeichert: ${anthropicApiKeyMasked}` : "sk-ant-..."} />
-            <div style={{fontSize:11,color:"#9ca3af",marginTop:3}}>Für Claude Modelle. Fallback: ANTHROPIC_API_KEY via Infisical.</div>
+            <label style={lbl}>Eden AI API Key (einziger LLM-Provider)</label>
+            <input style={{...inp,fontFamily:"monospace"}} type="password" value={edenApiKey} onChange={e=>setEdenApiKey(e.target.value)} placeholder={edenApiKeyMasked ? `Gespeichert: ${edenApiKeyMasked}` : "leer = EDEN_API_KEY aus Env"} />
+            <div style={{fontSize:11,color:"#9ca3af",marginTop:3}}>Ein Key für alle Modelle (openai/, anthropic/, google/, mistral/, meta/…). Optional — sonst greift EDEN_API_KEY via Infisical. Wird serverseitig verschlüsselt gespeichert.</div>
           </div>
         </div>
         <button style={btn("#16a34a")} onClick={saveMeta} disabled={saving}>
@@ -1229,7 +1207,7 @@ function SettingsPanel({ caseId, onCaseUpdated }: { caseId: string; onCaseUpdate
       <div style={card}>
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16}}>
           <div style={{fontSize:15,fontWeight:700,color:"#111"}}>✨ KI-Spalten ({caseData.aiColumns.length})</div>
-          <button style={btn("#16a34a")} onClick={()=>{setAddingCol(true);setNewCol({model:"gpt-4o-mini",outputMode:"text"});}}>
+          <button style={btn("#16a34a")} onClick={()=>{setAddingCol(true);setNewCol({model:"openai/gpt-4o-mini",outputMode:"text"});}}>
             <Plus style={{width:12,height:12}} /> Neue KI-Spalte
           </button>
         </div>
@@ -1261,7 +1239,7 @@ function SettingsPanel({ caseId, onCaseUpdated }: { caseId: string; onCaseUpdate
                 <div style={{flex:1,minWidth:0}}>
                   <div style={{fontWeight:600,fontSize:13,color:"#111"}}>{col.name}</div>
                   <div style={{fontSize:11,color:"#9ca3af",fontFamily:"monospace",marginTop:1}}>
-                    → {col.outputKey} · {col.model||"gpt-4o-mini"} · {col.outputMode||"text"}
+                    → {col.outputKey} · {col.model||"openai/gpt-4o-mini"} · {col.outputMode||"text"}
                     {col.condition ? ` · wenn ${col.condition}` : ""}
                   </div>
                 </div>

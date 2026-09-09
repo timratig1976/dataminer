@@ -5,9 +5,6 @@ import type { Case } from "@/lib/types";
 function sanitizeCase(c: Case) {
   return {
     ...c,
-    apiKey: undefined,
-    cerebrasApiKey: undefined,
-    anthropicApiKey: undefined,
     edenApiKey: undefined,
   };
 }

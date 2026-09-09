@@ -35,12 +35,19 @@ pnpm dev
 bun dev
 ```
 
+### LLM provider: Eden AI only
+
+All LLM calls (chat, Firecrawl web search/scrape) go through the Eden AI gateway
+with model IDs in `provider/model` format (e.g. `openai/gpt-4o-mini`, `anthropic/claude-sonnet-4-5`).
+**One single API key** — enter it via *Globale Einstellungen* (sidebar → 🔑) or set `EDEN_API_KEY`.
+
+Key resolution order: case-level key → global settings key (encrypted in DB) → `EDEN_API_KEY` env.
+
 ### Run with Infisical secrets
 
 If you use Infisical, configure these secret names in your Infisical project/environment:
 
-- `OPENAI_API_KEY`
-- `CEREBRAS_API_KEY`
+- `EDEN_API_KEY`
 - `API_KEY_ENCRYPTION_KEY`
 
 Then run:
@@ -58,7 +65,7 @@ infisical init
 
 ### LLM smoke test
 
-Use this route to quickly validate model availability + key wiring (OpenAI/Cerebras):
+Use this route to quickly validate model availability + key wiring (Eden AI):
 
 ```bash
 curl -s http://localhost:3000/api/llm/smoke | jq
@@ -80,7 +87,7 @@ There is also an API route:
 ```bash
 curl -s -X POST http://localhost:3000/api/llm/compare \
   -H 'Content-Type: application/json' \
-  -d '{"caseId":"<CASE_ID>","rowId":"<ROW_ID>","column":{"id":"tmp","name":"Test","prompt":"Return the official domain for {company_name}","outputKey":"official_domain","model":"gpt-4o-mini"},"models":["gpt-4o-mini","llama3.3-70b","gpt-oss-120b"]}' | jq
+  -d '{"caseId":"<CASE_ID>","rowId":"<ROW_ID>","column":{"id":"tmp","name":"Test","prompt":"Return the official domain for {company_name}","outputKey":"official_domain","model":"openai/gpt-4o-mini"},"models":["openai/gpt-4o-mini","meta/llama3.3-70b","mistral/mistral-small-latest"]}' | jq
 ```
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.

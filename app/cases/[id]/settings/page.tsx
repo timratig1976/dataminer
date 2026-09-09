@@ -16,12 +16,6 @@ export default function SettingsPage({ params }: { params: Promise<{ id: string 
   const router = useRouter();
   const [caseData, setCaseData] = useState<Case | null>(null);
   const [name, setName] = useState("");
-  const [apiKey, setApiKey] = useState("");
-  const [apiKeyMasked, setApiKeyMasked] = useState<string | undefined>(undefined);
-  const [cerebrasApiKey, setCerebrasApiKey] = useState("");
-  const [cerebrasApiKeyMasked, setCerebrasApiKeyMasked] = useState<string | undefined>(undefined);
-  const [anthropicApiKey, setAnthropicApiKey] = useState("");
-  const [anthropicApiKeyMasked, setAnthropicApiKeyMasked] = useState<string | undefined>(undefined);
   const [edenApiKey, setEdenApiKey] = useState("");
   const [edenApiKeyMasked, setEdenApiKeyMasked] = useState<string | undefined>(undefined);
   const [edenRegion, setEdenRegion] = useState<"eu" | "us">("eu");
@@ -49,12 +43,6 @@ export default function SettingsPage({ params }: { params: Promise<{ id: string 
       .then((c) => {
         setCaseData(c);
         setName(c.name);
-        setApiKey("");
-        setApiKeyMasked(c.apiKeyMasked);
-        setCerebrasApiKey("");
-        setCerebrasApiKeyMasked(c.cerebrasApiKeyMasked);
-        setAnthropicApiKey("");
-        setAnthropicApiKeyMasked(c.anthropicApiKeyMasked);
         setEdenApiKey("");
         setEdenApiKeyMasked(c.edenApiKeyMasked);
         setEdenRegion(c.edenRegion ?? "eu");
@@ -127,9 +115,6 @@ export default function SettingsPage({ params }: { params: Promise<{ id: string 
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         name: name.trim(),
-        apiKey: apiKey.trim() || undefined,
-        cerebrasApiKey: cerebrasApiKey.trim() || undefined,
-        anthropicApiKey: anthropicApiKey.trim() || undefined,
         edenApiKey: edenApiKey.trim() || undefined,
         edenRegion,
         modelAllowlist: Array.from(selectedModels),
@@ -137,13 +122,7 @@ export default function SettingsPage({ params }: { params: Promise<{ id: string 
     });
     const updated = await res.json();
     setCaseData(updated);
-    setApiKey("");
-    setCerebrasApiKey("");
-    setAnthropicApiKey("");
     setEdenApiKey("");
-    setApiKeyMasked(updated.apiKeyMasked);
-    setCerebrasApiKeyMasked(updated.cerebrasApiKeyMasked);
-    setAnthropicApiKeyMasked(updated.anthropicApiKeyMasked);
     setEdenApiKeyMasked(updated.edenApiKeyMasked);
     setSaving(false);
   }
@@ -212,45 +191,6 @@ export default function SettingsPage({ params }: { params: Promise<{ id: string 
               onChange={(e) => setName(e.target.value)}
               className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500"
             />
-          </div>
-          <div>
-            <label className="text-xs font-medium text-gray-500 uppercase tracking-wide flex items-center gap-1">
-              <Key className="w-3 h-3" /> OpenAI API Key
-            </label>
-            <input
-              type="password"
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-              placeholder={apiKeyMasked ? `Gespeichert: ${apiKeyMasked}` : "sk-..."}
-              className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-violet-500"
-            />
-            <p className="text-xs text-gray-400 mt-1">Wird serverseitig verschlüsselt gespeichert. Empfohlen: OPENAI_API_KEY via Infisical als Fallback.</p>
-          </div>
-          <div>
-            <label className="text-xs font-medium text-gray-500 uppercase tracking-wide flex items-center gap-1">
-              <Key className="w-3 h-3" /> Cerebras API Key
-            </label>
-            <input
-              type="password"
-              value={cerebrasApiKey}
-              onChange={(e) => setCerebrasApiKey(e.target.value)}
-              placeholder={cerebrasApiKeyMasked ? `Gespeichert: ${cerebrasApiKeyMasked}` : "csk-..."}
-              className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-violet-500"
-            />
-            <p className="text-xs text-gray-400 mt-1">Für Modelle wie llama3.x/qwen via Cerebras. Fallback: CEREBRAS_API_KEY via Infisical.</p>
-          </div>
-          <div>
-            <label className="text-xs font-medium text-gray-500 uppercase tracking-wide flex items-center gap-1">
-              <Key className="w-3 h-3" /> Anthropic API Key
-            </label>
-            <input
-              type="password"
-              value={anthropicApiKey}
-              onChange={(e) => setAnthropicApiKey(e.target.value)}
-              placeholder={anthropicApiKeyMasked ? `Gespeichert: ${anthropicApiKeyMasked}` : "sk-ant-..."}
-              className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-violet-500"
-            />
-            <p className="text-xs text-gray-400 mt-1">Für Claude Modelle. Fallback: ANTHROPIC_API_KEY via Infisical.</p>
           </div>
           <button
             onClick={save}

@@ -11,9 +11,7 @@ export default function CasesPage() {
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState("");
-  const [apiKey, setApiKey] = useState("");
-  const [cerebrasApiKey, setCerebrasApiKey] = useState("");
-  const [anthropicApiKey, setAnthropicApiKey] = useState("");
+  const [edenApiKey, setEdenApiKey] = useState("");
   const [search, setSearch] = useState("");
 
   useEffect(() => {
@@ -33,9 +31,7 @@ export default function CasesPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         name: newName.trim(),
-        apiKey: apiKey.trim() || undefined,
-        cerebrasApiKey: cerebrasApiKey.trim() || undefined,
-        anthropicApiKey: anthropicApiKey.trim() || undefined,
+        edenApiKey: edenApiKey.trim() || undefined,
       }),
     });
     const c = await res.json();
@@ -102,9 +98,14 @@ export default function CasesPage() {
           )}
         </div>
 
-        {/* API Key hint */}
+        {/* Global settings link */}
         <div className="px-3 py-2 border-t border-gray-100">
-          <div className="text-[11px] text-gray-400">🔑 Global API Key (Fallback)</div>
+          <button
+            onClick={() => router.push("/settings")}
+            className="w-full flex items-center gap-2 px-2 py-1.5 text-xs text-gray-500 hover:text-violet-600 hover:bg-violet-50 rounded-lg text-left transition-colors"
+          >
+            🔑 Globale Einstellungen (Eden AI Key)
+          </button>
         </div>
       </div>
 
@@ -196,44 +197,22 @@ export default function CasesPage() {
                 />
               </div>
               <div>
-                <label className="text-xs font-medium text-gray-600 uppercase tracking-wide">OpenAI API Key</label>
+                <label className="text-xs font-medium text-gray-600 uppercase tracking-wide">Eden AI API Key (optional)</label>
                 <input
-                  value={apiKey}
-                  onChange={(e) => setApiKey(e.target.value)}
-                  placeholder="sk-..."
+                  value={edenApiKey}
+                  onChange={(e) => setEdenApiKey(e.target.value)}
+                  placeholder="leer = EDEN_API_KEY aus Env"
                   type="password"
                   className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 font-mono"
                 />
-                <p className="text-xs text-gray-400 mt-1">Lokal gespeichert, nie extern übertragen.</p>
-              </div>
-              <div>
-                <label className="text-xs font-medium text-gray-600 uppercase tracking-wide">Cerebras API Key</label>
-                <input
-                  value={cerebrasApiKey}
-                  onChange={(e) => setCerebrasApiKey(e.target.value)}
-                  placeholder="csk-..."
-                  type="password"
-                  className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 font-mono"
-                />
-                <p className="text-xs text-gray-400 mt-1">Optional für Llama/Qwen Modelle via Cerebras.</p>
-              </div>
-              <div>
-                <label className="text-xs font-medium text-gray-600 uppercase tracking-wide">Anthropic API Key</label>
-                <input
-                  value={anthropicApiKey}
-                  onChange={(e) => setAnthropicApiKey(e.target.value)}
-                  placeholder="sk-ant-..."
-                  type="password"
-                  className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 font-mono"
-                />
-                <p className="text-xs text-gray-400 mt-1">Optional für Claude Modelle via Anthropic.</p>
+                <p className="text-xs text-gray-400 mt-1">Ein Key für alle Modelle (Eden AI Gateway). Verschlüsselt gespeichert.</p>
               </div>
             </div>
             <div className="flex gap-2 mt-5">
               <button onClick={createCase} className="flex-1 bg-violet-600 text-white py-2.5 rounded-lg text-sm font-medium hover:bg-violet-700">
                 Erstellen
               </button>
-              <button onClick={() => { setCreating(false); setNewName(""); setApiKey(""); setCerebrasApiKey(""); setAnthropicApiKey(""); }} className="flex-1 border border-gray-300 text-gray-700 py-2.5 rounded-lg text-sm font-medium hover:bg-gray-50">
+              <button onClick={() => { setCreating(false); setNewName(""); setEdenApiKey(""); }} className="flex-1 border border-gray-300 text-gray-700 py-2.5 rounded-lg text-sm font-medium hover:bg-gray-50">
                 Abbrechen
               </button>
             </div>
