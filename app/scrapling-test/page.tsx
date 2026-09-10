@@ -6,6 +6,7 @@ import {
   LayoutDashboard, Database, Bug, Play, Loader2,
   CheckCircle2, XCircle, Globe, Search, ArrowLeft, Wifi, WifiOff,
 } from "lucide-react";
+import AppShell from "@/components/AppShell";
 
 type Mode = "search" | "scrape" | "providers";
 
@@ -138,80 +139,37 @@ export default function ScraplingTestPage() {
   }
 
   return (
-    <div className="flex h-screen bg-gray-50 overflow-hidden">
-      {/* Sidebar */}
-      <div className="w-56 bg-white border-r border-gray-200 flex flex-col shrink-0">
-        <div className="px-4 py-3 border-b border-gray-100">
-          <div className="flex items-center gap-2">
-            <div className="w-6 h-6 bg-violet-600 rounded flex items-center justify-center text-white text-xs font-bold">D</div>
-            <span className="font-semibold text-gray-900 text-sm">DataMiner</span>
-          </div>
-        </div>
-        <nav className="flex-1 py-2">
-          <button
-            onClick={() => router.push("/dashboard")}
-            className="w-full flex items-center gap-2.5 px-4 py-2 text-sm text-gray-600 hover:bg-gray-50 text-left"
-          >
-            <LayoutDashboard className="w-4 h-4" />
-            Dashboard
-          </button>
-          <button
-            onClick={() => router.push("/cases")}
-            className="w-full flex items-center gap-2.5 px-4 py-2 text-sm text-gray-600 hover:bg-gray-50 text-left"
-          >
-            <Database className="w-4 h-4" />
-            Alle Cases
-          </button>
-        </nav>
-        <div className="px-3 py-3 border-t border-gray-100 space-y-1">
-          <button
-            onClick={() => router.push("/scrapling-test")}
-            className="w-full flex items-center gap-2 px-2 py-1.5 text-xs font-medium text-violet-700 bg-violet-50 rounded-lg text-left"
-          >
-            <Bug className="w-3.5 h-3.5" />
-            Scrapling Test
-          </button>
-        </div>
-      </div>
-
-      {/* Main */}
-      <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Topbar */}
-        <div className="bg-white border-b border-gray-200 px-6 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <button onClick={() => router.back()} className="text-gray-400 hover:text-gray-600 mr-1">
-              <ArrowLeft className="w-4 h-4" />
-            </button>
-            <Bug className="w-4 h-4 text-violet-500" />
-            <span className="text-sm font-semibold text-gray-800">Scrapling Test</span>
-            <span className="text-xs text-gray-400 ml-1">— Layer 5 Google Bypass</span>
-          </div>
-          {/* Service status */}
-          <button
-            onClick={checkService}
-            disabled={checkingService}
-            className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-gray-200 hover:bg-gray-50"
-          >
-            {checkingService ? (
-              <Loader2 className="w-3.5 h-3.5 animate-spin text-gray-400" />
-            ) : serviceStatus === "ok" ? (
-              <Wifi className="w-3.5 h-3.5 text-green-500" />
-            ) : serviceStatus === "down" ? (
-              <WifiOff className="w-3.5 h-3.5 text-red-500" />
-            ) : (
-              <Wifi className="w-3.5 h-3.5 text-gray-400" />
-            )}
-            <span className={
-              serviceStatus === "ok" ? "text-green-600" :
-              serviceStatus === "down" ? "text-red-500" : "text-gray-500"
-            }>
-              {serviceStatus === "ok" ? "Service online" : serviceStatus === "down" ? "Service offline" : "Check service"}
-            </span>
-          </button>
-        </div>
-
-        {/* Content */}
-        <div className="flex-1 overflow-auto p-6">
+    <AppShell
+      title={
+        <>
+          Scrapling Test <span className="text-xs text-gray-400 font-normal ml-1">— Layer 5 Google Bypass</span>
+        </>
+      }
+      titleIcon={<Bug className="w-4 h-4 text-violet-500" />}
+      actions={
+        <button
+          onClick={checkService}
+          disabled={checkingService}
+          className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-gray-200 hover:bg-gray-50"
+        >
+          {checkingService ? (
+            <Loader2 className="w-3.5 h-3.5 animate-spin text-gray-400" />
+          ) : serviceStatus === "ok" ? (
+            <Wifi className="w-3.5 h-3.5 text-green-500" />
+          ) : serviceStatus === "down" ? (
+            <WifiOff className="w-3.5 h-3.5 text-red-500" />
+          ) : (
+            <Wifi className="w-3.5 h-3.5 text-gray-400" />
+          )}
+          <span className={
+            serviceStatus === "ok" ? "text-green-600" :
+            serviceStatus === "down" ? "text-red-500" : "text-gray-500"
+          }>
+            {serviceStatus === "ok" ? "Service online" : serviceStatus === "down" ? "Service offline" : "Check service"}
+          </span>
+        </button>
+      }
+    >
           <div className="max-w-3xl mx-auto space-y-5">
 
             {/* Info banner */}
@@ -490,8 +448,6 @@ export default function ScraplingTestPage() {
             )}
 
           </div>
-        </div>
-      </div>
-    </div>
+    </AppShell>
   );
 }

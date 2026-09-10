@@ -146,6 +146,26 @@ function edenError(json: any, status: number): Error {
   return new Error(msg);
 }
 
+/** True for transient timeouts/aborts that are worth a single retry. */
+function isRetryable(e: unknown): boolean {
+  const m = e instanceof Error ? e.message : String(e);
+  return /timeout|abort|ECONNRESET|ETIMEDOUT|fetch failed|socket/i.test(m);
+}
+
+/**
+ * Run `fn` once, and retry a single time on transient timeout/abort.
+ * Absorbs cold-start spikes on Eden's US universal-ai gateway (Firecrawl).
+ */
+async function withRetry<T>(fn: () => Promise<T>, retryDelayMs = 800): Promise<T> {
+  try {
+    return await fn();
+  } catch (e) {
+    if (!isRetryable(e)) throw e;
+    await new Promise((r) => setTimeout(r, retryDelayMs));
+    return await fn();
+  }
+}
+
 // ── Model discovery ──────────────────────────────────────────────────────────
 
 export async function listEdenModels(
@@ -264,18 +284,20 @@ export async function edenWebSearch(params: {
   const { apiKey, query, limit = 5 } = params;
   const url = `${EDEN_BASE_URLS.us}/v3/universal-ai`;
 
-  const res = await edenFetch(
-    url,
-    apiKey,
-    {
-      method: "POST",
-      body: JSON.stringify({
-        model: "web/search/firecrawl",
-        input: { query, limit },
-        show_original_response: false,
-      }),
-    },
-    30_000
+  const res = await withRetry(() =>
+    edenFetch(
+      url,
+      apiKey,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          model: "web/search/firecrawl",
+          input: { query, limit },
+          show_original_response: false,
+        }),
+      },
+      45_000
+    )
   );
 
   const json = await res.json();
@@ -307,18 +329,20 @@ export async function edenScrapeUrl(params: {
   const { apiKey, url } = params;
   const endpoint = `${EDEN_BASE_URLS.us}/v3/universal-ai`;
 
-  const res = await edenFetch(
-    endpoint,
-    apiKey,
-    {
-      method: "POST",
-      body: JSON.stringify({
-        model: "web/scraping/firecrawl",
-        input: { url, formats: ["markdown"] },
-        show_original_response: false,
-      }),
-    },
-    45_000
+  const res = await withRetry(() =>
+    edenFetch(
+      endpoint,
+      apiKey,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          model: "web/scraping/firecrawl",
+          input: { url, formats: ["markdown"] },
+          show_original_response: false,
+        }),
+      },
+      60_000
+    )
   );
 
   const json = await res.json();

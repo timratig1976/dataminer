@@ -192,14 +192,14 @@ function RunDetailModal({ col, row: initialRow, caseId, onClose, onRowUpdate }: 
 
         {/* Header */}
         <div style={{padding:"13px 18px",borderBottom:"1px solid #e5e7eb",display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
-          <Sparkles style={{width:14,height:14,color:"#16a34a",flexShrink:0}}/>
+          <Sparkles style={{width:14,height:14,color:"#7c3aed",flexShrink:0}}/>
           <div style={{flex:1,minWidth:0}}>
             <span style={{fontWeight:700,fontSize:13,color:"#111"}}>{col.name}</span>
             {companyName && <span style={{fontSize:12,color:"#9ca3af",marginLeft:8}}>— {companyName}</span>}
             <span style={{fontSize:11,color:"#d1d5db",marginLeft:8}}>{col.model ?? "openai/gpt-4o-mini"}</span>
           </div>
           <button onClick={handleRun} disabled={running}
-            style={{display:"flex",alignItems:"center",gap:5,padding:"5px 14px",background:running?"#86efac":"#16a34a",color:"#fff",border:"none",borderRadius:6,cursor:running?"not-allowed":"pointer",fontSize:12,fontWeight:600,flexShrink:0}}>
+            style={{display:"flex",alignItems:"center",gap:5,padding:"5px 14px",background:running?"#c4b5fd":"#7c3aed",color:"#fff",border:"none",borderRadius:6,cursor:running?"not-allowed":"pointer",fontSize:12,fontWeight:600,flexShrink:0}}>
             {running ? <Loader2 style={{width:11,height:11}} className="animate-spin"/> : <Play style={{width:11,height:11}}/>}
             {running ? "Läuft…" : "Ausführen"}
           </button>
@@ -221,7 +221,7 @@ function RunDetailModal({ col, row: initialRow, caseId, onClose, onRowUpdate }: 
           {/* Status row */}
           <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
             {running && <span style={{display:"inline-flex",alignItems:"center",gap:5,fontSize:12,color:"#d97706",background:"#fef3c7",padding:"3px 10px",borderRadius:10,fontWeight:600}}><Loader2 style={{width:10,height:10}} className="animate-spin"/> Läuft…</span>}
-            {!running && savedStatus==="done"    && <span style={{display:"inline-flex",alignItems:"center",gap:5,fontSize:12,color:"#059669",background:"#d1fae5",padding:"3px 10px",borderRadius:10,fontWeight:600}}><CheckCircle style={{width:10,height:10}}/> Fertig</span>}
+            {!running && savedStatus==="done"    && <span style={{display:"inline-flex",alignItems:"center",gap:5,fontSize:12,color:"#7c3aed",background:"#ddd6fe",padding:"3px 10px",borderRadius:10,fontWeight:600}}><CheckCircle style={{width:10,height:10}}/> Fertig</span>}
             {!running && savedStatus==="error"   && <span style={{display:"inline-flex",alignItems:"center",gap:5,fontSize:12,color:"#dc2626",background:"#fef2f2",padding:"3px 10px",borderRadius:10,fontWeight:600}}><AlertCircle style={{width:10,height:10}}/> Fehler</span>}
             {!running && savedStatus==="idle"    && <span style={{fontSize:12,color:"#9ca3af"}}>○ Noch nicht ausgeführt</span>}
             {!running && savedStatus==="skipped" && <span style={{fontSize:12,color:"#9ca3af",background:"#f3f4f6",padding:"3px 10px",borderRadius:10}}>⏭ Übersprungen</span>}
@@ -284,9 +284,9 @@ function RunDetailModal({ col, row: initialRow, caseId, onClose, onRowUpdate }: 
                       <span>· score {r.score}</span>
                       <span>· {r.validation}</span>
                       <span>· {r.latencyMs}ms</span>
-                      <span style={{marginLeft:"auto",color:r.ok?"#059669":"#dc2626",fontWeight:600}}>{r.ok ? "OK" : "FAIL"}</span>
+                      <span style={{marginLeft:"auto",color:r.ok?"#7c3aed":"#dc2626",fontWeight:600}}>{r.ok ? "OK" : "FAIL"}</span>
                     </div>
-                    <div style={{fontSize:11,color:r.validation==="pass"?"#166534":"#b45309",marginTop:3}}>Validation: {r.validationReason}</div>
+                    <div style={{fontSize:11,color:r.validation==="pass"?"#5b21b6":"#b45309",marginTop:3}}>Validation: {r.validationReason}</div>
                     <div style={{fontSize:12,color:r.ok?"#1f2937":"#991b1b",marginTop:4,whiteSpace:"pre-wrap",wordBreak:"break-word"}}>{r.ok ? (r.value || "(empty)") : (r.error || r.validationReason || "Unknown error")}</div>
                   </div>
                 ))}
@@ -301,8 +301,8 @@ function RunDetailModal({ col, row: initialRow, caseId, onClose, onRowUpdate }: 
                     <span style={{fontFamily:"monospace",fontWeight:600,color:"#111827"}}>{r.model}</span>
                     <span style={{color:"#6b7280"}}>· {r.provider}</span>
                     <span style={{color:"#6b7280"}}>· {r.latencyMs}ms</span>
-                    <span style={{marginLeft:"auto",color:r.ok?"#059669":"#dc2626",fontWeight:700}}>{r.ok ? "PASS" : "FAIL"}</span>
-                    <span style={{color:r.ok?"#166534":"#991b1b"}}>{r.ok ? (r.preview || "ok") : (r.error || "error")}</span>
+                    <span style={{marginLeft:"auto",color:r.ok?"#7c3aed":"#dc2626",fontWeight:700}}>{r.ok ? "PASS" : "FAIL"}</span>
+                    <span style={{color:r.ok?"#5b21b6":"#991b1b"}}>{r.ok ? (r.preview || "ok") : (r.error || "error")}</span>
                   </div>
                 ))}
               </div>
@@ -321,7 +321,7 @@ function RunDetailModal({ col, row: initialRow, caseId, onClose, onRowUpdate }: 
                     return (
                       <tr key={k} style={{borderBottom:"1px solid #f1f5f9"}}>
                         <td style={{padding:"6px 14px",fontFamily:"monospace",color:"#94a3b8",whiteSpace:"nowrap",width:180,fontSize:11,verticalAlign:"top"}}>{k}</td>
-                        <td style={{padding:"6px 14px",wordBreak:"break-all",lineHeight:1.6,color:isInvalid?"#dc2626":isValid?"#15803d":"#1e293b",fontWeight:(isValid||isInvalid)?600:400}}>
+                        <td style={{padding:"6px 14px",wordBreak:"break-all",lineHeight:1.6,color:isInvalid?"#dc2626":isValid?"#6d28d9":"#1e293b",fontWeight:(isValid||isInvalid)?600:400}}>
                           {running && !v ? <span style={{color:"#d1d5db",fontStyle:"italic"}}>wird berechnet…</span> : v || <span style={{color:"#cbd5e1",fontStyle:"italic"}}>—</span>}
                         </td>
                       </tr>
@@ -375,7 +375,7 @@ function RunDetailModal({ col, row: initialRow, caseId, onClose, onRowUpdate }: 
                       <td style={{padding:"5px 14px",fontFamily:"monospace",color:"#94a3b8",whiteSpace:"nowrap",width:280}}>
                         {k}
                         {sourceKey !== k ? <span style={{color:"#64748b"}}> ← {sourceKey}</span> : null}
-                        {isRequired ? <span style={{marginLeft:8,color:isMissing?"#dc2626":"#15803d",fontFamily:"inherit"}}>{isMissing ? "(required, missing)" : "(required)"}</span> : null}
+                        {isRequired ? <span style={{marginLeft:8,color:isMissing?"#dc2626":"#6d28d9",fontFamily:"inherit"}}>{isMissing ? "(required, missing)" : "(required)"}</span> : null}
                       </td>
                       <td style={{padding:"5px 14px",color: mappedValue ? "#1e293b" : "#d1d5db",fontStyle: mappedValue ? "normal" : "italic"}}>
                         {mappedValue ?? "(not provided)"}
@@ -518,7 +518,7 @@ function EditPromptModal({ col, caseId, onSave, onClose, cellContext, onRunCell,
         {/* Header */}
         <div style={{padding:"16px 20px",borderBottom:"1px solid #e5e7eb",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
           <div style={{display:"flex",alignItems:"center",gap:8}}>
-            <Sparkles style={{width:16,height:16,color:"#16a34a"}} />
+            <Sparkles style={{width:16,height:16,color:"#7c3aed"}} />
             <span style={{fontWeight:700,fontSize:15}}>KI-Spalte bearbeiten</span>
             <span style={{fontSize:12,color:"#9ca3af",fontFamily:"monospace"}}>→ {col.outputKey}</span>
           </div>
@@ -563,7 +563,7 @@ function EditPromptModal({ col, caseId, onSave, onClose, cellContext, onRunCell,
                     <div style={{display:"flex",flexWrap:"wrap",gap:4,alignItems:"center"}}>
                       <span style={{fontSize:11,color:"#6b7280",marginRight:2}}>Im Prompt:</span>
                       {matched.map(p=>(
-                        <span key={p} style={{fontSize:11,background:"#dcfce7",color:"#15803d",padding:"2px 7px",borderRadius:10,fontFamily:"monospace"}} title="Spalte gefunden ✓">{"{"+p+"}"} ✓</span>
+                        <span key={p} style={{fontSize:11,background:"#ede9fe",color:"#6d28d9",padding:"2px 7px",borderRadius:10,fontFamily:"monospace"}} title="Spalte gefunden ✓">{"{"+p+"}"} ✓</span>
                       ))}
                       {unmatched.map(p=>(
                         <span key={p} style={{fontSize:11,background:"#fef2f2",color:"#dc2626",padding:"2px 7px",borderRadius:10,fontFamily:"monospace"}} title="Spalte nicht gefunden!">{"{"+p+"}"} ✗</span>
@@ -578,9 +578,9 @@ function EditPromptModal({ col, caseId, onSave, onClose, cellContext, onRunCell,
                       return (
                         <button key={f} type="button" onMouseDown={e=>e.preventDefault()} onClick={()=>insertPlaceholder(f)}
                         style={{fontSize:11,padding:"2px 7px",borderRadius:10,fontFamily:"monospace",border:"1px solid",cursor:"pointer",
-                          background: inPrompt?"#f0fdf4":"#f9fafb",
-                          color: inPrompt?"#15803d":"#374151",
-                          borderColor: inPrompt?"#86efac":"#d1d5db"}
+                          background: inPrompt?"#f5f3ff":"#f9fafb",
+                          color: inPrompt?"#6d28d9":"#374151",
+                          borderColor: inPrompt?"#c4b5fd":"#d1d5db"}
                         } title={inPrompt?"Bereits verwendet — klicken zum Einfügen":"Klicken zum Einfügen"}>
                           {"{"+f+"}"}
                         </button>
@@ -853,9 +853,9 @@ function EditPromptModal({ col, caseId, onSave, onClose, cellContext, onRunCell,
                         <span>· score {r.score}</span>
                         <span>· {r.validation}</span>
                         <span>· {r.latencyMs}ms</span>
-                        <span style={{marginLeft:"auto",color:r.ok?"#059669":"#dc2626",fontWeight:600}}>{r.ok ? "OK" : "FAIL"}</span>
+                        <span style={{marginLeft:"auto",color:r.ok?"#7c3aed":"#dc2626",fontWeight:600}}>{r.ok ? "OK" : "FAIL"}</span>
                       </div>
-                      <div style={{fontSize:11,color:r.validation==="pass"?"#166534":"#b45309",marginTop:3}}>Validation: {r.validationReason}</div>
+                      <div style={{fontSize:11,color:r.validation==="pass"?"#5b21b6":"#b45309",marginTop:3}}>Validation: {r.validationReason}</div>
                       <div style={{fontSize:12,color:r.ok?"#1f2937":"#991b1b",marginTop:4,whiteSpace:"pre-wrap",wordBreak:"break-word"}}>{r.ok ? (r.value || "(empty)") : (r.error || "Unknown error")}</div>
                     </div>
                   ))}
@@ -874,13 +874,13 @@ function EditPromptModal({ col, caseId, onSave, onClose, cellContext, onRunCell,
             {/* Status badge */}
             <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
               {cellContext.status==="error" && <span style={{display:"inline-flex",alignItems:"center",gap:4,fontSize:11,color:"#dc2626",background:"#fef2f2",padding:"3px 10px",borderRadius:10,fontWeight:600}}>✗ Fehler</span>}
-              {cellContext.status==="done" && <span style={{display:"inline-flex",alignItems:"center",gap:4,fontSize:11,color:"#059669",background:"#d1fae5",padding:"3px 10px",borderRadius:10,fontWeight:600}}>✓ Fertig</span>}
+              {cellContext.status==="done" && <span style={{display:"inline-flex",alignItems:"center",gap:4,fontSize:11,color:"#7c3aed",background:"#ddd6fe",padding:"3px 10px",borderRadius:10,fontWeight:600}}>✓ Fertig</span>}
               {cellContext.status==="running" && <span style={{display:"inline-flex",alignItems:"center",gap:4,fontSize:11,color:"#d97706",background:"#fef3c7",padding:"3px 10px",borderRadius:10,fontWeight:600}}><Loader2 style={{width:10,height:10}} className="animate-spin" /> Läuft</span>}
               {cellContext.status==="idle" && <span style={{fontSize:11,color:"#9ca3af"}}>○ Noch nicht ausgeführt</span>}
               {cellContext.status==="skipped" && <span style={{display:"inline-flex",alignItems:"center",gap:4,fontSize:11,color:"#9ca3af",background:"#f3f4f6",padding:"3px 10px",borderRadius:10}}>⏭ Übersprungen</span>}
               {onRunCell && (
                 <button onClick={()=>{onRunCell();}}
-                  style={{display:"flex",alignItems:"center",gap:5,padding:"4px 12px",background:"#16a34a",color:"#fff",border:"none",borderRadius:5,cursor:"pointer",fontSize:12,fontWeight:600,marginLeft:"auto"}}>
+                  style={{display:"flex",alignItems:"center",gap:5,padding:"4px 12px",background:"#7c3aed",color:"#fff",border:"none",borderRadius:5,cursor:"pointer",fontSize:12,fontWeight:600,marginLeft:"auto"}}>
                   <Play style={{width:11,height:11}} /> Jetzt ausführen
                 </button>
               )}
@@ -908,7 +908,7 @@ function EditPromptModal({ col, caseId, onSave, onClose, cellContext, onRunCell,
                       ? Object.entries(cellContext.multiValues).map(([k, v]) => (
                           <tr key={k} style={{borderBottom:"1px solid #f1f5f9"}}>
                             <td style={{padding:"6px 12px",fontFamily:"monospace",color:"#64748b",whiteSpace:"nowrap",width:180,verticalAlign:"top"}}>{k}</td>
-                            <td style={{padding:"6px 12px",color:v.startsWith("✗")?"#dc2626":v.startsWith("✓")?"#15803d":"#1e293b",wordBreak:"break-all",lineHeight:1.5}}>{v||<span style={{color:"#cbd5e1",fontStyle:"italic"}}>empty</span>}</td>
+                            <td style={{padding:"6px 12px",color:v.startsWith("✗")?"#dc2626":v.startsWith("✓")?"#6d28d9":"#1e293b",wordBreak:"break-all",lineHeight:1.5}}>{v||<span style={{color:"#cbd5e1",fontStyle:"italic"}}>empty</span>}</td>
                           </tr>
                         ))
                       : (
@@ -928,7 +928,7 @@ function EditPromptModal({ col, caseId, onSave, onClose, cellContext, onRunCell,
         {/* Footer */}
         <div style={{padding:"14px 20px",borderTop:"1px solid #e5e7eb",display:"flex",alignItems:"center",gap:8,marginTop:16}}>
           <button onClick={save} disabled={saving}
-            style={{display:"flex",alignItems:"center",gap:6,padding:"8px 20px",background:"#16a34a",color:"#fff",border:"none",borderRadius:6,cursor:"pointer",fontSize:13,fontWeight:600,opacity:saving?.6:1}}>
+            style={{display:"flex",alignItems:"center",gap:6,padding:"8px 20px",background:"#7c3aed",color:"#fff",border:"none",borderRadius:6,cursor:"pointer",fontSize:13,fontWeight:600,opacity:saving?.6:1}}>
             {saving ? <Loader2 style={{width:13,height:13}} className="animate-spin" /> : <Save style={{width:13,height:13}} />}
             Speichern
           </button>
@@ -1070,7 +1070,7 @@ function SettingsPanel({ caseId, onCaseUpdated }: { caseId: string; onCaseUpdate
     setAddingCol(false); setNewCol({});
   }
 
-  if (!caseData) return <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center"}}><Loader2 className="animate-spin" style={{width:20,height:20,color:"#16a34a"}} /></div>;
+  if (!caseData) return <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center"}}><Loader2 className="animate-spin" style={{width:20,height:20,color:"#7c3aed"}} /></div>;
 
   const inp: React.CSSProperties = {width:"100%",border:"1px solid #d1d5db",borderRadius:6,padding:"6px 10px",fontSize:13,outline:"none",background:"#fff"};
   const lbl: React.CSSProperties = {display:"block",fontSize:11,fontWeight:600,color:"#6b7280",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.05em"};
@@ -1123,7 +1123,7 @@ function SettingsPanel({ caseId, onCaseUpdated }: { caseId: string; onCaseUpdate
   }
 
   return (
-    <div style={{flex:1,overflowY:"auto",padding:"24px 32px",background:"#f1f3f5"}}>
+    <div style={{flex:1,overflowY:"auto",padding:"24px 32px",background:"#f9fafb"}}>
 
       {/* General */}
       <div style={card}>
@@ -1136,7 +1136,7 @@ function SettingsPanel({ caseId, onCaseUpdated }: { caseId: string; onCaseUpdate
             <div style={{fontSize:11,color:"#9ca3af",marginTop:3}}>Ein Key für alle Modelle (openai/, anthropic/, google/, mistral/, meta/…). Optional — sonst greift EDEN_API_KEY via Infisical. Wird serverseitig verschlüsselt gespeichert.</div>
           </div>
         </div>
-        <button style={btn("#16a34a")} onClick={saveMeta} disabled={saving}>
+        <button style={btn("#7c3aed")} onClick={saveMeta} disabled={saving}>
           {saving ? <Loader2 style={{width:12,height:12}} className="animate-spin" /> : <Save style={{width:12,height:12}} />}
           {savedMsg ? "✓ Gespeichert!" : "Speichern"}
         </button>
@@ -1150,7 +1150,7 @@ function SettingsPanel({ caseId, onCaseUpdated }: { caseId: string; onCaseUpdate
               {smokeLoading ? <Loader2 style={{width:12,height:12}} className="animate-spin" /> : <Zap style={{width:12,height:12}} />}
               {smokeLoading ? "Smoke läuft…" : "Smoke Test"}
             </button>
-            <button style={btn("#16a34a")} onClick={saveModelAllowlist} disabled={modelsSaving || modelCatalog.length===0}>
+            <button style={btn("#7c3aed")} onClick={saveModelAllowlist} disabled={modelsSaving || modelCatalog.length===0}>
               {modelsSaving ? <Loader2 style={{width:12,height:12}} className="animate-spin" /> : <Save style={{width:12,height:12}} />}
               {modelsSavedMsg ? "✓ Gespeichert" : "Modelle anwenden"}
             </button>
@@ -1177,9 +1177,9 @@ function SettingsPanel({ caseId, onCaseUpdated }: { caseId: string; onCaseUpdate
                   border:"1px solid",
                   fontFamily:"monospace",
                   cursor:"pointer",
-                  background:selected?"#dcfce7":"#fff",
-                  borderColor:selected?"#86efac":"#d1d5db",
-                  color:selected?"#166534":"#374151",
+                  background:selected?"#ede9fe":"#fff",
+                  borderColor:selected?"#c4b5fd":"#d1d5db",
+                  color:selected?"#5b21b6":"#374151",
                 }}
               >
                 {selected ? "✓ " : "○ "}{m}
@@ -1195,8 +1195,8 @@ function SettingsPanel({ caseId, onCaseUpdated }: { caseId: string; onCaseUpdate
                 <span style={{fontFamily:"monospace",fontWeight:600,color:"#111827"}}>{r.model}</span>
                 <span style={{color:"#6b7280"}}>· {r.provider}</span>
                 <span style={{color:"#6b7280"}}>· {r.latencyMs}ms</span>
-                <span style={{marginLeft:"auto",color:r.ok?"#059669":"#dc2626",fontWeight:700}}>{r.ok ? "PASS" : "FAIL"}</span>
-                <span style={{color:r.ok?"#166534":"#991b1b"}}>{r.ok ? (r.preview || "ok") : (r.error || "error")}</span>
+                <span style={{marginLeft:"auto",color:r.ok?"#7c3aed":"#dc2626",fontWeight:700}}>{r.ok ? "PASS" : "FAIL"}</span>
+                <span style={{color:r.ok?"#5b21b6":"#991b1b"}}>{r.ok ? (r.preview || "ok") : (r.error || "error")}</span>
               </div>
             ))}
           </div>
@@ -1207,18 +1207,18 @@ function SettingsPanel({ caseId, onCaseUpdated }: { caseId: string; onCaseUpdate
       <div style={card}>
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16}}>
           <div style={{fontSize:15,fontWeight:700,color:"#111"}}>✨ KI-Spalten ({caseData.aiColumns.length})</div>
-          <button style={btn("#16a34a")} onClick={()=>{setAddingCol(true);setNewCol({model:"openai/gpt-4o-mini",outputMode:"text"});}}>
+          <button style={btn("#7c3aed")} onClick={()=>{setAddingCol(true);setNewCol({model:"openai/gpt-4o-mini",outputMode:"text"});}}>
             <Plus style={{width:12,height:12}} /> Neue KI-Spalte
           </button>
         </div>
 
         {/* Add form */}
         {addingCol && (
-          <div style={{border:"2px solid #16a34a",borderRadius:8,padding:16,marginBottom:16,background:"#f0fdf4"}}>
-            <div style={{fontSize:13,fontWeight:600,color:"#15803d",marginBottom:12}}>➕ Neue Spalte</div>
+          <div style={{border:"2px solid #7c3aed",borderRadius:8,padding:16,marginBottom:16,background:"#f5f3ff"}}>
+            <div style={{fontSize:13,fontWeight:600,color:"#6d28d9",marginBottom:12}}>➕ Neue Spalte</div>
             <ColForm col={newCol} onChange={setNewCol} />
             <div style={{display:"flex",gap:8,marginTop:12}}>
-              <button style={btn("#16a34a")} onClick={addCol}>Hinzufügen</button>
+              <button style={btn("#7c3aed")} onClick={addCol}>Hinzufügen</button>
               <button style={btn("#fff","#374151")} onClick={()=>{setAddingCol(false);setNewCol({});}}>Abbrechen</button>
             </div>
           </div>
@@ -1233,9 +1233,9 @@ function SettingsPanel({ caseId, onCaseUpdated }: { caseId: string; onCaseUpdate
         <div style={{display:"grid",gap:8}}>
           {caseData.aiColumns.map(col => (
             <div key={col.id} style={{border:"1px solid #e5e7eb",borderRadius:8,overflow:"hidden"}}>
-              <div style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",cursor:"pointer",background:editingCol?.id===col.id?"#f0fdf4":"#fff"}}
+              <div style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",cursor:"pointer",background:editingCol?.id===col.id?"#f5f3ff":"#fff"}}
                 onClick={()=>setEditingCol(editingCol?.id===col.id ? null : {...col})}>
-                <Sparkles style={{width:14,height:14,color:"#16a34a",flexShrink:0}} />
+                <Sparkles style={{width:14,height:14,color:"#7c3aed",flexShrink:0}} />
                 <div style={{flex:1,minWidth:0}}>
                   <div style={{fontWeight:600,fontSize:13,color:"#111"}}>{col.name}</div>
                   <div style={{fontSize:11,color:"#9ca3af",fontFamily:"monospace",marginTop:1}}>
@@ -1255,7 +1255,7 @@ function SettingsPanel({ caseId, onCaseUpdated }: { caseId: string; onCaseUpdate
                 <div style={{borderTop:"1px solid #e5e7eb",padding:16,background:"#fafafa"}}>
                   <ColForm col={editingCol} onChange={c=>setEditingCol(c as AiColumn)} />
                   <div style={{display:"flex",gap:8,marginTop:12}}>
-                    <button style={btn("#16a34a")} onClick={saveColEdit}>Speichern</button>
+                    <button style={btn("#7c3aed")} onClick={saveColEdit}>Speichern</button>
                     <button style={btn("#fff","#374151")} onClick={()=>setEditingCol(null)}>Abbrechen</button>
                   </div>
                 </div>
@@ -1832,43 +1832,43 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
         onChange={e => setEditValue(e.target.value)}
         onBlur={commitEdit}
         onKeyDown={e => { if (e.key === "Enter") commitEdit(); if (e.key === "Escape") setEditingCell(null); }}
-        style={{width:"100%",fontSize:13,border:"1px solid #16a34a",borderRadius:3,padding:"1px 4px",outline:"none"}} />
+        style={{width:"100%",fontSize:13,border:"1px solid #7c3aed",borderRadius:3,padding:"1px 4px",outline:"none"}} />
     );
   }
 
   const tabs = ["Tabelle","Einstellungen","Log","Export"] as const;
 
   return (
-    <div style={{display:"flex",height:"100vh",background:"#f1f3f5",overflow:"hidden",fontFamily:"'Source Sans Pro',ui-sans-serif,system-ui,-apple-system,sans-serif",fontSize:14,color:"#1f2937"}}>
+    <div style={{display:"flex",height:"100vh",background:"#f9fafb",overflow:"hidden",fontSize:14,color:"#1f2937"}}>
 
       {/* ════ SIDEBAR ════ */}
-      <div style={{width:220,background:"#2d3748",borderRight:"1px solid #1a202c",display:"flex",flexDirection:"column",flexShrink:0}}>
+      <div style={{width:220,background:"#fff",borderRight:"1px solid #e5e7eb",display:"flex",flexDirection:"column",flexShrink:0}}>
         {/* Logo row */}
-        <div style={{padding:"16px 18px 14px",borderBottom:"1px solid #3d4a5c"}}>
-          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:2}}>
-            <Database style={{width:18,height:18,color:"#68d391",flexShrink:0}} />
-            <span style={{fontWeight:700,fontSize:15,color:"#f7fafc"}}>DataMiner</span>
+        <div style={{padding:"12px 16px",borderBottom:"1px solid #f3f4f6"}}>
+          <div style={{display:"flex",alignItems:"center",gap:8}}>
+            <div style={{width:24,height:24,background:"#7c3aed",borderRadius:4,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:12,fontWeight:700,flexShrink:0}}>D</div>
+            <span style={{fontWeight:600,fontSize:14,color:"#111827"}}>DataMiner</span>
           </div>
         </div>
         {/* New case */}
-        <div style={{padding:"10px 12px",borderBottom:"1px solid #3d4a5c"}}>
+        <div style={{padding:"8px 12px",borderBottom:"1px solid #f3f4f6"}}>
           <button onClick={() => router.push("/cases")}
-            style={{width:"100%",display:"flex",alignItems:"center",gap:6,padding:"8px 12px",borderRadius:6,border:"none",background:"#4a5568",cursor:"pointer",fontSize:13,color:"#e2e8f0",textAlign:"left"}}
-            onMouseEnter={e=>(e.currentTarget.style.background="#68d391",e.currentTarget.style.color="#1a202c")}
-            onMouseLeave={e=>(e.currentTarget.style.background="#4a5568",e.currentTarget.style.color="#e2e8f0")}>
+            style={{width:"100%",display:"flex",alignItems:"center",gap:6,padding:"6px 8px",borderRadius:6,border:"none",background:"none",cursor:"pointer",fontSize:13,color:"#4b5563",textAlign:"left"}}
+            onMouseEnter={e=>(e.currentTarget.style.background="#f5f3ff",e.currentTarget.style.color="#7c3aed")}
+            onMouseLeave={e=>(e.currentTarget.style.background="none",e.currentTarget.style.color="#4b5563")}>
             <Plus style={{width:14,height:14}} /> Neuer Case
           </button>
         </div>
         {/* Case item — active */}
         <div style={{flex:1,overflowY:"auto"}}>
-          <div style={{margin:"8px 12px",borderRadius:6,background:"#3d4a5c",color:"#f7fafc",padding:"10px 14px",cursor:"pointer",borderLeft:"3px solid #68d391"}}>
+          <div style={{margin:"8px 12px",borderRadius:8,background:"#f5f3ff",color:"#111827",padding:"10px 14px",cursor:"pointer",borderLeft:"3px solid #7c3aed"}}>
             <div style={{fontWeight:600,fontSize:13,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>📁 {caseData.name}</div>
-            <div style={{fontSize:11,opacity:0.8,marginTop:2}}>{rows.length} Zeilen · {new Date(caseData.updatedAt).toLocaleDateString("de-DE")}</div>
+            <div style={{fontSize:11,color:"#6b7280",marginTop:2}}>{rows.length} Zeilen · {new Date(caseData.updatedAt).toLocaleDateString("de-DE")}</div>
           </div>
         </div>
         {/* API key */}
-        <div style={{padding:"12px 18px",borderTop:"1px solid #3d4a5c",fontSize:11,color:"#718096",display:"flex",alignItems:"center",gap:4}}>
-          🔑 Global API Key (Fallback)
+        <div style={{padding:"12px 16px",borderTop:"1px solid #f3f4f6",fontSize:11,color:"#6b7280",display:"flex",alignItems:"center",gap:4}}>
+          🔑 Globale Einstellungen
           <Settings style={{width:12,height:12,marginLeft:"auto",cursor:"pointer",color:"#9ca3af"}} onClick={() => router.push(`/cases/${caseId}/settings`)} />
         </div>
       </div>
@@ -1883,7 +1883,7 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
             <div style={{fontSize:12,color:"#6b7280",marginTop:2,display:"flex",alignItems:"center",gap:8}}>
               <span>{new Date(caseData.createdAt).toLocaleDateString("de-DE")} · {rows.length} Zeilen · {sourceColumns.length} Quellspalten · {caseData.aiColumns.length} KI-Spalten</span>
               {totals.totalTokens > 0 && (
-                <span style={{background:"#f0fdf4",color:"#15803d",padding:"2px 8px",borderRadius:4,fontSize:11,fontWeight:600}}>
+                <span style={{background:"#f5f3ff",color:"#6d28d9",padding:"2px 8px",borderRadius:4,fontSize:11,fontWeight:600}}>
                   🧠 {totals.totalTokens.toLocaleString()} tokens
                 </span>
               )}
@@ -1898,7 +1898,7 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
           <div style={{display:"flex",gap:0,marginTop:4}}>
             {tabs.map(t => (
               <button key={t} onClick={() => setActiveTab(t)}
-                style={{padding:"6px 16px",border:"none",borderBottom: activeTab===t ? "2px solid #15803d" : "2px solid transparent",background:"none",cursor:"pointer",fontSize:13,fontWeight:500,color: activeTab===t ? "#15803d" : "#6b7280",marginBottom:-1}}>
+                style={{padding:"6px 16px",border:"none",borderBottom: activeTab===t ? "2px solid #6d28d9" : "2px solid transparent",background:"none",cursor:"pointer",fontSize:13,fontWeight:500,color: activeTab===t ? "#6d28d9" : "#6b7280",marginBottom:-1}}>
                 {t==="Tabelle"?"📋 ":t==="Einstellungen"?"⚙️ ":t==="Log"?"📜 ":"📤 "}{t}
               </button>
             ))}
@@ -1948,7 +1948,7 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
               {showPromptCols && (
                 <div style={{padding:"0 24px 10px",display:"flex",gap:8}}>
                   <button onClick={() => setShowAddCol(true)}
-                    style={{display:"flex",alignItems:"center",gap:6,padding:"5px 12px",border:"1px solid #86efac",borderRadius:6,background:"#f0fdf4",cursor:"pointer",fontSize:12,color:"#15803d"}}>
+                    style={{display:"flex",alignItems:"center",gap:6,padding:"5px 12px",border:"1px solid #c4b5fd",borderRadius:6,background:"#f5f3ff",cursor:"pointer",fontSize:12,color:"#6d28d9"}}>
                     <Plus style={{width:13,height:13}} /> Prompt-Spalte hinzufügen
                   </button>
                   <a href={`/api/export?caseId=${caseId}`}
@@ -1964,7 +1964,7 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
               {[
                 {n:rows.length,l:"Gesamt",c:"#111827"},
                 {n:processedCount,l:"Verarbeitet",c:"#6b7280"},
-                {n:doneCount,l:"✓ Fertig",c:"#059669"},
+                {n:doneCount,l:"✓ Fertig",c:"#7c3aed"},
                 {n:errorCount,l:"✗ Fehler",c:"#dc2626"},
               ].map((s,i) => (
                 <div key={i} style={{textAlign:"center",padding:"12px 0",borderRight: i<3 ? "1px solid #f3f4f6" : "none"}}>
@@ -2006,7 +2006,7 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
               <div style={{padding:"8px 16px",background:"#fefce8",borderBottom:"1px solid #fde68a",display:"flex",alignItems:"center",gap:8,fontSize:12,color:"#92400e"}}>
                 ⚠️ Keine KI-Spalten vorhanden — bitte zuerst eine
                 <button onClick={()=>setShowAddCol(true)}
-                  style={{padding:"2px 10px",background:"#16a34a",color:"#fff",border:"none",borderRadius:4,cursor:"pointer",fontSize:12,fontWeight:600}}>
+                  style={{padding:"2px 10px",background:"#7c3aed",color:"#fff",border:"none",borderRadius:4,cursor:"pointer",fontSize:12,fontWeight:600}}>
                   + Prompt-Spalte hinzufügen
                 </button>
               </div>
@@ -2022,7 +2022,7 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
                 </button>
               ) : (
                 <button onClick={runSelectedRows}
-                  style={{display:"flex",alignItems:"center",justifyContent:"center",gap:5,padding:"5px 14px",background:"#16a34a",color:"#fff",border:"none",borderRadius:5,cursor:"pointer",fontSize:12,fontWeight:600}}
+                  style={{display:"flex",alignItems:"center",justifyContent:"center",gap:5,padding:"5px 14px",background:"#7c3aed",color:"#fff",border:"none",borderRadius:5,cursor:"pointer",fontSize:12,fontWeight:600}}
                 >
                   ▶ Starten — {selCount} Zeilen
                 </button>
@@ -2046,7 +2046,7 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
           </div>
 
           {/* ── TABLE ── */}
-          <div style={{flex:1,overflowY:"auto",overflowX:"auto",background:"#f1f3f5",padding:"16px"}}>
+          <div style={{flex:1,overflowY:"auto",overflowX:"auto",background:"#f9fafb",padding:"16px"}}>
           <div style={{background:"#fff",borderRadius:8,border:"1px solid #e5e7eb",overflow:"hidden"}}>
             <table style={{width:"100%",borderCollapse:"collapse",fontSize:13,minWidth:"max-content"}}>
               <thead style={{position:"sticky",top:0,zIndex:20}}>
@@ -2073,7 +2073,7 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
                         onDragOver={e=>{e.preventDefault();setDragOverCol(key);}}
                         onDragLeave={()=>setDragOverCol(null)}
                         onDrop={()=>handleColDrop(key)}
-                        style={{padding:"8px 12px",borderRight:"1px solid #e5e7eb",textAlign:"left",fontWeight:600,fontSize:12,color:"#1f2937",whiteSpace:"nowrap",width: colWidths[key] ?? (key==="company_name"?200:aiCol?180:140),minWidth:80,cursor:"grab",background: isDragOver?"#dcfce7":aiCol?"#f0fdf4":isOrphan?"#f0fdfa":"#f9fafb",borderLeft: isDragOver?"2px solid #16a34a":undefined,userSelect:"none",position:"relative"}}>
+                        style={{padding:"8px 12px",borderRight:"1px solid #e5e7eb",textAlign:"left",fontWeight:600,fontSize:12,color:"#1f2937",whiteSpace:"nowrap",width: colWidths[key] ?? (key==="company_name"?200:aiCol?180:140),minWidth:80,cursor:"grab",background: isDragOver?"#ede9fe":aiCol?"#f5f3ff":isOrphan?"#f0fdfa":"#f9fafb",borderLeft: isDragOver?"2px solid #7c3aed":undefined,userSelect:"none",position:"relative"}}>
                         {/* resize handle */}
                         <div
                           style={{position:"absolute",right:0,top:0,bottom:0,width:6,cursor:"col-resize",zIndex:10}}
@@ -2123,7 +2123,7 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
                   <th onClick={()=>setShowAddCol(true)} style={{padding:"8px 12px",background:"#f9fafb",minWidth:100,cursor:"pointer"}}>
                     <button onClick={(e)=>{e.stopPropagation();setShowAddCol(true);}}
                       style={{display:"flex",alignItems:"center",gap:4,fontSize:12,color:"#9ca3af",border:"none",background:"none",cursor:"pointer",whiteSpace:"nowrap"}}
-                      onMouseEnter={e=>(e.currentTarget.style.color="#16a34a")}
+                      onMouseEnter={e=>(e.currentTarget.style.color="#7c3aed")}
                       onMouseLeave={e=>(e.currentTarget.style.color="#9ca3af")}>
                       <Plus style={{width:13,height:13}} /> Spalte
                     </button>
@@ -2141,7 +2141,7 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
                   const rowRunning = Object.values(row.cellStatuses).some(s=>s==="running");
                   const sel = selectedRows.has(row.id);
                   return (
-                    <tr key={row.id} style={{background: sel?"#dcfce7":rowRunning?"#fefce8":"#fff",borderBottom:"1px solid #f3f4f6"}}>
+                    <tr key={row.id} style={{background: sel?"#ede9fe":rowRunning?"#fefce8":"#fff",borderBottom:"1px solid #f3f4f6"}}>
                       <td style={{width:32,padding:"6px 10px",borderRight:"1px solid #f3f4f6"}}>
                         <input type="checkbox" checked={sel}
                           onChange={e => { const s=new Set(selectedRows); e.target.checked?s.add(row.id):s.delete(row.id); setSelectedRows(s); }}
@@ -2155,7 +2155,7 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
                               <Loader2 style={{width:10,height:10}} className="animate-spin" /> Läuft
                             </span>
                           : rowDone
-                            ? <span style={{display:"inline-flex",alignItems:"center",gap:4,fontSize:11,color:"#059669",background:"#d1fae5",padding:"2px 8px",borderRadius:10}}>
+                            ? <span style={{display:"inline-flex",alignItems:"center",gap:4,fontSize:11,color:"#7c3aed",background:"#ddd6fe",padding:"2px 8px",borderRadius:10}}>
                                 ✓ Fertig
                               </span>
                             : <span style={{fontSize:11,color:"#9ca3af"}}>○ Ausstehend</span>}
@@ -2187,7 +2187,7 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
                                         {status==="idle" && (
                                           <button onClick={()=>runCell(row.id,aiCol)}
                                             className="opacity-0 group-hover/cell:opacity-100"
-                                            style={{display:"flex",alignItems:"center",gap:3,fontSize:11,color:"#16a34a",border:"none",background:"none",cursor:"pointer",transition:"opacity .15s",padding:0,flex:1}}>
+                                            style={{display:"flex",alignItems:"center",gap:3,fontSize:11,color:"#7c3aed",border:"none",background:"none",cursor:"pointer",transition:"opacity .15s",padding:0,flex:1}}>
                                             <Play style={{width:10,height:10}}/> Run
                                           </button>
                                         )}
@@ -2214,7 +2214,7 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
 
                                         {/* valid domain */}
                                         {isValid && (
-                                          <span style={{display:"inline-flex",alignItems:"center",gap:4,fontSize:11,fontWeight:600,color:"#15803d",background:"#dcfce7",padding:"2px 8px",borderRadius:6,flex:1,minWidth:0,overflow:"hidden"}}>
+                                          <span style={{display:"inline-flex",alignItems:"center",gap:4,fontSize:11,fontWeight:600,color:"#6d28d9",background:"#ede9fe",padding:"2px 8px",borderRadius:6,flex:1,minWidth:0,overflow:"hidden"}}>
                                             <CheckCircle style={{width:10,height:10,flexShrink:0}}/><span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{val.slice(2)}</span>
                                           </span>
                                         )}
@@ -2267,7 +2267,7 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
                         const isReasoning = key.startsWith("_reasoning_");
                         return (
                           <td key={key} style={{padding:"6px 12px",borderRight:"1px solid #f3f4f6",maxWidth:200,
-                            background: isValidated ? (val.startsWith("✗")?"#fef2f2":val.startsWith("✓")?"#f0fdf4":undefined) : undefined,
+                            background: isValidated ? (val.startsWith("✗")?"#fef2f2":val.startsWith("✓")?"#f5f3ff":undefined) : undefined,
                             cursor: isReasoning && val ? "pointer" : undefined
                           }} onDoubleClick={()=>startEdit(row.id,key,val)} onClick={() => {
                             if (isReasoning && val) {
@@ -2276,7 +2276,7 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
                           }}>
                             {isEd ? <EditInput rowId={row.id} k={key} /> :
                               <span style={{fontSize:12,display:"block",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",
-                                color: isValidated ? (val.startsWith("✗")?"#dc2626":val.startsWith("✓")?"#15803d":"#4b5563") : isReasoning?"#7c3aed":key==="company_name"?"#1f2937":"#4b5563",
+                                color: isValidated ? (val.startsWith("✗")?"#dc2626":val.startsWith("✓")?"#6d28d9":"#4b5563") : isReasoning?"#7c3aed":key==="company_name"?"#1f2937":"#4b5563",
                                 fontStyle: isReasoning?"italic":undefined
                               }} title={val}>{isReasoning ? `🧠 ${val}` : val}</span>}
                           </td>
@@ -2337,7 +2337,7 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
               <div style={{fontSize:15,fontWeight:700,marginBottom:4}}>📊 CSV exportieren</div>
               <div style={{fontSize:13,color:"#6b7280",marginBottom:16}}>{rows.length} Zeilen · {sourceColumns.length + caseData.aiColumns.length} Spalten — nur Datenwerte, kein Setup</div>
               <a href={`/api/export?caseId=${caseId}`}
-                style={{display:"inline-flex",alignItems:"center",gap:8,padding:"8px 20px",background:"#15803d",color:"#fff",borderRadius:8,fontSize:13,fontWeight:600,textDecoration:"none"}}>
+                style={{display:"inline-flex",alignItems:"center",gap:8,padding:"8px 20px",background:"#6d28d9",color:"#fff",borderRadius:8,fontSize:13,fontWeight:600,textDecoration:"none"}}>
                 <Download style={{width:15,height:15}} /> CSV herunterladen
               </a>
             </div>

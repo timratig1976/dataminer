@@ -5,8 +5,9 @@ import { useRouter } from "next/navigation";
 import {
   Database, Rows3, Sparkles, CheckCircle2, XCircle,
   DollarSign, ArrowRight, Plus, TrendingUp, Loader2,
-  LayoutDashboard, Bug, Key,
+  LayoutDashboard,
 } from "lucide-react";
+import AppShell from "@/components/AppShell";
 
 interface CaseStat {
   id: string;
@@ -67,68 +68,19 @@ export default function DashboardPage() {
     : 0;
 
   return (
-    <div className="flex h-screen bg-gray-50 overflow-hidden">
-      {/* Sidebar */}
-      <div className="w-56 bg-white border-r border-gray-200 flex flex-col shrink-0">
-        <div className="px-4 py-3 border-b border-gray-100">
-          <div className="flex items-center gap-2">
-            <div className="w-6 h-6 bg-violet-600 rounded flex items-center justify-center text-white text-xs font-bold">D</div>
-            <span className="font-semibold text-gray-900 text-sm">DataMiner</span>
-          </div>
-        </div>
-        <nav className="flex-1 py-2">
-          <button
-            onClick={() => router.push("/dashboard")}
-            className="w-full flex items-center gap-2.5 px-4 py-2 text-sm font-medium text-violet-700 bg-violet-50 rounded-none text-left"
-          >
-            <LayoutDashboard className="w-4 h-4" />
-            Dashboard
-          </button>
-          <button
-            onClick={() => router.push("/cases")}
-            className="w-full flex items-center gap-2.5 px-4 py-2 text-sm text-gray-600 hover:bg-gray-50 text-left"
-          >
-            <Database className="w-4 h-4" />
-            Alle Cases
-          </button>
-        </nav>
-        <div className="px-3 py-3 border-t border-gray-100 space-y-1">
-          <button
-            onClick={() => router.push("/settings")}
-            className="w-full flex items-center gap-2 px-2 py-1.5 text-xs text-gray-500 hover:text-violet-600 hover:bg-violet-50 rounded-lg text-left transition-colors"
-          >
-            <Key className="w-3.5 h-3.5" />
-            🔑 Globale Einstellungen
-          </button>
-          <button
-            onClick={() => router.push("/scrapling-test")}
-            className="w-full flex items-center gap-2 px-2 py-1.5 text-xs text-gray-400 hover:text-violet-600 hover:bg-violet-50 rounded-lg text-left transition-colors"
-          >
-            <Bug className="w-3.5 h-3.5" />
-            Scrapling Test
-          </button>
-        </div>
-      </div>
-
-      {/* Main */}
-      <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Topbar */}
-        <div className="bg-white border-b border-gray-200 px-6 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <LayoutDashboard className="w-4 h-4 text-violet-500" />
-            <span className="text-sm font-semibold text-gray-800">Dashboard</span>
-          </div>
-          <button
-            onClick={() => router.push("/cases")}
-            className="flex items-center gap-1.5 bg-violet-600 text-white px-3 py-1.5 rounded-lg text-sm font-medium hover:bg-violet-700"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            Neuer Case
-          </button>
-        </div>
-
-        {/* Content */}
-        <div className="flex-1 overflow-auto p-6">
+    <AppShell
+      title="Dashboard"
+      titleIcon={<LayoutDashboard className="w-4 h-4 text-violet-500" />}
+      actions={
+        <button
+          onClick={() => router.push("/cases")}
+          className="flex items-center gap-1.5 bg-violet-600 text-white px-3 py-1.5 rounded-lg text-sm font-medium hover:bg-violet-700"
+        >
+          <Plus className="w-3.5 h-3.5" />
+          Neuer Case
+        </button>
+      }
+    >
           {loading ? (
             <div className="flex items-center justify-center h-64">
               <Loader2 className="w-6 h-6 text-violet-400 animate-spin" />
@@ -286,8 +238,6 @@ export default function DashboardPage() {
               </div>
             </div>
           )}
-        </div>
-      </div>
-    </div>
+    </AppShell>
   );
 }

@@ -246,12 +246,36 @@ def search(req: SearchRequest, x_api_token: str = Header(...)):
     import urllib.parse
     encoded = urllib.parse.quote_plus(req.query.strip())
     per_page = min(req.max_results, 100)
-    start = (max(req.page, 1) - 1) * per_page  # Google start= offset
-    num = min(per_page, 10)  # Google caps at 10 reliably; we fetch multiple pages if needed
-    search_url = f"https://www.google.com/search?q={encoded}&hl=de&gl=de&num={num}&start={start}"
-    fetched_page = _fetch_google_search(search_url)
-    results = _parse_google_page(fetched_page, per_page)
-    return SearchResponse(results=results, query=req.query, page=max(req.page, 1), per_page=per_page)
+    base_start = (max(req.page, 1) - 1) * per_page  # Google start= offset
+
+    # Google reliably caps a single SERP at ~10 results even when num is higher.
+    # To honour max_results up to 100, fetch successive pages (start offsets of
+    # 10) and merge, deduping by URL. Stop early when we have enough or a page
+    # yields nothing new (end of results / bot wall).
+    PAGE = 10
+    merged: list[SearchResult] = []
+    seen: set[str] = set()
+    fetched = 0
+    # Google sometimes returns 8-9 results on an otherwise-full page, so a short
+    # page is NOT a reliable end-of-results signal. Stop only on a truly empty
+    # page (end of results / bot wall) or after a sane page-count cap.
+    max_pages = (per_page + PAGE - 1) // PAGE + 2
+    for _ in range(max_pages):
+        if len(merged) >= per_page:
+            break
+        start = base_start + fetched
+        search_url = f"https://www.google.com/search?q={encoded}&hl=de&gl=de&num={PAGE}&start={start}"
+        fetched_page = _fetch_google_search(search_url)
+        batch = _parse_google_page(fetched_page, PAGE)
+        fetched += PAGE
+        new = [r for r in batch if r.url not in seen]
+        for r in new:
+            seen.add(r.url)
+        merged.extend(new)
+        if not batch:  # empty page → genuinely no more results
+            break
+
+    return SearchResponse(results=merged[:per_page], query=req.query, page=max(req.page, 1), per_page=per_page)
 
 
 @app.post("/debug/search", response_model=SearchDebugResponse)
