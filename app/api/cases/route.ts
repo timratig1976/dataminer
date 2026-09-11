@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { listCases, createCase } from "@/lib/db";
 import { randomUUID } from "crypto";
+import { getTemplate } from "@/lib/templates";
 import type { Case } from "@/lib/types";
 
 function sanitizeCase(c: Case) {
@@ -23,10 +24,20 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
+
+    // Resolve template if specified
+    let aiColumns = body.aiColumns || [];
+    if (body.template && !body.aiColumns) {
+      const tpl = getTemplate(body.template);
+      if (tpl) {
+        aiColumns = tpl.aiColumns;
+      }
+    }
+
     const c = await createCase({
       id: randomUUID(),
       name: body.name || "New Case",
-      aiColumns: body.aiColumns || [],
+      aiColumns,
       edenApiKey: body.edenApiKey,
     });
     return NextResponse.json(sanitizeCase(c), { status: 201 });

@@ -15,7 +15,7 @@ import { sql, desc, asc, eq } from "drizzle-orm";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import fs from "fs";
 import path from "path";
-import type { Case, RowData } from "./types";
+import type { Case, RowData, GroupedRowsResponse, CompanyGroup } from "./types";
 import { decryptSecret, encryptSecret, maskSecret } from "./secrets";
 import { cases, rows, logs, scrapeCache, apolloCache, settings } from "./db/schema";
 
@@ -131,7 +131,7 @@ function deserializeCase(row: CaseRow): Case {
     aiColumns: (row.aiColumns ?? []) as Case["aiColumns"],
     edenApiKey,
     edenApiKeyMasked: maskSecret(edenApiKey),
-    edenRegion: row.edenRegion === "us" ? "us" : "eu",
+    edenRegion: row.edenRegion === "eu" ? "eu" : "us",
     modelAllowlist: (row.modelAllowlist ?? []) as string[],
     colOrder: (row.colOrder ?? []) as string[],
     createdAt: toIso(row.createdAt),
@@ -176,7 +176,7 @@ export async function createCase(c: Omit<Case, "createdAt" | "updatedAt">): Prom
       name: c.name,
       aiColumns: c.aiColumns ?? [],
       edenApiKey: encryptSecret(c.edenApiKey),
-      edenRegion: c.edenRegion ?? "eu",
+      edenRegion: c.edenRegion ?? "us",
       modelAllowlist: c.modelAllowlist ?? [],
       colOrder: c.colOrder ?? [],
       createdAt: now,
@@ -196,7 +196,7 @@ export async function updateCase(id: string, patch: Partial<Omit<Case, "id" | "c
       name: merged.name,
       aiColumns: merged.aiColumns ?? [],
       edenApiKey: encryptSecret(merged.edenApiKey),
-      edenRegion: merged.edenRegion ?? "eu",
+      edenRegion: merged.edenRegion ?? "us",
       modelAllowlist: merged.modelAllowlist ?? [],
       colOrder: merged.colOrder ?? [],
       updatedAt: new Date(merged.updatedAt),
@@ -237,7 +237,8 @@ export async function getGlobalSettings(): Promise<GlobalSettings> {
   return {
     edenApiKey: key,
     edenApiKeyMasked: maskSecret(key),
-    edenRegion: row?.edenRegion === "us" ? "us" : "eu",
+    // Default to "us": openai/* models and Firecrawl web search are US-only on Eden AI.
+    edenRegion: row?.edenRegion === "eu" ? "eu" : "us",
     updatedAt: row ? toIso(row.updatedAt) : new Date().toISOString(),
   };
 }
@@ -246,7 +247,7 @@ export async function getGlobalSettings(): Promise<GlobalSettings> {
 export async function saveGlobalSettings(patch: { edenApiKey?: string; edenRegion?: "eu" | "us" }): Promise<GlobalSettings> {
   await initDb();
   const now = new Date();
-  const region = patch.edenRegion === "us" ? "us" : "eu";
+  const region = patch.edenRegion === "eu" ? "eu" : "us";
   const encrypted = patch.edenApiKey !== undefined ? encryptSecret(patch.edenApiKey) : null;
   await getDb()
     .insert(settings)
@@ -279,7 +280,7 @@ export async function resolveEdenKey(c?: Case | null): Promise<string | undefine
   return global.edenApiKey || process.env.EDEN_API_KEY || undefined;
 }
 
-/** Central region resolution — cascade: case region → global region → "eu". */
+/** Central region resolution — cascade: case region → global region → "us" (default; EU lacks OpenAI models + Firecrawl web search). */
 export async function resolveEdenRegion(c?: Case | null): Promise<"eu" | "us"> {
   if (c?.edenRegion === "us" || c?.edenRegion === "eu") return c.edenRegion;
   const global = await getGlobalSettings();
@@ -297,6 +298,60 @@ export async function listRows(caseId: string): Promise<RowData[]> {
   await initDb();
   const result = await getDb().select().from(rows).where(eq(rows.caseId, caseId)).orderBy(asc(rows.rowIndex));
   return result.map(deserializeRow);
+}
+
+/**
+ * Grouped view: rows grouped by `data.company_name`.
+ * First row per group = company, rest = contacts.
+ * Pagination counts distinct companies, not individual rows.
+ */
+export async function listRowsGrouped(
+  caseId: string,
+  page = 1,
+  perPage = 50,
+): Promise<GroupedRowsResponse> {
+  await initDb();
+  const offset = (page - 1) * perPage;
+
+  // Count distinct companies
+  const countResult = await _client!.unsafe<[{ count: string }]>(
+    `SELECT COUNT(DISTINCT data->>'company_name')::int as count FROM rows WHERE case_id = $1`,
+    [caseId],
+  );
+  const totalCompanies = parseInt(countResult[0].count, 10);
+
+  // Fetch paginated groups — one SQL query, groups server-side
+  type GroupedRowRaw = { companyName: string | null; rowsJson: RowRow[] };
+  const result = await _client!.unsafe<GroupedRowRaw[]>(
+    `SELECT 
+       data->>'company_name' as "companyName",
+       json_agg(
+         json_build_object(
+           'id', id, 'caseId', case_id, 'rowIndex', row_index,
+           'data', data, 'cellStatuses', cell_statuses, 'cellErrors', cell_errors,
+           'createdAt', created_at, 'updatedAt', updated_at
+         ) ORDER BY row_index ASC
+       ) as "rowsJson"
+     FROM rows
+     WHERE case_id = $1
+       AND data->>'company_name' IS NOT NULL
+       AND data->>'company_name' <> ''
+     GROUP BY data->>'company_name'
+     ORDER BY MIN(row_index) ASC
+     LIMIT $2 OFFSET $3`,
+    [caseId, perPage, offset],
+  );
+
+  const companies: CompanyGroup[] = result.map((g) => {
+    const rowObjs = (g.rowsJson as unknown as RowRow[]).map(deserializeRow);
+    return {
+      companyName: g.companyName ?? "",
+      companyRow: rowObjs[0],
+      contacts: rowObjs.slice(1),
+    };
+  });
+
+  return { companies, totalCompanies, page, perPage };
 }
 
 export async function getRow(id: string): Promise<RowData | null> {

@@ -16,7 +16,7 @@ export const cases = pgTable("cases", {
   name: text("name").notNull(),
   aiColumns: jsonb("ai_columns").$type<AiColumn[]>().notNull().default([]),
   edenApiKey: text("eden_api_key"),
-  edenRegion: text("eden_region").notNull().default("eu"),
+  edenRegion: text("eden_region").notNull().default("us"),
   modelAllowlist: jsonb("model_allowlist").$type<string[]>().notNull().default([]),
   colOrder: jsonb("col_order").$type<string[]>().notNull().default([]),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
@@ -32,7 +32,7 @@ export const cases = pgTable("cases", {
 export const settings = pgTable("settings", {
   id: text("id").primaryKey().default("global"),
   edenApiKey: text("eden_api_key"),
-  edenRegion: text("eden_region").notNull().default("eu"),
+  edenRegion: text("eden_region").notNull().default("us"),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
 });
 

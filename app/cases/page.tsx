@@ -2,8 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Search, Trash2, Settings, Eye, ChevronRight, Database } from "lucide-react";
+import { Plus, Search, Trash2, Settings, Eye, ChevronRight, Database, LayoutTemplate, Check } from "lucide-react";
 import type { Case } from "@/lib/types";
+import type { ProjectTemplate } from "@/lib/templates";
 import AppShell from "@/components/AppShell";
 
 export default function CasesPage() {
@@ -15,6 +16,8 @@ export default function CasesPage() {
   const [edenApiKey, setEdenApiKey] = useState("");
   const [search, setSearch] = useState("");
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [templates, setTemplates] = useState<ProjectTemplate[]>([]);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
 
   useEffect(() => {
     fetch("/api/cases")
@@ -30,6 +33,16 @@ export default function CasesPage() {
       .finally(() => setLoading(false));
   }, []);
 
+  // Load templates when creating modal opens
+  useEffect(() => {
+    if (creating && templates.length === 0) {
+      fetch("/api/templates")
+        .then((r) => r.json())
+        .then((data) => setTemplates(data))
+        .catch(() => {}); // templates are optional
+    }
+  }, [creating, templates.length]);
+
   async function createCase() {
     if (!newName.trim()) return;
     const res = await fetch("/api/cases", {
@@ -38,6 +51,7 @@ export default function CasesPage() {
       body: JSON.stringify({
         name: newName.trim(),
         edenApiKey: edenApiKey.trim() || undefined,
+        template: selectedTemplateId || undefined,
       }),
     });
     const c = await res.json();
@@ -129,10 +143,10 @@ export default function CasesPage() {
 
       {/* Create modal */}
       {creating && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-md">
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" onClick={(e) => e.target === e.currentTarget && (() => { setCreating(false); setNewName(""); setEdenApiKey(""); setSelectedTemplateId(null); })()}>
+          <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-lg">
             <h3 className="text-lg font-semibold text-gray-900 mb-4">Neuer Case</h3>
-            <div className="space-y-3">
+            <div className="space-y-4">
               <div>
                 <label className="text-xs font-medium text-gray-600 uppercase tracking-wide">Name</label>
                 <input
@@ -144,6 +158,62 @@ export default function CasesPage() {
                   className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500"
                 />
               </div>
+
+              {/* Template picker */}
+              {templates.length > 0 && (
+                <div>
+                  <label className="text-xs font-medium text-gray-600 uppercase tracking-wide flex items-center gap-1.5">
+                    <LayoutTemplate className="w-3 h-3" />
+                    Vorlage (optional)
+                  </label>
+                  <div className="mt-2 grid grid-cols-1 gap-2">
+                    {/* No template option */}
+                    <button
+                      onClick={() => setSelectedTemplateId(null)}
+                      className={`text-left p-3 rounded-lg border text-sm transition-all ${
+                        !selectedTemplateId
+                          ? "border-violet-500 bg-violet-50 ring-1 ring-violet-500"
+                          : "border-gray-200 hover:border-gray-300"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="font-medium text-gray-700">Leerer Case</span>
+                        {!selectedTemplateId && <Check className="w-4 h-4 text-violet-600" />}
+                      </div>
+                      <p className="text-xs text-gray-400 mt-0.5">Spalten manuell hinzufügen</p>
+                    </button>
+
+                    {templates.map((tpl) => (
+                      <button
+                        key={tpl.id}
+                        onClick={() => setSelectedTemplateId(tpl.id)}
+                        className={`text-left p-3 rounded-lg border text-sm transition-all ${
+                          selectedTemplateId === tpl.id
+                            ? "border-violet-500 bg-violet-50 ring-1 ring-violet-500"
+                            : "border-gray-200 hover:border-gray-300"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="font-medium text-gray-700">
+                            <span className="mr-1.5">{tpl.icon}</span>
+                            {tpl.name}
+                          </span>
+                          {selectedTemplateId === tpl.id && <Check className="w-4 h-4 text-violet-600" />}
+                        </div>
+                        <p className="text-xs text-gray-400 mt-0.5">{tpl.description}</p>
+                        <div className="flex flex-wrap gap-1 mt-1.5">
+                          {tpl.aiColumns.map((col) => (
+                            <span key={col.id} className="text-[10px] bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">
+                              {col.name}
+                            </span>
+                          ))}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <div>
                 <label className="text-xs font-medium text-gray-600 uppercase tracking-wide">Eden AI API Key (optional)</label>
                 <input
@@ -160,7 +230,7 @@ export default function CasesPage() {
               <button onClick={createCase} className="flex-1 bg-violet-600 text-white py-2.5 rounded-lg text-sm font-medium hover:bg-violet-700">
                 Erstellen
               </button>
-              <button onClick={() => { setCreating(false); setNewName(""); setEdenApiKey(""); }} className="flex-1 border border-gray-300 text-gray-700 py-2.5 rounded-lg text-sm font-medium hover:bg-gray-50">
+              <button onClick={() => { setCreating(false); setNewName(""); setEdenApiKey(""); setSelectedTemplateId(null); }} className="flex-1 border border-gray-300 text-gray-700 py-2.5 rounded-lg text-sm font-medium hover:bg-gray-50">
                 Abbrechen
               </button>
             </div>

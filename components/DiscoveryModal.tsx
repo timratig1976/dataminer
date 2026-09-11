@@ -31,6 +31,7 @@ interface MapsPlace {
   mapsUrl: string;
 }
 
+type DiscoveryMode = "new" | "extend" | "batch";
 type SourceOption =
   | "auto"
   | "firecrawl"
@@ -66,7 +67,7 @@ interface PendingHit extends DiscoveryHit {
 }
 
 export function DiscoveryModal({ caseId, rows, sourceColumns, onClose, onImported }: Props) {
-  const [mode, setMode] = useState<"new" | "extend">("new");
+  const [mode, setMode] = useState<DiscoveryMode>("new");
   const [query, setQuery] = useState("");
   const [source, setSource] = useState<SourceOption>("firecrawl");
   const [limit, setLimit] = useState(30);
@@ -74,6 +75,12 @@ export function DiscoveryModal({ caseId, rows, sourceColumns, onClose, onImporte
   const [template, setTemplate] = useState("");
   const [scrapePages, setScrapePages] = useState(false);
   const [extractNames, setExtractNames] = useState(true);
+
+  // Batch mode state
+  const [batchKeyword, setBatchKeyword] = useState("");
+  const [batchCities, setBatchCities] = useState("");
+  const [batchSource, setBatchSource] = useState<SourceOption>("maps-scrapling");
+  const [batchLimit, setBatchLimit] = useState(20);
 
   const [searching, setSearching] = useState(false);
   const [importing, setImporting] = useState(false);
@@ -212,7 +219,64 @@ export function DiscoveryModal({ caseId, rows, sourceColumns, onClose, onImporte
   }
 
   const selectedCount = hits.filter((h) => h.selected).length;
-  const isMaps = source.startsWith("maps");
+  const isMaps = mode === "batch" ? batchSource.startsWith("maps") : source.startsWith("maps");
+
+  // Build batch queries: {city} {keyword} for each city line
+  function buildBatchQueries(): string[] {
+    const cities = batchCities
+      .split(/[\n,;]+/)
+      .map(s => s.trim())
+      .filter(Boolean);
+    if (!batchKeyword.trim() || cities.length === 0) return [];
+    return cities.map(city => `${city} ${batchKeyword.trim()}`);
+  }
+
+  async function runBatchSearch() {
+    const queries = buildBatchQueries();
+    if (queries.length === 0) return;
+    setSearching(true); setError("");
+    let added = 0;
+    try {
+      for (let i = 0; i < queries.length; i++) {
+        const q = queries[i];
+        setInfo(`Query ${i + 1}/${queries.length}: ${q}`);
+        const res = await fetch("/api/discovery/search", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            query: q,
+            source: batchSource,
+            limit: batchLimit,
+            caseId,
+            ...(ll.trim() ? { ll: ll.trim() } : {}),
+          }),
+        });
+        const json = await res.json();
+        if (!res.ok) { setError(json?.error ?? `HTTP ${res.status}`); break; }
+        const newHits = (json.hits ?? []) as DiscoveryHit[];
+        const places = (json.places ?? []) as MapsPlace[];
+        const placeByUrl = new Map(places.map(p => [p.website || p.mapsUrl, p]));
+        setHits(prev => {
+          const seen = new Set(prev.map(h => h.url));
+          const additions = newHits
+            .filter(h => !seen.has(h.url))
+            .map(h => ({ ...h, selected: !h.isCatalog && !h.isDuplicate, place: placeByUrl.get(h.url) }));
+          added += additions.length;
+          return [...prev, ...additions];
+        });
+        if (i < queries.length - 1) {
+          await new Promise(r => setTimeout(r, 500)); // polite delay between queries
+        }
+      }
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setSearching(false);
+      setInfo(`${queries.length} Suchanfragen abgeschlossen — ${added} neue Treffer`);
+    }
+  }
+
+  const batchQueryPreview = buildBatchQueries();
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
@@ -243,6 +307,17 @@ export function DiscoveryModal({ caseId, rows, sourceColumns, onClose, onImporte
           </button>
           <button
             type="button"
+            onClick={() => setMode("batch")}
+            className={`px-3 py-1.5 rounded-lg text-sm font-medium ${
+              mode === "batch"
+                ? "bg-violet-100 text-violet-800"
+                : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+            }`}
+          >
+            Batch Städte × Keyword
+          </button>
+          <button
+            type="button"
             onClick={() => setMode("extend")}
             className={`px-3 py-1.5 rounded-lg text-sm font-medium ${
               mode === "extend"
@@ -256,7 +331,80 @@ export function DiscoveryModal({ caseId, rows, sourceColumns, onClose, onImporte
 
         {/* Search bar */}
         <div className="px-6 pt-4 space-y-3 shrink-0">
-          {mode === "new" ? (
+          {mode === "batch" && (
+            /* Batch mode: keyword + cities */
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-medium text-gray-600 mb-1 block">Keyword (Branche)</label>
+                  <input
+                    value={batchKeyword}
+                    onChange={e => setBatchKeyword(e.target.value)}
+                    placeholder="z.B. Heizung Sanitär"
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-gray-600 mb-1 block">Quelle</label>
+                  <select
+                    value={batchSource}
+                    onChange={e => setBatchSource(e.target.value as SourceOption)}
+                    className="w-full border border-gray-300 rounded-lg px-2 py-2 text-sm bg-white"
+                  >
+                    <option value="maps-scrapling">Google Maps — Scrapling (free)</option>
+                    <option value="maps-serpapi">Google Maps — SerpApi</option>
+                    <option value="scrapling">Google Search — Scrapling (free)</option>
+                    <option value="serpapi">Google Search — SerpApi</option>
+                    <option value="firecrawl">Web — Firecrawl (Eden AI)</option>
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label className="text-xs font-medium text-gray-600 mb-1 block">
+                  Städte (eine pro Zeile, Komma oder Semikolon getrennt)
+                </label>
+                <textarea
+                  value={batchCities}
+                  onChange={e => setBatchCities(e.target.value)}
+                  placeholder={`Berlin\nHamburg\nMünchen\nKöln\nFrankfurt`}
+                  rows={4}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400 resize-y"
+                />
+              </div>
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2">
+                  <label className="text-xs text-gray-600">Limit pro Stadt:</label>
+                  <input
+                    type="number" min={5} max={100} value={batchLimit}
+                    onChange={e => setBatchLimit(Math.max(5, Math.min(100, Number(e.target.value) || 20)))}
+                    className="border border-gray-300 rounded-lg px-2 py-1 w-16 text-xs"
+                  />
+                </div>
+                {isMaps && (
+                  <label className="flex items-center gap-1.5 text-xs text-gray-600">
+                    Kartenmitte
+                    <input value={ll} onChange={e => setLl(e.target.value)} placeholder="52.39,13.06"
+                      className="border border-gray-300 rounded-lg px-2 py-1 w-28 text-xs" />
+                  </label>
+                )}
+                <span className="text-xs text-gray-400">
+                  {batchQueryPreview.length > 0
+                    ? `${batchQueryPreview.length} Queries: ${batchQueryPreview.slice(0, 3).join(" · ")}${batchQueryPreview.length > 3 ? " …" : ""}`
+                    : "Keyword + mind. 1 Stadt eingeben"}
+                </span>
+              </div>
+              <button
+                onClick={runBatchSearch}
+                disabled={searching || batchQueryPreview.length === 0}
+                className="w-full bg-violet-600 text-white px-4 py-2.5 rounded-lg text-sm font-medium hover:bg-violet-700 disabled:opacity-40 flex items-center justify-center gap-2"
+              >
+                {searching ? <Loader2 className="w-4 h-4 animate-spin" /> : <MapPin className="w-4 h-4" />}
+                {searching ? "Suche läuft…" : `${batchQueryPreview.length} Städte durchsuchen`}
+              </button>
+            </div>
+          )}
+
+          {mode === "new" && (
             <div className="flex gap-2">
               <input
                 value={query}
@@ -274,7 +422,9 @@ export function DiscoveryModal({ caseId, rows, sourceColumns, onClose, onImporte
                 Suchen
               </button>
             </div>
-          ) : (
+          )}
+
+          {mode === "extend" && (
             <div className="space-y-2">
               <div className="flex gap-2">
                 <input

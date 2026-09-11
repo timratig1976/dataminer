@@ -6,13 +6,14 @@ import {
   ArrowLeft, Plus, Play, Upload, Trash2, Settings, Save, Sparkles,
   Loader2, CheckCircle2, XCircle, SkipForward, Zap,
   Download, ScrollText, ChevronLeft, ChevronRight, GripVertical,
-  Database, Info, CheckCircle, AlertCircle, Search
+  Database, Info, CheckCircle, AlertCircle, Search, MapPin, Building2, Gauge
 } from "lucide-react";
 import type { Case, RowData, AiColumn, CellStatus } from "@/lib/types";
 import { AddColumnModal } from "@/components/AddColumnModal";
 import { ImportModal } from "@/components/ImportModal";
 import { DiscoveryModal } from "@/components/DiscoveryModal";
 import { ColumnHeaderMenu } from "@/components/ColumnHeaderMenu";
+import GroupedTableView from "@/components/GroupedTableView";
 import { DEFAULT_MODEL_OPTIONS, mergeModelOptions } from "@/lib/model-options";
 
 // ── Run Detail Modal ──────────────────────────────────────────────────────────
@@ -1308,12 +1309,21 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
   const [editingPromptCell, setEditingPromptCell] = useState<{col: AiColumn; row: RowData} | null>(null);
   const [runDetailCell, setRunDetailCell] = useState<{col: AiColumn; row: RowData} | null>(null);
   const [sequentialMode, setSequentialMode] = useState(false);
+  const [concurrency, setConcurrency] = useState(5);
   const [reasoningModal, setReasoningModal] = useState<{content: string; title: string} | null>(null);
+  const [globalRunError, setGlobalRunError] = useState<string | null>(null);
   const [abortControllers, setAbortControllers] = useState<Record<string, AbortController>>({});
   const [runningColumnId, setRunningColumnId] = useState<string | null>(null);
   const [runningRowIds, setRunningRowIds] = useState<Set<string>>(new Set());
   const [operationIds, setOperationIds] = useState<Record<string, string>>({});
   const [runningCellTimestamps, setRunningCellTimestamps] = useState<Record<string, number>>({});
+  const [viewMode, setViewMode] = useState<"flat" | "grouped">("flat");
+
+  // Auto-detect grouped view: if case has columnGroup columns, enable by default
+  const hasColumnGroups = caseData?.aiColumns?.some(c => c.columnGroup);
+  useEffect(() => {
+    if (hasColumnGroups && viewMode === "flat") setViewMode("grouped");
+  }, [hasColumnGroups]);
 
   // Calculate total tokens and costs across all rows
   const calculateTotals = useCallback(() => {
@@ -1590,6 +1600,67 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
     );
   }
 
+  // ── Run phase: company-only or contact-only columns ──────────────────────
+  async function runPhase(phase: "company" | "contact") {
+    if (!caseData) return;
+    const cols = caseData.aiColumns.filter(c => c.columnGroup === phase);
+    if (cols.length === 0) { alert(`Keine ${phase === "company" ? "Firmen" : "Kontakt"}-Spalten gefunden.`); return; }
+    const key = `phase:${phase}:${Date.now()}`;
+    const abortController = new AbortController();
+    setAbortControllers(prev => ({ ...prev, [key]: abortController }));
+    const targetIds = selectedRows.size > 0 ? [...selectedRows] : rows.map(r => r.id);
+    setRunningRowIds(new Set(targetIds));
+    setGlobalRunError(null);
+    try {
+      for (const col of cols) {
+        setRows(prev => prev.map(r => targetIds.includes(r.id)
+          ? { ...r, cellStatuses: { ...r.cellStatuses, [col.outputKey]: "running" } }
+          : r));
+        const res = await fetch("/api/run/column", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ caseId, columnId: col.id, rowIds: targetIds, runMode: "empty_only", concurrency }),
+          signal: abortController.signal,
+        });
+        const json = await res.json();
+        if (!res.ok) {
+          setGlobalRunError(`Fehler bei Spalte "${col.name}": ${json?.error ?? `HTTP ${res.status}`}`);
+          setRows(prev => prev.map(r => targetIds.includes(r.id)
+            ? { ...r, cellStatuses: { ...r.cellStatuses, [col.outputKey]: "error" }, cellErrors: { ...r.cellErrors, [col.outputKey]: json?.error ?? `HTTP ${res.status}` } }
+            : r));
+          break;
+        }
+        const results = json.results;
+        setRows(prev => prev.map(r => {
+          const result = results?.[r.id];
+          if (!result) {
+            // Row was targeted but server skipped it (e.g. runMode "empty_only"
+            // filtered it out because it already had a value) — clear the
+            // optimistic "running" status so it doesn't spin forever.
+            if (targetIds.includes(r.id) && r.cellStatuses[col.outputKey] === "running") {
+              return { ...r, cellStatuses: { ...r.cellStatuses, [col.outputKey]: "skipped" } };
+            }
+            return r;
+          }
+          const extraData = result.multiValues ?? {};
+          const extraStatuses: Record<string,string> = {};
+          for (const k of Object.keys(extraData)) extraStatuses[k] = result.status ?? "done";
+          return {
+            ...r,
+            data: { ...r.data, [col.outputKey]: result.value ?? r.data[col.outputKey], ...extraData },
+            cellStatuses: { ...r.cellStatuses, [col.outputKey]: result.status, ...extraStatuses },
+            cellErrors: result.error ? { ...r.cellErrors, [col.outputKey]: result.error } : r.cellErrors,
+          };
+        }));
+      }
+    } catch (error: any) {
+      if (error.name !== 'AbortError' && !error.message?.includes('abort')) setGlobalRunError(error.message ?? "Unbekannter Fehler beim Ausführen");
+    } finally {
+      setAbortControllers(prev => { const { [key]: _, ...rest } = prev; return rest; });
+      setOperationIds(prev => { const { [key]: _, ...rest } = prev; return rest; });
+      setRunningRowIds(new Set());
+    }
+  }
+
   // ── Run entire column ─────────────────────────────────────────────────────
   async function runColumn(col: AiColumn, runMode: "all_force" | "empty_only" = "all_force") {
     const key = `col:${col.id}`;
@@ -1619,10 +1690,19 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
       const res = await fetch("/api/run/column", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ caseId, columnId: col.id, rowIds: targetIds, runMode, concurrency: sequentialMode ? 1 : 5 }),
+        body: JSON.stringify({ caseId, columnId: col.id, rowIds: targetIds, runMode, concurrency }),
         signal: abortController.signal,
       });
       const json = await res.json();
+      if (!res.ok) {
+        setGlobalRunError(`Fehler bei Spalte "${col.name}": ${json?.error ?? `HTTP ${res.status}`}`);
+        setRows((prev) => prev.map((r) =>
+          runIds.includes(r.id)
+            ? { ...r, cellStatuses: { ...r.cellStatuses, [col.outputKey]: "error" }, cellErrors: { ...r.cellErrors, [col.outputKey]: json?.error ?? `HTTP ${res.status}` } }
+            : r
+        ));
+        return;
+      }
       const results = json.results;
       if (json.operationId) {
         setOperationIds(prev => ({ ...prev, [key]: json.operationId }));
@@ -1630,7 +1710,12 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
       setRows((prev) =>
         prev.map((r) => {
           const result = results?.[r.id];
-          if (!result) return r;
+          if (!result) {
+            if (runIds.includes(r.id) && r.cellStatuses[col.outputKey] === "running") {
+              return { ...r, cellStatuses: { ...r.cellStatuses, [col.outputKey]: "skipped" } };
+            }
+            return r;
+          }
           const extraData = result.multiValues ?? {};
           const metaData = result.metaData ?? {};
           const extraStatuses: Record<string,string> = {};
@@ -1643,6 +1728,8 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
           };
         })
       );
+    } catch (error: any) {
+      if (error.name !== 'AbortError' && !error.message?.includes('abort')) setGlobalRunError(error.message ?? "Unbekannter Fehler beim Ausführen");
     } finally {
       setAbortControllers(prev => { const { [key]: _, ...rest } = prev; return rest; });
       setRunningColumnId(null);
@@ -1681,6 +1768,7 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
     setRunningRowIds(new Set(selectedRows.size > 0 ? [...selectedRows] : rows.map((r) => r.id)));
 
     const targetIds = selectedRows.size > 0 ? [...selectedRows] : rows.map((r) => r.id);
+    setGlobalRunError(null);
     try {
       for (const col of caseData.aiColumns) {
         setRows((prev) =>
@@ -1693,10 +1781,19 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
         const res = await fetch("/api/run/column", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ caseId, columnId: col.id, rowIds: targetIds, concurrency: sequentialMode ? 1 : 5 }),
+          body: JSON.stringify({ caseId, columnId: col.id, rowIds: targetIds, concurrency }),
           signal: abortController.signal,
         });
         const json = await res.json();
+        if (!res.ok) {
+          setGlobalRunError(`Fehler bei Spalte "${col.name}": ${json?.error ?? `HTTP ${res.status}`}`);
+          setRows((prev) => prev.map((r) =>
+            targetIds.includes(r.id)
+              ? { ...r, cellStatuses: { ...r.cellStatuses, [col.outputKey]: "error" }, cellErrors: { ...r.cellErrors, [col.outputKey]: json?.error ?? `HTTP ${res.status}` } }
+              : r
+          ));
+          break; // stop the whole pipeline — no point running later columns
+        }
         const results = json.results;
         if (json.operationId) {
           setOperationIds(prev => ({ ...prev, [key]: json.operationId }));
@@ -1704,7 +1801,12 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
         setRows((prev) =>
           prev.map((r) => {
             const result = results?.[r.id];
-            if (!result) return r;
+            if (!result) {
+              if (targetIds.includes(r.id) && r.cellStatuses[col.outputKey] === "running") {
+                return { ...r, cellStatuses: { ...r.cellStatuses, [col.outputKey]: "skipped" } };
+              }
+              return r;
+            }
             const extraData = result.multiValues ?? {};
             const extraStatuses: Record<string,string> = {};
             for (const k of Object.keys(extraData)) extraStatuses[k] = result.status ?? "done";
@@ -1721,7 +1823,7 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
       if (error.name === 'AbortError' || error.message?.includes('abort')) {
         // Canceled
       } else {
-        throw error;
+        setGlobalRunError(error.message ?? "Unbekannter Fehler beim Ausführen");
       }
     } finally {
       setAbortControllers(prev => { const { [key]: _, ...rest } = prev; return rest; });
@@ -1895,154 +1997,144 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
             </div>
           </div>
           {/* Tabs */}
-          <div style={{display:"flex",gap:0,marginTop:4}}>
+          <div style={{display:"flex",gap:0,marginTop:4,alignItems:"center"}}>
             {tabs.map(t => (
               <button key={t} onClick={() => setActiveTab(t)}
                 style={{padding:"6px 16px",border:"none",borderBottom: activeTab===t ? "2px solid #6d28d9" : "2px solid transparent",background:"none",cursor:"pointer",fontSize:13,fontWeight:500,color: activeTab===t ? "#6d28d9" : "#6b7280",marginBottom:-1}}>
                 {t==="Tabelle"?"📋 ":t==="Einstellungen"?"⚙️ ":t==="Log"?"📜 ":"📤 "}{t}
               </button>
             ))}
+            {/* View mode toggle — only visible in Tabelle tab when columnGroups exist */}
+            {activeTab === "Tabelle" && hasColumnGroups && (
+              <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:6}}>
+                <span style={{fontSize:11,color:"#9ca3af"}}>Ansicht:</span>
+                <button
+                  onClick={() => setViewMode("flat")}
+                  style={{fontSize:11,padding:"2px 8px",borderRadius:4,border:"1px solid",cursor:"pointer",
+                    borderColor: viewMode==="flat" ? "#7c3aed" : "#d1d5db",
+                    background: viewMode==="flat" ? "#f5f3ff" : "#fff",
+                    color: viewMode==="flat" ? "#7c3aed" : "#6b7280"}}
+                >📋 Flach</button>
+                <button
+                  onClick={() => setViewMode("grouped")}
+                  style={{fontSize:11,padding:"2px 8px",borderRadius:4,border:"1px solid",cursor:"pointer",
+                    borderColor: viewMode==="grouped" ? "#7c3aed" : "#d1d5db",
+                    background: viewMode==="grouped" ? "#f5f3ff" : "#fff",
+                    color: viewMode==="grouped" ? "#7c3aed" : "#6b7280"}}
+                >📂 Gruppiert</button>
+              </div>
+            )}
           </div>
         </div>
 
         {/* ══ TAB: TABELLE ══ */}
-        {activeTab === "Tabelle" && (<>
+        {activeTab === "Tabelle" && viewMode === "grouped" && (
+          <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
+            <GroupedTableView caseId={caseId} />
+          </div>
+        )}
 
-          {/* Expanders + stats panel */}
+        {activeTab === "Tabelle" && viewMode !== "grouped" && (<>
+
+          {/* ── Compact toolbar — everything in one row ── */}
           <div style={{background:"#fff",borderBottom:"1px solid #e5e7eb",flexShrink:0}}>
 
-            {/* Expander 1 */}
-            <div style={{borderBottom:"1px solid #f3f4f6"}}>
-              <button onClick={() => setShowUpload(v=>!v)}
-                style={{width:"100%",padding:"8px 16px",display:"flex",alignItems:"center",gap:8,background:"none",border:"none",cursor:"pointer",fontSize:13,color:"#374151",textAlign:"left"}}>
-                <span style={{fontSize:10,color:"#9ca3af"}}>{showUpload?"▼":"▶"}</span>
-                📂 Daten hochladen &amp; Spalten zuordnen
+            {/* Single toolbar row */}
+            <div style={{padding:"8px 16px",display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+              {/* Data actions */}
+              <button onClick={() => setShowImport(true)}
+                style={{display:"flex",alignItems:"center",gap:5,padding:"4px 10px",border:"1px solid #d1d5db",borderRadius:5,background:"#fff",cursor:"pointer",fontSize:12,color:"#374151"}}>
+                <Upload style={{width:12,height:12}} /> CSV
               </button>
-              {showUpload && (
-                <div style={{padding:"0 24px 10px",display:"flex",gap:8}}>
-                  <button onClick={() => setShowImport(true)}
-                    style={{display:"flex",alignItems:"center",gap:6,padding:"5px 12px",border:"1px solid #d1d5db",borderRadius:6,background:"#fff",cursor:"pointer",fontSize:12,color:"#374151"}}>
-                    <Upload style={{width:13,height:13}} /> CSV importieren
-                  </button>
-                  <button onClick={() => setShowDiscovery(true)}
-                    style={{display:"flex",alignItems:"center",gap:6,padding:"5px 12px",border:"1px solid #d1d5db",borderRadius:6,background:"#fff",cursor:"pointer",fontSize:12,color:"#374151"}}>
-                    <Search style={{width:13,height:13}} /> Leads entdecken
-                  </button>
-                </div>
-              )}
-            </div>
-
-            {/* Expander 2 */}
-            <div style={{borderBottom:"1px solid #f3f4f6"}}>
-              <button onClick={() => {
-                if (showPromptCols) {
-                  setShowAddCol(true);
-                  return;
-                }
-                setShowPromptCols(true);
-              }}
-                style={{width:"100%",padding:"8px 16px",display:"flex",alignItems:"center",gap:8,background:"none",border:"none",cursor:"pointer",fontSize:13,color:"#374151",textAlign:"left"}}>
-                <span style={{fontSize:10,color:"#9ca3af"}}>{showPromptCols?"▼":"▶"}</span>
-                ✨ Prompt-Spalten (direkt in Tabelle)
+              <button onClick={() => setShowDiscovery(true)}
+                style={{display:"flex",alignItems:"center",gap:5,padding:"4px 10px",border:"1px solid #d1d5db",borderRadius:5,background:"#fff",cursor:"pointer",fontSize:12,color:"#374151"}}>
+                <Search style={{width:12,height:12}} /> Leads
               </button>
-              {showPromptCols && (
-                <div style={{padding:"0 24px 10px",display:"flex",gap:8}}>
-                  <button onClick={() => setShowAddCol(true)}
-                    style={{display:"flex",alignItems:"center",gap:6,padding:"5px 12px",border:"1px solid #c4b5fd",borderRadius:6,background:"#f5f3ff",cursor:"pointer",fontSize:12,color:"#6d28d9"}}>
-                    <Plus style={{width:13,height:13}} /> Prompt-Spalte hinzufügen
-                  </button>
-                  <a href={`/api/export?caseId=${caseId}`}
-                    style={{display:"flex",alignItems:"center",gap:6,padding:"5px 12px",border:"1px solid #d1d5db",borderRadius:6,background:"#fff",fontSize:12,color:"#374151",textDecoration:"none"}}>
-                    <Download style={{width:13,height:13}} /> Export
-                  </a>
-                </div>
-              )}
-            </div>
+              <button onClick={() => setShowAddCol(true)}
+                style={{display:"flex",alignItems:"center",gap:5,padding:"4px 10px",border:"1px solid #c4b5fd",borderRadius:5,background:"#f5f3ff",cursor:"pointer",fontSize:12,color:"#6d28d9"}}>
+                <Plus style={{width:12,height:12}} /> KI-Spalte
+              </button>
 
-            {/* Stats row */}
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",borderBottom:"1px solid #f3f4f6"}}>
-              {[
-                {n:rows.length,l:"Gesamt",c:"#111827"},
-                {n:processedCount,l:"Verarbeitet",c:"#6b7280"},
-                {n:doneCount,l:"✓ Fertig",c:"#7c3aed"},
-                {n:errorCount,l:"✗ Fehler",c:"#dc2626"},
-              ].map((s,i) => (
-                <div key={i} style={{textAlign:"center",padding:"12px 0",borderRight: i<3 ? "1px solid #f3f4f6" : "none"}}>
-                  <div style={{fontSize:32,fontWeight:700,lineHeight:1,color:s.c}}>{s.n}</div>
-                  <div style={{fontSize:12,color:"#6b7280",marginTop:2}}>{s.l}</div>
-                </div>
-              ))}
-            </div>
+              {/* Divider */}
+              <span style={{width:1,height:18,background:"#e5e7eb",flexShrink:0}}/>
 
-            {/* Filter + range row */}
-            <div style={{padding:"6px 16px",display:"flex",alignItems:"center",gap:12,borderBottom:"1px solid #f3f4f6",flexWrap:"wrap"}}>
-              <select style={{fontSize:12,border:"1px solid #d1d5db",borderRadius:5,padding:"3px 8px",color:"#374151",background:"#fff"}}>
-                <option>Alle nicht-fertigen ({rows.length - doneCount})</option>
-                <option>Alle</option>
-                <option>Nur Fertige</option>
-                <option>Nur Fehler</option>
-              </select>
-              {(["Von","Bis","Max"] as const).map((lbl,i) => {
-                const val = i===0?rangeVon:i===1?rangeBis:rangeMax;
-                const set = i===0?setRangeVon:i===1?setRangeBis:setRangeMax;
-                return (
-                  <div key={lbl} style={{display:"flex",alignItems:"center",gap:4,fontSize:12,color:"#6b7280"}}>
-                    <span>{lbl}</span>
-                    <button onClick={()=>set(v=>Math.max(0,v-1))} style={{width:20,height:20,border:"1px solid #d1d5db",borderRadius:4,background:"#fff",cursor:"pointer",fontSize:12,lineHeight:1,display:"flex",alignItems:"center",justifyContent:"center"}}>−</button>
-                    <input value={val} onChange={e=>set(Number(e.target.value))} style={{width:lbl==="Bis"?52:40,textAlign:"center",border:"1px solid #d1d5db",borderRadius:4,padding:"2px 4px",fontSize:12}} />
-                    <button onClick={()=>set(v=>v+1)} style={{width:20,height:20,border:"1px solid #d1d5db",borderRadius:4,background:"#fff",cursor:"pointer",fontSize:12,lineHeight:1,display:"flex",alignItems:"center",justifyContent:"center"}}>+</button>
-                  </div>
-                );
-              })}
-            </div>
-
-            {/* Pipeline label */}
-            <div style={{padding:"3px 16px",fontSize:11,color:"#9ca3af",borderBottom:"1px solid #f3f4f6"}}>
-              Pipeline-Modus: Nur Prompt-Spalten (ohne System-Prompt)
-            </div>
-
-            {/* No AI columns warning */}
-            {caseData.aiColumns.length === 0 && (
-              <div style={{padding:"8px 16px",background:"#fefce8",borderBottom:"1px solid #fde68a",display:"flex",alignItems:"center",gap:8,fontSize:12,color:"#92400e"}}>
-                ⚠️ Keine KI-Spalten vorhanden — bitte zuerst eine
-                <button onClick={()=>setShowAddCol(true)}
-                  style={{padding:"2px 10px",background:"#7c3aed",color:"#fff",border:"none",borderRadius:4,cursor:"pointer",fontSize:12,fontWeight:600}}>
-                  + Prompt-Spalte hinzufügen
+              {/* Run buttons */}
+              {runningRowIds.size > 0 ? (
+                <button onClick={stopSelectedRows}
+                  style={{display:"flex",alignItems:"center",gap:5,padding:"4px 12px",background:"#dc2626",color:"#fff",border:"none",borderRadius:5,cursor:"pointer",fontSize:12,fontWeight:600}}>
+                  ■ Stop ({runningRowIds.size})
                 </button>
+              ) : (<>
+                {hasColumnGroups ? (<>
+                  <button onClick={() => runPhase("company")}
+                    style={{display:"flex",alignItems:"center",gap:5,padding:"4px 12px",background:"#7c3aed",color:"#fff",border:"none",borderRadius:5,cursor:"pointer",fontSize:12,fontWeight:600}}>
+                    <Building2 style={{width:11,height:11}}/> Firmen
+                  </button>
+                  <button onClick={() => runPhase("contact")}
+                    style={{display:"flex",alignItems:"center",gap:5,padding:"4px 12px",background:"#2563eb",color:"#fff",border:"none",borderRadius:5,cursor:"pointer",fontSize:12,fontWeight:600}}>
+                    👤 Kontakte
+                  </button>
+                </>) : (
+                  <button onClick={runSelectedRows}
+                    style={{display:"flex",alignItems:"center",gap:5,padding:"4px 12px",background:"#7c3aed",color:"#fff",border:"none",borderRadius:5,cursor:"pointer",fontSize:12,fontWeight:600}}>
+                    ▶ Alle ausführen
+                  </button>
+                )}
+              </>)}
+
+              {/* Concurrency */}
+              <div style={{display:"flex",alignItems:"center",gap:4}}>
+                <Gauge style={{width:11,height:11,color:"#9ca3af"}}/>
+                <input type="range" min={1} max={20} value={concurrency}
+                  onChange={e => setConcurrency(Number(e.target.value))}
+                  style={{width:64,height:3,accentColor:"#7c3aed"}} />
+                <span style={{fontSize:11,color:"#9ca3af",fontFamily:"monospace",minWidth:20}}>{concurrency}x</span>
+              </div>
+
+              {/* Divider */}
+              <span style={{width:1,height:18,background:"#e5e7eb",flexShrink:0}}/>
+
+              {/* Stats pills */}
+              <span style={{fontSize:11,color:"#6b7280"}}>{rows.length} Zeilen</span>
+              {doneCount > 0 && <span style={{fontSize:11,fontWeight:600,color:"#15803d",background:"#dcfce7",padding:"1px 7px",borderRadius:8}}>✓ {doneCount}</span>}
+              {errorCount > 0 && <span style={{fontSize:11,fontWeight:600,color:"#dc2626",background:"#fee2e2",padding:"1px 7px",borderRadius:8}}>✗ {errorCount}</span>}
+              {runningRowIds.size > 0 && <span style={{fontSize:11,color:"#d97706",background:"#fef3c7",padding:"1px 7px",borderRadius:8,display:"flex",alignItems:"center",gap:3}}><Loader2 style={{width:9,height:9}} className="animate-spin"/> {runningRowIds.size}</span>}
+
+              {/* Spacer */}
+              <div style={{flex:1}}/>
+
+              {/* Reset + export */}
+              <button onClick={() => { setSelectedRows(new Set()); setRows(prev => prev.map(r => ({...r,cellStatuses:{},cellErrors:{}}))); }}
+                title="Alle Status zurücksetzen"
+                style={{padding:"4px 8px",border:"1px solid #d1d5db",borderRadius:5,background:"#fff",cursor:"pointer",fontSize:11,color:"#6b7280"}}>
+                ↺ Reset
+              </button>
+              <a href={`/api/export?caseId=${caseId}`}
+                style={{display:"flex",alignItems:"center",gap:4,padding:"4px 8px",border:"1px solid #d1d5db",borderRadius:5,background:"#fff",fontSize:11,color:"#374151",textDecoration:"none"}}>
+                <Download style={{width:11,height:11}}/> CSV
+              </a>
+            </div>
+
+            {/* Global run error */}
+            {globalRunError && (
+              <div style={{padding:"6px 16px",background:"#fef2f2",borderTop:"1px solid #fecaca",display:"flex",alignItems:"center",gap:8,fontSize:12,color:"#991b1b"}}>
+                <AlertCircle style={{width:13,height:13,flexShrink:0}} />
+                <span style={{flex:1}}>{globalRunError}</span>
+                <button onClick={()=>router.push(`/cases/${caseId}/settings`)}
+                  style={{padding:"1px 8px",background:"#dc2626",color:"#fff",border:"none",borderRadius:4,cursor:"pointer",fontSize:11,fontWeight:600}}>
+                  Einstellungen
+                </button>
+                <button onClick={()=>setGlobalRunError(null)}
+                  style={{border:"none",background:"none",cursor:"pointer",color:"#991b1b",fontSize:15,lineHeight:1}}>×</button>
               </div>
             )}
 
-            {/* Big run buttons row */}
-            <div style={{padding:"8px 16px",display:"flex",alignItems:"center",gap:8}}>
-              {runningRowIds.size > 0 ? (
-                <button onClick={stopSelectedRows}
-                  style={{display:"flex",alignItems:"center",justifyContent:"center",gap:5,padding:"5px 14px",background:"#dc2626",color:"#fff",border:"none",borderRadius:5,cursor:"pointer",fontSize:12,fontWeight:600}}
-                >
-                  X Stop — {runningRowIds.size} Zeilen
-                </button>
-              ) : (
-                <button onClick={runSelectedRows}
-                  style={{display:"flex",alignItems:"center",justifyContent:"center",gap:5,padding:"5px 14px",background:"#7c3aed",color:"#fff",border:"none",borderRadius:5,cursor:"pointer",fontSize:12,fontWeight:600}}
-                >
-                  ▶ Starten — {selCount} Zeilen
-                </button>
-              )}
-              <button
-                onClick={() => setSequentialMode(prev => !prev)}
-                title={sequentialMode ? "Sequenziell: 1 Zeile gleichzeitig" : "Parallel: 5 Zeilen gleichzeitig"}
-                style={{padding:"4px 10px",border:`1px solid ${sequentialMode ? "#7c3aed" : "#d1d5db"}`,borderRadius:5,background:sequentialMode ? "#f5f3ff" : "#fff",cursor:"pointer",fontSize:12,color:sequentialMode ? "#7c3aed" : "#374151",fontWeight:sequentialMode?600:400}}
-              >
-                {sequentialMode ? "⏩ Sequenziell" : "⚡ Parallel"}
-              </button>
-              <button onClick={() => setSelectedRows(new Set())}
-                style={{padding:"4px 10px",border:"1px solid #d1d5db",borderRadius:5,background:"#fff",cursor:"pointer",fontSize:12,color:"#374151"}}>
-                ↺ Zurücksetzen — {rows.length} Zeilen
-              </button>
-              <button onClick={() => { setSelectedRows(new Set()); setRows(prev => prev.map(r => ({...r,cellStatuses:{},cellErrors:{}}))); }}
-                style={{padding:"4px 10px",border:"1px solid #d1d5db",borderRadius:5,background:"#fff",cursor:"pointer",fontSize:12,color:"#374151"}}>
-                ↺ Komplett-Reset
-              </button>
-            </div>
+            {/* No AI columns warning */}
+            {caseData.aiColumns.length === 0 && (
+              <div style={{padding:"6px 16px",background:"#fefce8",borderTop:"1px solid #fde68a",display:"flex",alignItems:"center",gap:8,fontSize:12,color:"#92400e"}}>
+                ⚠️ Keine KI-Spalten — <button onClick={()=>setShowAddCol(true)} style={{padding:"1px 8px",background:"#7c3aed",color:"#fff",border:"none",borderRadius:4,cursor:"pointer",fontSize:11,fontWeight:600}}>+ Spalte hinzufügen</button>
+              </div>
+            )}
           </div>
 
           {/* ── TABLE ── */}
@@ -2137,28 +2229,52 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
                     Keine Zeilen. CSV importieren um zu starten.
                   </td></tr>
                 ) : pageRows.map((row, rowIdx) => {
-                  const rowDone = Object.values(row.cellStatuses).some(s=>s==="done");
-                  const rowRunning = Object.values(row.cellStatuses).some(s=>s==="running");
+                  const totalCols = caseData.aiColumns.length;
+                  const statuses = caseData.aiColumns.map(c => row.cellStatuses[c.outputKey] ?? "idle");
+                  const errorCount = statuses.filter(s => s === "error").length;
+                  const runningCount = statuses.filter(s => s === "running").length;
+                  const doneCount = statuses.filter(s => s === "done" || s === "skipped").length;
+                  // Robust row state — priority: error > running > completed > partial > pending
+                  const rowState: "error" | "running" | "completed" | "partial" | "pending" =
+                    errorCount > 0 ? "error"
+                    : runningCount > 0 ? "running"
+                    : totalCols > 0 && doneCount === totalCols ? "completed"
+                    : doneCount > 0 ? "partial"
+                    : "pending";
                   const sel = selectedRows.has(row.id);
                   return (
-                    <tr key={row.id} style={{background: sel?"#ede9fe":rowRunning?"#fefce8":"#fff",borderBottom:"1px solid #f3f4f6"}}>
+                    <tr key={row.id} style={{background: sel?"#ede9fe":rowState==="running"?"#fefce8":rowState==="error"?"#fef2f2":"#fff",borderBottom:"1px solid #f3f4f6"}}>
                       <td style={{width:32,padding:"6px 10px",borderRight:"1px solid #f3f4f6"}}>
                         <input type="checkbox" checked={sel}
                           onChange={e => { const s=new Set(selectedRows); e.target.checked?s.add(row.id):s.delete(row.id); setSelectedRows(s); }}
                           style={{width:13,height:13,cursor:"pointer"}} />
                       </td>
                       <td style={{width:36,padding:"6px 8px",borderRight:"1px solid #f3f4f6",color:"#d1d5db",textAlign:"center",fontSize:11}}>{page*pageSize+rowIdx+1}</td>
-                      {/* Status badge — fixed */}
+                      {/* Status badge — fixed, robust 5-state indicator */}
                       <td style={{padding:"6px 12px",borderRight:"1px solid #f3f4f6",whiteSpace:"nowrap"}}>
-                        {rowRunning
-                          ? <span style={{display:"inline-flex",alignItems:"center",gap:4,fontSize:11,color:"#d97706",background:"#fef3c7",padding:"2px 8px",borderRadius:10}}>
-                              <Loader2 style={{width:10,height:10}} className="animate-spin" /> Läuft
-                            </span>
-                          : rowDone
-                            ? <span style={{display:"inline-flex",alignItems:"center",gap:4,fontSize:11,color:"#7c3aed",background:"#ddd6fe",padding:"2px 8px",borderRadius:10}}>
-                                ✓ Fertig
-                              </span>
-                            : <span style={{fontSize:11,color:"#9ca3af"}}>○ Ausstehend</span>}
+                        {rowState === "error" && (
+                          <span style={{display:"inline-flex",alignItems:"center",gap:4,fontSize:11,fontWeight:600,color:"#dc2626",background:"#fee2e2",padding:"2px 8px",borderRadius:10}} title={`${errorCount} von ${totalCols} Spalten fehlgeschlagen`}>
+                            <AlertCircle style={{width:10,height:10}} /> {errorCount} Fehler
+                          </span>
+                        )}
+                        {rowState === "running" && (
+                          <span style={{display:"inline-flex",alignItems:"center",gap:4,fontSize:11,color:"#d97706",background:"#fef3c7",padding:"2px 8px",borderRadius:10}}>
+                            <Loader2 style={{width:10,height:10}} className="animate-spin" /> Läuft ({doneCount}/{totalCols})
+                          </span>
+                        )}
+                        {rowState === "completed" && (
+                          <span style={{display:"inline-flex",alignItems:"center",gap:4,fontSize:11,fontWeight:600,color:"#15803d",background:"#dcfce7",padding:"2px 8px",borderRadius:10}}>
+                            <CheckCircle2 style={{width:10,height:10}} /> Fertig
+                          </span>
+                        )}
+                        {rowState === "partial" && (
+                          <span style={{display:"inline-flex",alignItems:"center",gap:4,fontSize:11,color:"#7c3aed",background:"#ede9fe",padding:"2px 8px",borderRadius:10}} title={`${doneCount} von ${totalCols} Spalten fertig`}>
+                            ◐ {doneCount}/{totalCols}
+                          </span>
+                        )}
+                        {rowState === "pending" && (
+                          <span style={{fontSize:11,color:"#9ca3af"}}>○ Ausstehend</span>
+                        )}
                       </td>
                       {(colOrder.length > 0 ? colOrder : [...sourceColumns,...caseData.aiColumns.map(c=>c.outputKey)]).map(key => {
                         const aiCol = caseData.aiColumns.find(c=>c.outputKey===key);
@@ -2168,94 +2284,83 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
                           const val = row.data[aiCol.outputKey]??"";
                           const err = row.cellErrors[aiCol.outputKey];
                           const isEd = editingCell?.rowId===row.id && editingCell.key===aiCol.outputKey;
+                          const hasRun = status==="done"||status==="error"||status==="skipped";
+                          const notFound = status==="done" && !val;
+                          const isValid = val.startsWith("✓");
+                          const isInvalid = val.startsWith("✗");
+                          // Primary click action depends on state
+                          function handleCellClick(e: React.MouseEvent) {
+                            e.stopPropagation();
+                            if (status === "running") { stopCell(row.id, aiCol); return; }
+                            if (status === "idle") { runCell(row.id, aiCol); return; }
+                            setRunDetailCell({col: aiCol, row}); // done/error/skipped → show details
+                          }
                           return (
-                            <td key={key} style={{padding:"5px 10px",borderRight:"1px solid #f3f4f6",background:status==="error"?"#fef2f2":undefined}} className="group/cell" onDoubleClick={()=>startEdit(row.id,aiCol.outputKey,val)}>
+                            <td key={key}
+                              onClick={handleCellClick}
+                              onDoubleClick={()=>startEdit(row.id,aiCol.outputKey,val)}
+                              title={status==="idle"?"Klicken zum Ausführen":status==="running"?"Klicken zum Stoppen":status==="error"?err:"Klicken für Details"}
+                              className="group/cell"
+                              style={{
+                                padding:"5px 10px",
+                                borderRight:"1px solid #f3f4f6",
+                                cursor: status==="idle" ? "pointer" : "default",
+                                background: status==="error"?"#fef2f2": status==="idle"?"":undefined,
+                                minWidth: 100,
+                              }}>
                               {isEd ? <EditInput rowId={row.id} k={aiCol.outputKey} /> : (
-                                <div style={{display:"flex",alignItems:"center",gap:5,minHeight:24}}>
-                                  {/* running spinner */}
-                                  {status==="running" && <Loader2 style={{width:12,height:12,color:"#d97706",flexShrink:0}} className="animate-spin"/>}
+                                <div style={{display:"flex",alignItems:"center",gap:4,minHeight:22,position:"relative"}}>
 
-                                  {(() => {
-                                    const hasRun = status==="done"||status==="error"||status==="skipped";
-                                    const notFound = status==="done" && !val;
-                                    const isValid = val.startsWith("✓");
-                                    const isInvalid = val.startsWith("✗");
+                                  {/* ── RUNNING ── */}
+                                  {status==="running" && <>
+                                    <Loader2 style={{width:11,height:11,color:"#d97706",flexShrink:0}} className="animate-spin"/>
+                                    <span style={{fontSize:11,color:"#d97706",flex:1}}>läuft…</span>
+                                    <span style={{fontSize:10,color:"#f87171",background:"#fee2e2",padding:"1px 5px",borderRadius:4,flexShrink:0}}>■ Stop</span>
+                                  </>}
 
-                                    return (
-                                      <>
-                                        {/* idle — show run button on hover */}
-                                        {status==="idle" && (
-                                          <button onClick={()=>runCell(row.id,aiCol)}
-                                            className="opacity-0 group-hover/cell:opacity-100"
-                                            style={{display:"flex",alignItems:"center",gap:3,fontSize:11,color:"#7c3aed",border:"none",background:"none",cursor:"pointer",transition:"opacity .15s",padding:0,flex:1}}>
-                                            <Play style={{width:10,height:10}}/> Run
-                                          </button>
-                                        )}
+                                  {/* ── IDLE — click to run ── */}
+                                  {status==="idle" && (
+                                    <span style={{fontSize:11,color:"#c4b5fd",flex:1,display:"flex",alignItems:"center",gap:3}}>
+                                      <Play style={{width:9,height:9}}/> Run
+                                    </span>
+                                  )}
 
-                                        {/* skipped */}
-                                        {status==="skipped" && (
-                                          <span style={{fontSize:11,color:"#9ca3af",flex:1}}>⏭</span>
-                                        )}
+                                  {/* ── SKIPPED ── */}
+                                  {status==="skipped" && (
+                                    <span style={{fontSize:11,color:"#d1d5db",flex:1}}>—</span>
+                                  )}
 
-                                        {/* error */}
-                                        {status==="error" && (
-                                          <span style={{display:"inline-flex",alignItems:"center",gap:3,fontSize:11,color:"#dc2626",flex:1}} title={err}>
-                                            <AlertCircle style={{width:11,height:11,flexShrink:0}}/> {err?.slice(0,30)||"Fehler"}
-                                          </span>
-                                        )}
+                                  {/* ── ERROR ── */}
+                                  {status==="error" && (
+                                    <span style={{display:"inline-flex",alignItems:"center",gap:3,fontSize:11,color:"#dc2626",flex:1}} title={err}>
+                                      <AlertCircle style={{width:10,height:10,flexShrink:0}}/> {err?.slice(0,40)||"Fehler"}
+                                    </span>
+                                  )}
 
-                                        {/* done but nothing found */}
-                                        {notFound && (
-                                          <span style={{display:"inline-flex",alignItems:"center",gap:4,fontSize:11,color:"#9ca3af",background:"#f3f4f6",padding:"2px 8px",borderRadius:6,flex:1}}>
-                                            <XCircle style={{width:10,height:10,flexShrink:0,color:"#d1d5db"}}/>
-                                            <span style={{fontStyle:"italic"}}>nicht gefunden</span>
-                                          </span>
-                                        )}
+                                  {/* ── DONE ── */}
+                                  {status==="done" && <>
+                                    {notFound && (
+                                      <span style={{fontSize:11,color:"#9ca3af",fontStyle:"italic",flex:1}}>—</span>
+                                    )}
+                                    {isValid && (
+                                      <span style={{fontSize:12,fontWeight:600,color:"#6d28d9",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={val}>{val.slice(2)}</span>
+                                    )}
+                                    {isInvalid && (
+                                      <span style={{fontSize:12,fontWeight:600,color:"#dc2626",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={val}>{val.slice(2)}</span>
+                                    )}
+                                    {val && !isValid && !isInvalid && (
+                                      <span style={{fontSize:12,color:"#1f2937",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={val}>{val}</span>
+                                    )}
+                                    {/* Re-run icon — only visible on hover */}
+                                    <button
+                                      onClick={e=>{e.stopPropagation();runCell(row.id,aiCol);}}
+                                      className="opacity-0 group-hover/cell:opacity-100"
+                                      style={{border:"none",background:"none",cursor:"pointer",padding:"2px 3px",color:"#9ca3af",display:"flex",transition:"opacity .15s",flexShrink:0}}
+                                      title="Erneut ausführen">
+                                      <Play style={{width:8,height:8}}/>
+                                    </button>
+                                  </>}
 
-                                        {/* valid domain */}
-                                        {isValid && (
-                                          <span style={{display:"inline-flex",alignItems:"center",gap:4,fontSize:11,fontWeight:600,color:"#6d28d9",background:"#ede9fe",padding:"2px 8px",borderRadius:6,flex:1,minWidth:0,overflow:"hidden"}}>
-                                            <CheckCircle style={{width:10,height:10,flexShrink:0}}/><span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{val.slice(2)}</span>
-                                          </span>
-                                        )}
-
-                                        {/* invalid domain */}
-                                        {isInvalid && (
-                                          <span style={{display:"inline-flex",alignItems:"center",gap:4,fontSize:11,fontWeight:600,color:"#dc2626",background:"#fee2e2",padding:"2px 8px",borderRadius:6,flex:1,minWidth:0,overflow:"hidden"}}>
-                                            <XCircle style={{width:10,height:10,flexShrink:0}}/><span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{val.slice(2)}</span>
-                                          </span>
-                                        )}
-
-                                        {/* plain value */}
-                                        {val && !isValid && !isInvalid && status!=="error" && status!=="skipped" && (
-                                          <span style={{fontSize:12,color:"#1f2937",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={val}>{val}</span>
-                                        )}
-
-                                        {/* action buttons — always visible after run, hover-only when idle */}
-                                        <div style={{display:"flex",alignItems:"center",gap:1,flexShrink:0}}>
-                                          {status === "running" ? (
-                                            <button onClick={e=>{e.stopPropagation();stopCell(row.id,aiCol);}}
-                                              style={{border:"none",background:"none",cursor:"pointer",padding:"2px",color:"#dc2626",display:"flex"}} title="Stop">
-                                              <XCircle style={{width:9,height:9}}/>
-                                            </button>
-                                          ) : (
-                                            <button onClick={e=>{e.stopPropagation();runCell(row.id,aiCol);}}
-                                              className={hasRun ? undefined : "opacity-0 group-hover/cell:opacity-100"}
-                                              style={{border:"none",background:"none",cursor:"pointer",padding:"2px",color:"#d1d5db",display:"flex",transition:"opacity .15s"}} title="Erneut ausführen">
-                                              <Play style={{width:9,height:9}}/>
-                                            </button>
-                                          )}
-                                          {/* Info always visible after run */}
-                                          <button onClick={e=>{e.stopPropagation();setRunDetailCell({col:aiCol,row});}}
-                                            className={hasRun ? undefined : "opacity-0 group-hover/cell:opacity-100"}
-                                            style={{border:"none",background:"none",cursor:"pointer",padding:"2px",display:"flex",transition:"opacity .15s",
-                                              color: notFound?"#f59e0b": hasRun?"#60a5fa":"#d1d5db"}} title="Details anzeigen">
-                                            <Info style={{width:10,height:10}}/>
-                                          </button>
-                                        </div>
-                                      </>
-                                    );
-                                  })()}
                                 </div>
                               )}
                             </td>
@@ -2263,7 +2368,7 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
                         }
                         const val = row.data[key]??"";
                         const isEd = editingCell?.rowId===row.id && editingCell.key===key;
-                        const isValidated = !isSrc && !aiCol; // orphan multiKey output
+                        const isValidated = !isSrc && !aiCol;
                         const isReasoning = key.startsWith("_reasoning_");
                         return (
                           <td key={key} style={{padding:"6px 12px",borderRight:"1px solid #f3f4f6",maxWidth:200,

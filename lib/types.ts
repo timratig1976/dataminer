@@ -35,6 +35,10 @@ export interface AiColumn {
   toolApolloTitles?: string[];
   /** Max contacts to fetch (default 10) */
   toolApolloLimit?: number;
+
+  // ── Table grouping (for layered view) ────────────────────────────────────
+  /** Which logical table this column belongs to. "company" = top level, "contact" = sub-row. Default: none (flat). */
+  columnGroup?: "company" | "contact";
 }
 
 export interface Case {
@@ -78,4 +82,19 @@ export interface RunColumnRequest {
 export interface RunRowRequest {
   caseId: string;
   rowId: string;
+}
+
+// ── Grouped (Company→Contacts) view ──────────────────────────────────────
+
+export interface CompanyGroup {
+  companyName: string;
+  companyRow: RowData;
+  contacts: RowData[];
+}
+
+export interface GroupedRowsResponse {
+  companies: CompanyGroup[];
+  totalCompanies: number;
+  page: number;
+  perPage: number;
 }
