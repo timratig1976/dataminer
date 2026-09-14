@@ -29,10 +29,13 @@ export default function AppShell({
     <div className="flex h-screen bg-gray-50 overflow-hidden">
       <div className="w-64 bg-white border-r border-gray-200 flex flex-col shrink-0">
         <div className="px-4 py-3 border-b border-gray-100">
-          <div className="flex items-center gap-2">
+          <button
+            onClick={() => router.push("/dashboard")}
+            className="flex items-center gap-2 hover:opacity-80 transition-opacity w-full text-left"
+          >
             <div className="w-6 h-6 bg-violet-600 rounded flex items-center justify-center text-white text-xs font-bold">D</div>
             <span className="font-semibold text-gray-900 text-sm">DataMiner</span>
-          </div>
+          </button>
         </div>
 
         <nav className="flex-1 py-2 overflow-y-auto">

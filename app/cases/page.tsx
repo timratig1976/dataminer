@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Search, Trash2, Settings, Eye, ChevronRight, Database, LayoutTemplate, Check } from "lucide-react";
+import { Plus, Search, Trash2, Eye, ChevronRight, Database, LayoutTemplate, Check } from "lucide-react";
 import type { Case } from "@/lib/types";
 import type { ProjectTemplate } from "@/lib/templates";
 import AppShell from "@/components/AppShell";
@@ -13,11 +13,10 @@ export default function CasesPage() {
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState("");
-  const [edenApiKey, setEdenApiKey] = useState("");
   const [search, setSearch] = useState("");
   const [loadError, setLoadError] = useState<string | null>(null);
   const [templates, setTemplates] = useState<ProjectTemplate[]>([]);
-  const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>("standard");
 
   useEffect(() => {
     fetch("/api/cases")
@@ -27,7 +26,6 @@ export default function CasesPage() {
           throw new Error((data && data.error) || `HTTP ${r.status}`);
         }
         setCases(data);
-        if (data.length === 1) router.push(`/cases/${data[0].id}`);
       })
       .catch((e) => setLoadError(e instanceof Error ? e.message : String(e)))
       .finally(() => setLoading(false));
@@ -50,8 +48,7 @@ export default function CasesPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         name: newName.trim(),
-        edenApiKey: edenApiKey.trim() || undefined,
-        template: selectedTemplateId || undefined,
+        template: selectedTemplateId || "none",
       }),
     });
     const c = await res.json();
@@ -121,9 +118,6 @@ export default function CasesPage() {
                   {c.name.charAt(0).toUpperCase()}
                 </div>
                 <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <button onClick={(e) => { e.stopPropagation(); router.push(`/cases/${c.id}/settings`); }} className="p-1 text-gray-400 hover:text-gray-600">
-                    <Settings className="w-3.5 h-3.5" />
-                  </button>
                   <button onClick={(e) => deleteCase(c.id, e)} className="p-1 text-gray-400 hover:text-red-500">
                     <Trash2 className="w-3.5 h-3.5" />
                   </button>
@@ -143,7 +137,7 @@ export default function CasesPage() {
 
       {/* Create modal */}
       {creating && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" onClick={(e) => e.target === e.currentTarget && (() => { setCreating(false); setNewName(""); setEdenApiKey(""); setSelectedTemplateId(null); })()}>
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" onClick={(e) => e.target === e.currentTarget && (() => { setCreating(false); setNewName(""); setSelectedTemplateId("standard"); })()}>
           <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-lg">
             <h3 className="text-lg font-semibold text-gray-900 mb-4">Neuer Case</h3>
             <div className="space-y-4">
@@ -214,23 +208,12 @@ export default function CasesPage() {
                 </div>
               )}
 
-              <div>
-                <label className="text-xs font-medium text-gray-600 uppercase tracking-wide">Eden AI API Key (optional)</label>
-                <input
-                  value={edenApiKey}
-                  onChange={(e) => setEdenApiKey(e.target.value)}
-                  placeholder="leer = EDEN_API_KEY aus Env"
-                  type="password"
-                  className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 font-mono"
-                />
-                <p className="text-xs text-gray-400 mt-1">Ein Key für alle Modelle (Eden AI Gateway). Verschlüsselt gespeichert.</p>
-              </div>
             </div>
             <div className="flex gap-2 mt-5">
               <button onClick={createCase} className="flex-1 bg-violet-600 text-white py-2.5 rounded-lg text-sm font-medium hover:bg-violet-700">
                 Erstellen
               </button>
-              <button onClick={() => { setCreating(false); setNewName(""); setEdenApiKey(""); setSelectedTemplateId(null); }} className="flex-1 border border-gray-300 text-gray-700 py-2.5 rounded-lg text-sm font-medium hover:bg-gray-50">
+              <button onClick={() => { setCreating(false); setNewName(""); setSelectedTemplateId("standard"); }} className="flex-1 border border-gray-300 text-gray-700 py-2.5 rounded-lg text-sm font-medium hover:bg-gray-50">
                 Abbrechen
               </button>
             </div>

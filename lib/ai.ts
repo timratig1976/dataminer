@@ -268,6 +268,7 @@ export async function runAiColumn(
       requestedFields: column.batchOutputFields ?? [...BATCH_FIELDS],
       searchContacts: column.batchSearchContacts ?? true,
       cachedScrape: cachedScrape?.markdown ?? undefined,
+      customSystemPrompt: column.prompt?.trim() || undefined,
       signal,
     });
 

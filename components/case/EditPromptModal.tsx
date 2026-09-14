@@ -5,6 +5,31 @@ import { Play, Loader2, Save, Sparkles, Zap, Info } from "lucide-react";
 import type { AiColumn, CellStatus, Case } from "@/lib/types";
 import { DEFAULT_MODEL_OPTIONS, mergeModelOptions } from "@/lib/model-options";
 
+// Client-safe copies (avoid importing lib/batch-enrich which pulls in playwright)
+const BATCH_FIELDS = [
+  "company_name", "domain", "phone", "email", "address", "city", "zip",
+  "industry", "description", "employees", "founded", "first_name",
+  "last_name", "position", "linkedin",
+] as const;
+
+const BATCH_FIELD_LABELS: Record<string, string> = {
+  company_name: "Firmenname",
+  domain: "Domain/Website",
+  phone: "Telefon",
+  email: "E-Mail",
+  address: "Adresse",
+  city: "Stadt",
+  zip: "PLZ",
+  industry: "Branche",
+  description: "Beschreibung",
+  employees: "Mitarbeiterzahl",
+  founded: "Gründungsjahr",
+  first_name: "Vorname (Ansprechpartner)",
+  last_name: "Nachname (Ansprechpartner)",
+  position: "Position (Ansprechpartner)",
+  linkedin: "LinkedIn-Profil",
+};
+
 export default function EditPromptModal({ col, caseId, onSave, onClose, cellContext, onRunCell, onOpenRunDetail, availableFields }: {
   col: AiColumn; caseId: string;
   onSave: (updated: AiColumn) => void;
@@ -24,6 +49,32 @@ export default function EditPromptModal({ col, caseId, onSave, onClose, cellCont
   const [modelOptions, setModelOptions] = useState<string[]>([...DEFAULT_MODEL_OPTIONS]);
   const promptRef = useRef<HTMLTextAreaElement>(null);
   const requiredFields = draft.requiredFields ?? [];
+
+  const isBatch = draft.tool === "batch_enrich" || draft.tool === "batch_contacts";
+
+  /** Build the default batch system prompt for display/reset */
+  function getDefaultBatchPrompt(): string {
+    const fields = draft.batchOutputFields ?? [...BATCH_FIELDS];
+    const fieldList = fields
+      .map((f) => `  "${f}": "${BATCH_FIELD_LABELS[f] ?? f}"`)
+      .join(",\n");
+    return `Du bist ein präziser Daten-Extraktions-Agent für Unternehmensprofile.
+Analysiere die gegebenen Quellen (Website-Inhalt, Suchergebnisse) und extrahiere strukturierte Unternehmensdaten.
+
+Antworte NUR mit JSON (kein Markdown, keine Erklärungen):
+{
+${fieldList}
+}
+
+Regeln:
+- Fehlende Felder: null (NICHT weglassen, NICHT raten)
+- domain: nur Basis-Domain ohne http/https/www (z.B. "example.de")
+- phone: internationales Format wenn möglich (z.B. "+49 381 454000")
+- industry: kurze präzise Beschreibung (z.B. "Heizungs-, Sanitär- und Klimatechnik")
+- description: 1-2 Sätze was das Unternehmen macht
+- Ansprechpartner: nur wenn Name/Position klar erkennbar (kein Raten)
+- Wenn mehrere Telefonnummern: die primäre Kontaktnummer`;
+  }
 
   useEffect(() => {
     fetch(`/api/llm/models?caseId=${caseId}`)
@@ -148,7 +199,24 @@ export default function EditPromptModal({ col, caseId, onSave, onClose, cellCont
           </div>
 
           <div>
-            <label style={lbl}>Prompt</label>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}}>
+              <label style={{...lbl,marginBottom:0}}>Prompt</label>
+              {isBatch && (
+                <button
+                  type="button"
+                  onClick={() => setDraft(d => ({...d, prompt: getDefaultBatchPrompt()}))}
+                  style={{fontSize:11,padding:"2px 10px",borderRadius:6,border:"1px solid #d1d5db",background:"#f9fafb",cursor:"pointer",color:"#374151",fontFamily:"inherit"}}
+                  title="Prompt auf Standard zurücksetzen"
+                >
+                  ↺ Standard
+                </button>
+              )}
+            </div>
+            {isBatch && !draft.prompt.trim() && (
+              <div style={{marginBottom:6,padding:"8px 10px",background:"#f0f9ff",border:"1px solid #bfdbfe",borderRadius:6,fontSize:11,color:"#1e40af"}}>
+                ℹ️ Leer = Standard-Prompt wird verwendet. Hier kannst du einen eigenen System-Prompt eingeben.
+              </div>
+            )}
             <textarea ref={promptRef} style={{...inp,fontFamily:"monospace",fontSize:12,minHeight:260,resize:"vertical",lineHeight:1.6}}
               value={draft.prompt}
               onChange={e=>{

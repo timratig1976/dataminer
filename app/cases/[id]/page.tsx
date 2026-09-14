@@ -25,6 +25,30 @@ import { useCaseData } from "@/hooks/useCaseData";
 import { useRunColumns } from "@/hooks/useRunColumns";
 import { CaseContext } from "@/hooks/CaseContext";
 
+/** Human-readable label for a column key (client-safe, no server imports) */
+const COL_LABELS: Record<string, string> = {
+  company_name: "Firma",
+  contacts: "Kontakt",
+  domain: "Domain",
+  phone: "Telefon",
+  email: "E-Mail",
+  address: "Adresse",
+  city: "Stadt",
+  zip: "PLZ",
+  industry: "Branche",
+  description: "Beschreibung",
+  employees: "Mitarbeiter",
+  founded: "Gründungsjahr",
+  first_name: "Vorname",
+  last_name: "Nachname",
+  position: "Position",
+  linkedin: "LinkedIn",
+};
+
+function colLabel(key: string): string {
+  return COL_LABELS[key] ?? key;
+}
+
 
 // ── Inline Settings Panel ─────────────────────────────────────────────────────
 function SettingsPanel({ caseId, onCaseUpdated }: { caseId: string; onCaseUpdated: (c: Case) => void }) {
@@ -507,6 +531,48 @@ function CatalogScrapeButton({ url, caseId, onScraped }: { url: string; caseId: 
   );
 }
 
+// ── Inline editable case name ───────────────────────────────────────────────
+function InlineCaseName({ name, onSave }: { name: string; onSave: (name: string) => Promise<void> }) {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(name);
+  const [saving, setSaving] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => { setValue(name); }, [name]);
+  useEffect(() => { if (editing) inputRef.current?.focus(); }, [editing]);
+
+  async function save() {
+    const trimmed = value.trim();
+    if (!trimmed || trimmed === name) { setEditing(false); setValue(name); return; }
+    setSaving(true);
+    await onSave(trimmed);
+    setSaving(false);
+    setEditing(false);
+  }
+
+  if (!editing) return (
+    <span
+      onClick={() => setEditing(true)}
+      style={{ cursor: "pointer", borderBottom: "1px dashed transparent", transition: "border-color .15s" }}
+      onMouseEnter={e => (e.currentTarget.style.borderBottomColor = "#d1d5db")}
+      onMouseLeave={e => (e.currentTarget.style.borderBottomColor = "transparent")}
+      title="Klicken zum Umbenennen"
+    >{name}</span>
+  );
+
+  return (
+    <input
+      ref={inputRef}
+      value={value}
+      onChange={e => setValue(e.target.value)}
+      onBlur={save}
+      onKeyDown={e => { if (e.key === "Enter") save(); if (e.key === "Escape") { setValue(name); setEditing(false); } }}
+      disabled={saving}
+      style={{ fontSize: 16, fontWeight: 700, color: "#111", border: "none", borderBottom: "2px solid #7c3aed", outline: "none", background: "transparent", padding: 0, width: `${Math.max(value.length * 10, 120)}px` }}
+    />
+  );
+}
+
 export default function CasePage({ params }: { params: Promise<{ id: string }> }) {
   const { id: caseId } = use(params);
   const router = useRouter();
@@ -536,7 +602,7 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
   const [pageSize] = useState(50);
   const [showLogs, setShowLogs] = useState(false);
   const [logs, setLogs] = useState<{ id: number; message: string; createdAt: string }[]>([]);
-  const [activeTab, setActiveTab] = useState<"Tabelle" | "Quellen" | "Einstellungen" | "Log" | "Export">("Tabelle");
+  const [activeTab, setActiveTab] = useState<"Tabelle" | "Quellen" | "Log" | "Export">("Tabelle");
   const [showUpload, setShowUpload] = useState(false);
   const [showPromptCols, setShowPromptCols] = useState(false);
   const [rangeVon, setRangeVon] = useState(1);
@@ -700,13 +766,12 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
     return updated;
   };
 
-  const tabs = ["Tabelle","Quellen","Einstellungen","Log","Export"] as const;
+  const tabs = ["Tabelle","Quellen","Log","Export"] as const;
 
   function tabIcon(t: string): string {
     switch (t) {
       case "Tabelle": return "📋 ";
       case "Quellen": return "🔍 ";
-      case "Einstellungen": return "⚙️ ";
       case "Log": return "📜 ";
       case "Export": return "📤 ";
       default: return "";
@@ -738,10 +803,13 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
       <div style={{width:220,background:"#fff",borderRight:"1px solid #e5e7eb",display:"flex",flexDirection:"column",flexShrink:0}}>
         {/* Logo row */}
         <div style={{padding:"12px 16px",borderBottom:"1px solid #f3f4f6"}}>
-          <div style={{display:"flex",alignItems:"center",gap:8}}>
+          <button onClick={() => router.push("/dashboard")}
+            style={{display:"flex",alignItems:"center",gap:8,background:"none",border:"none",cursor:"pointer",padding:0,width:"100%",textAlign:"left"}}
+            onMouseEnter={e=>(e.currentTarget.style.opacity="0.75")}
+            onMouseLeave={e=>(e.currentTarget.style.opacity="1")}>
             <div style={{width:24,height:24,background:"#7c3aed",borderRadius:4,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:12,fontWeight:700,flexShrink:0}}>D</div>
             <span style={{fontWeight:600,fontSize:14,color:"#111827"}}>DataMiner</span>
-          </div>
+          </button>
         </div>
         {/* New case */}
         <div style={{padding:"8px 12px",borderBottom:"1px solid #f3f4f6"}}>
@@ -782,7 +850,12 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
         {/* ── Case header ── */}
         <div style={{background:"#fff",borderBottom:"1px solid #e5e7eb",padding:"16px 28px 0",flexShrink:0}}>
           <div style={{marginBottom:6}}>
-            <div style={{fontSize:16,fontWeight:700,color:"#111"}}>{caseData.name}</div>
+            <div style={{fontSize:16,fontWeight:700,color:"#111"}}>
+              <InlineCaseName name={caseData.name} onSave={async (newName) => {
+                const updated = await updateCase({ name: newName });
+                setCaseData(updated);
+              }} />
+            </div>
             <div style={{fontSize:12,color:"#6b7280",marginTop:2,display:"flex",alignItems:"center",gap:8}}>
               <span>{new Date(caseData.createdAt).toLocaleDateString("de-DE")} · {dataRows.length} Zeilen{catalogRows.length > 0 ? ` + ${catalogRows.length} Kataloge` : ""} · {sourceColumns.length} Quellspalten · {caseData.aiColumns.length} KI-Spalten</span>
               <CostDashboard totals={totals} rowCount={rows.length} colCount={caseData.aiColumns.length} />
@@ -1122,10 +1195,10 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
                               isRunning={runningColumnId === aiCol.id}
                             />
                           ) : isOrphan ? (
-                            <span style={{flex:1,color:"#0d9488",fontSize:11,fontWeight:600}}>{key}</span>
+                            <span style={{flex:1,color:"#0d9488",fontSize:11,fontWeight:600}}>{colLabel(key)}</span>
                           ) : (
                             <div className="group/hdr" style={{display:"flex",alignItems:"center",gap:4,width:"100%"}}>
-                              <span style={{flex:1}}>{key==="company_name"?"Firma":key==="contacts"?"Kontakt":key}</span>
+                              <span style={{flex:1}}>{colLabel(key)}</span>
                               <button
                                 onClick={e=>{e.stopPropagation();deleteSourceColumn(key);}}
                                 className="opacity-0 group-hover/hdr:opacity-100"
@@ -1722,10 +1795,7 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
           </div>
         )}
 
-        {/* ══ TAB: EINSTELLUNGEN ══ */}
-        {activeTab === "Einstellungen" && (
-          <SettingsPanel caseId={caseId} onCaseUpdated={setCaseData} />
-        )}
+
 
       </div>
 

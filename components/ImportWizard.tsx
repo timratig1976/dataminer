@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useRef, useCallback } from "react";
+import React, { useState, useRef, useCallback, useEffect } from "react";
 
 interface MappingResult {
   originalKey: string;
@@ -42,6 +42,9 @@ const CANONICAL_LABELS: Record<string, string> = {
   employees: "Mitarbeiter",
   revenue: "Umsatz",
   founded: "Gründungsjahr",
+  first_name: "Vorname",
+  last_name: "Nachname",
+  position: "Position",
   source_url: "Quelle",
 };
 
@@ -63,7 +66,60 @@ export default function ImportWizard({ caseId, onImported, onClose }: ImportWiza
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [importResult, setImportResult] = useState<{ imported: number; skipped: number } | null>(null);
+  const [existingColumns, setExistingColumns] = useState<string[]>([]);
+  const [llmLoading, setLlmLoading] = useState(false);
+  const [llmUsed, setLlmUsed] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  // Fetch existing case columns on mount
+  useEffect(() => {
+    fetch(`/api/cases/${caseId}`)
+      .then((r) => r.json())
+      .then((c) => {
+        const cols: string[] = [];
+        // colOrder has base column keys; aiColumns have outputKeys
+        if (Array.isArray(c.colOrder)) cols.push(...c.colOrder);
+        if (Array.isArray(c.aiColumns)) c.aiColumns.forEach((col: { outputKey: string }) => cols.push(col.outputKey));
+        setExistingColumns([...new Set(cols)].filter((k) => !k.startsWith("_")));
+      })
+      .catch(() => {});
+  }, [caseId]);
+
+  // ── LLM mapping suggestion ───────────────────────────────────────────────
+
+  const suggestLlmMapping = useCallback(async () => {
+    if (!preview) return;
+    setLlmLoading(true);
+    try {
+      const res = await fetch("/api/import/llm-map", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          caseId,
+          headers: preview.headers,
+          sampleRows: preview.previewRows,
+          existingColumns,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.mapping) {
+        setMapping((prev) => {
+          const next = { ...prev };
+          for (const [header, suggested] of Object.entries(data.mapping)) {
+            if (typeof suggested === "string" && suggested.trim()) {
+              next[header] = suggested;
+            }
+          }
+          return next;
+        });
+        setLlmUsed(true);
+      }
+    } catch {
+      // LLM mapping is optional — deterministic mapping still works
+    } finally {
+      setLlmLoading(false);
+    }
+  }, [caseId, preview, existingColumns]);
 
   // ── File handling ────────────────────────────────────────────────────────
 
@@ -177,12 +233,30 @@ export default function ImportWizard({ caseId, onImported, onClose }: ImportWiza
 
           {/* Field mapping table */}
           <div>
-            <p className="text-xs font-semibold text-gray-500 uppercase mb-2">Feld-Zuordnung</p>
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs font-semibold text-gray-500 uppercase">Feld-Zuordnung</p>
+              <button
+                onClick={suggestLlmMapping}
+                disabled={llmLoading}
+                className="flex items-center gap-1.5 text-xs font-medium text-violet-700 bg-violet-50 border border-violet-200 rounded-lg px-2.5 py-1.5 hover:bg-violet-100 disabled:opacity-50 transition-colors"
+              >
+                {llmLoading ? (
+                  <>
+                    <span className="animate-spin inline-block">⚙️</span> KI analysiert…
+                  </>
+                ) : llmUsed ? (
+                  <>✓ KI-Vorschlag angewendet</>
+                ) : (
+                  <>✨ KI-Mapping vorschlagen</>
+                )}
+              </button>
+            </div>
             <div className="rounded-lg border border-gray-200 overflow-hidden">
               <table className="w-full text-sm">
                 <thead className="bg-gray-50">
                   <tr>
                     <th className="text-left px-3 py-2 text-xs text-gray-500 font-medium">Spalte in Datei</th>
+                    <th className="text-left px-3 py-2 text-xs text-gray-500 font-medium">Beispiel</th>
                     <th className="text-left px-3 py-2 text-xs text-gray-500 font-medium">Zuordnung</th>
                     <th className="text-left px-3 py-2 text-xs text-gray-500 font-medium">Konfidenz</th>
                   </tr>
@@ -191,21 +265,36 @@ export default function ImportWizard({ caseId, onImported, onClose }: ImportWiza
                   {preview.headers.map((header) => {
                     const m = preview.mapping[header];
                     const currentMapping = mapping[header] ?? m?.canonicalKey ?? header;
+                    const sampleValue = preview.previewRows[0]?.[header] ?? "";
                     return (
                       <tr key={header} className="border-t border-gray-100">
-                        <td className="px-3 py-2 font-mono text-xs text-gray-700">{header}</td>
+                        <td className="px-3 py-2 font-mono text-xs text-gray-700 max-w-[140px] truncate" title={header}>{header}</td>
+                        <td className="px-3 py-2 text-xs text-gray-500 max-w-[120px] truncate" title={sampleValue}>
+                          {sampleValue ? `"${sampleValue.slice(0, 40)}${sampleValue.length > 40 ? "…" : ""}"` : <span className="text-gray-300">—</span>}
+                        </td>
                         <td className="px-3 py-2">
                           <select
-                            className="text-sm border border-gray-200 rounded px-2 py-1 bg-white"
+                            className="text-sm border border-gray-200 rounded px-2 py-1 bg-white max-w-[200px]"
                             value={currentMapping}
                             onChange={(e) => setMapping((prev) => ({ ...prev, [header]: e.target.value }))}
                           >
-                            {Object.entries(CANONICAL_LABELS).map(([k, label]) => (
-                              <option key={k} value={k}>{label} ({k})</option>
-                            ))}
-                            <option value={header.toLowerCase().replace(/[^a-z0-9]+/g, "_")}>
-                              {header} (original)
-                            </option>
+                            <optgroup label="Kanonische Felder">
+                              {Object.entries(CANONICAL_LABELS).map(([k, label]) => (
+                                <option key={k} value={k}>{label} ({k})</option>
+                              ))}
+                            </optgroup>
+                            {existingColumns.length > 0 && (
+                              <optgroup label="Bestehende Spalten">
+                                {existingColumns.map((k) => (
+                                  <option key={k} value={k}>{CANONICAL_LABELS[k] ?? k} (vorhanden)</option>
+                                ))}
+                              </optgroup>
+                            )}
+                            <optgroup label="Sonstige">
+                              <option value={header.toLowerCase().replace(/[^a-z0-9]+/g, "_")}>
+                                {header} (original beibehalten)
+                              </option>
+                            </optgroup>
                           </select>
                         </td>
                         <td className={`px-3 py-2 text-xs ${CONFIDENCE_COLORS[m?.confidence ?? "fallback"]}`}>

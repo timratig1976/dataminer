@@ -64,7 +64,8 @@ export const BATCH_FIELD_LABELS: Record<BatchField, string> = {
 
 // ── System prompt (fixed, cached by LLM provider) ─────────────────────────────
 
-function buildSystemPrompt(requestedFields: string[]): string {
+/** Exported so the UI can show the default prompt and offer a "reset to default". */
+export function buildSystemPrompt(requestedFields: string[]): string {
   const fieldList = requestedFields
     .map((f) => `  "${f}": "${BATCH_FIELD_LABELS[f as BatchField] ?? f}"`)
     .join(",\n");
@@ -98,6 +99,8 @@ export interface BatchEnrichOptions {
   requestedFields?: string[];
   searchContacts?: boolean;
   cachedScrape?: string;  // pre-fetched markdown (from scrape_cache)
+  /** Custom system prompt override (from column.prompt). If empty, uses default. */
+  customSystemPrompt?: string;
   signal?: AbortSignal;
 }
 
@@ -127,6 +130,7 @@ export async function batchEnrichRow(
     requestedFields = [...BATCH_FIELDS],
     searchContacts = true,
     cachedScrape,
+    customSystemPrompt,
     signal,
   } = options;
 
@@ -214,7 +218,8 @@ export async function batchEnrichRow(
   }
 
   // 5. Single LLM call — extract all fields at once
-  const systemPrompt = buildSystemPrompt(requestedFields);
+  // Use custom system prompt if provided, otherwise build default
+  const systemPrompt = customSystemPrompt?.trim() || buildSystemPrompt(requestedFields);
   const userPrompt = sanitizeForLlm([
     companyName ? `Unternehmen: ${companyName}` : "",
     domain ? `Domain: ${domain}` : "",

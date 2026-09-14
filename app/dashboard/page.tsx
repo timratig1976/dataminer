@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import {
   Database, Rows3, Sparkles, CheckCircle2, XCircle,
   DollarSign, ArrowRight, Plus, TrendingUp, Loader2,
-  LayoutDashboard,
+  LayoutDashboard, Trash2,
 } from "lucide-react";
 import AppShell from "@/components/AppShell";
 
@@ -62,6 +62,13 @@ export default function DashboardPage() {
       .then((data) => { setStats(data); setLoading(false); })
       .catch(() => setLoading(false));
   }, []);
+
+  async function deleteCase(id: string, e: React.MouseEvent) {
+    e.stopPropagation();
+    if (!confirm("Case und alle Daten wirklich löschen?")) return;
+    await fetch(`/api/cases/${id}`, { method: "DELETE" });
+    setStats((prev) => prev ? { ...prev, cases: prev.cases.filter((c) => c.id !== id), totalCases: prev.totalCases - 1 } : prev);
+  }
 
   const completionPct = stats && stats.totalCells > 0
     ? Math.round((stats.doneCells / stats.totalCells) * 100)
@@ -227,7 +234,16 @@ export default function DashboardPage() {
                               {new Date(c.updatedAt).toLocaleDateString("de-DE", { day: "2-digit", month: "short" })}
                             </td>
                             <td className="px-4 py-3.5 text-right">
-                              <ArrowRight className="w-3.5 h-3.5 text-gray-300 ml-auto" />
+                              <div className="flex items-center justify-end gap-2">
+                                <button
+                                  onClick={(e) => deleteCase(c.id, e)}
+                                  className="p-1 text-gray-300 hover:text-red-500 transition-colors"
+                                  title="Case löschen"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                                <ArrowRight className="w-3.5 h-3.5 text-gray-300" />
+                              </div>
                             </td>
                           </tr>
                         );

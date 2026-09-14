@@ -86,6 +86,10 @@ export function useCaseData(caseId: string): UseCaseDataReturn {
         const toAdd = allDataKeys.filter((k: string) => !existing.has(k));
         return toAdd.length > 0 ? [...activeBase, ...toAdd] : activeBase;
       });
+    } else if (c.colOrder?.length) {
+      // No rows yet — still restore the saved colOrder so template base columns
+      // are visible in the empty table
+      setColOrder(c.colOrder);
     }
     setRangeBis(r.length);
     setRangeMax(r.length);

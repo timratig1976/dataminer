@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { bulkInsertRows, updateCase, getCase, getExistingDomains } from "@/lib/db";
+import { bulkInsertRows, updateCase, getCase, getExistingDomains, getMaxRowIndex } from "@/lib/db";
 import { randomUUID } from "crypto";
 import type { RowData } from "@/lib/types";
 import { parseUploadedFile } from "@/lib/import-parser";
@@ -91,11 +91,12 @@ async function handleFileImport(req: NextRequest) {
 
   if (toInsert.length === 0) return NextResponse.json({ imported: 0, skipped });
 
-  // Get current max rowIndex
+  // Append after the last existing row (never overwrite, never reuse indices)
+  const startIndex = (await getMaxRowIndex(caseId)) + 1;
   const rowData: RowData[] = toInsert.map((r, i) => ({
     id: randomUUID(),
     caseId,
-    rowIndex: i,
+    rowIndex: startIndex + i,
     data: r as Record<string, string>,
     cellStatuses: {},
     cellErrors: {},

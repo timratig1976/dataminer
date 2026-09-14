@@ -303,7 +303,11 @@ export async function resolveEdenRegion(c?: Case | null): Promise<"eu" | "us"> {
 
 export async function deleteCase(id: string): Promise<void> {
   await initDb();
-  await getDb().delete(cases).where(eq(cases.id, id));
+  const db = getDb();
+  // Delete related data that has no DB-level cascade
+  await db.delete(logs).where(eq(logs.caseId, id));
+  // cases delete cascades to rows, discoveryJobs, agentRuns via FK
+  await db.delete(cases).where(eq(cases.id, id));
 }
 
 // ── Rows ─────────────────────────────────────────────────────────────────────
@@ -605,6 +609,12 @@ export async function getLogs(caseId: string, limit = 200): Promise<{ id: number
 export async function clearLogs(caseId: string): Promise<void> {
   await initDb();
   await getDb().delete(logs).where(eq(logs.caseId, caseId));
+}
+
+/** Delete ALL logs across all cases. */
+export async function clearAllLogs(): Promise<void> {
+  await initDb();
+  await getDb().delete(logs);
 }
 
 // ── Scrape cache ─────────────────────────────────────────────────────────────

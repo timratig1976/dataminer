@@ -6,10 +6,15 @@
  *   - recommendedColumns: plain text columns the user should import (e.g. via CSV)
  *   - aiColumns: AI enrichment columns pre-configured with prompts
  *
- * Applied when creating a case with ?template=lead-research.
+ * Applied when creating a case with ?template=<id>.
  */
 
 import type { AiColumn } from "./types";
+
+export interface BaseColumn {
+  name: string;
+  outputKey: string;
+}
 
 export interface ProjectTemplate {
   id: string;
@@ -18,82 +23,69 @@ export interface ProjectTemplate {
   icon: string;
   /** Plain text columns the user should have in their source data */
   recommendedColumns: string[];
+  /** Plain (non-AI) columns to pre-create in the case so batch results are visible */
+  baseColumns?: BaseColumn[];
   /** AI columns that get pre-configured on the case */
   aiColumns: AiColumn[];
-}
-
-function tplCol(
-  name: string,
-  outputKey: string,
-  prompt: string,
-  opts: Partial<AiColumn> = {},
-): AiColumn {
-  return {
-    id: crypto.randomUUID(),
-    name,
-    outputKey,
-    prompt,
-    model: "openai/gpt-4o-mini",
-    outputMode: "text",
-    condition: "require_input",
-    conditionField: "company_name",
-    useWebSearch: true,
-    searchQuery: `{company_name}`,
-    searchMaxResults: 5,
-    // evidenceMode: "auto",
-    ...opts,
-  };
 }
 
 // ── Template definitions ─────────────────────────────────────────────────────
 
 export const PROJECT_TEMPLATES: ProjectTemplate[] = [
   {
-    id: "lead-research",
-    name: "Lead-Recherche",
+    id: "standard",
+    name: "Standard",
     description:
-      "Firmen + Ansprechpartner recherchieren. 1 Zeile = 1 Kontakt. Mehrere Kontakte pro Firma über gleichen company_name.",
-    icon: "🏢",
+      "Firmen- und Kontaktdaten anreichern. Startet mit Firmenname — zwei KI-Aktionen befüllen alle weiteren Felder.",
+    icon: "⚡",
     recommendedColumns: ["company_name"],
+    // Visible plain columns — pre-created so batch results show up in the table
+    baseColumns: [
+      { name: "Firmenname", outputKey: "company_name" },
+      { name: "Domain", outputKey: "domain" },
+      { name: "Telefon", outputKey: "phone" },
+      { name: "E-Mail", outputKey: "email" },
+      { name: "Stadt", outputKey: "city" },
+      { name: "PLZ", outputKey: "zip" },
+      { name: "Branche", outputKey: "industry" },
+      { name: "Beschreibung", outputKey: "description" },
+      { name: "Mitarbeiter", outputKey: "employees" },
+      { name: "Gründungsjahr", outputKey: "founded" },
+    ],
     aiColumns: [
-      // ── Company columns ────────────────────────────────────────────
-      tplCol("Website", "website", "Offizielle Website von {company_name}. Nur die Domain zurückgeben, kein Markdown.", {
+      {
+        id: crypto.randomUUID(),
+        name: "🏢 Firmendaten recherchieren",
+        outputKey: "_batch_firmendaten",
+        prompt: "",
+        model: "openai/gpt-4o-mini",
+        outputMode: "text",
+        tool: "batch_enrich",
+        batchOutputFields: ["company_name", "domain", "phone", "email", "city", "zip", "industry", "description", "employees", "founded"],
+        batchSearchContacts: false,
+        condition: "empty",
+        conditionField: "_batch_firmendaten",
         columnGroup: "company",
-        validateDomain: true,
-        captureReasoning: true,
-      }),
-      tplCol("Telefon", "phone_company", "Haupt-Telefonnummer von {company_name}. Nur die Nummer im internationalen Format.", {
-        columnGroup: "company",
+      },
+      {
+        id: crypto.randomUUID(),
+        name: "👤 Entscheider finden",
+        outputKey: "_batch_kontakte",
+        prompt: "",
+        model: "openai/gpt-4o-mini",
+        outputMode: "text",
+        tool: "batch_contacts",
+        batchContactsMax: 3,
+        batchContactsLinkedIn: true,
+        batchContactsImpressum: true,
+        batchContactsPrefix: "contact_",
         condition: "empty",
-      }),
-      tplCol("Stadt", "city", "Stadt / Hauptsitz von {company_name}. Nur Stadtname + ggf. PLZ.", {
-        columnGroup: "company",
-        condition: "empty",
-      }),
-      tplCol("Branche", "industry", "Branche/Schwerpunkt von {company_name}. 1–3 Stichworte.", {
-        columnGroup: "company",
-        condition: "empty",
-      }),
-      // ── Contact columns ────────────────────────────────────────────
-      tplCol("Vorname", "first_name", "Vorname eines Entscheiders bei {company_name} (GF, CEO, Head of Sales, o.ä.).", {
+        conditionField: "_batch_kontakte",
         columnGroup: "contact",
-        condition: "empty",
-      }),
-      tplCol("Nachname", "last_name", "Nachname eines Entscheiders bei {company_name} (GF, CEO, Head of Sales, o.ä.).", {
-        columnGroup: "contact",
-        condition: "empty",
-      }),
-      tplCol("Position", "position", "Position/Jobtitel des Entscheiders bei {company_name}.", {
-        columnGroup: "contact",
-        condition: "empty",
-      }),
-      tplCol("E-Mail", "email", "Business-E-Mail-Adresse des Kontakts bei {company_name}. Nur die Adresse.", {
-        columnGroup: "contact",
-        condition: "empty",
-      }),
+      },
     ],
   },
-];
+  ];
 
 /** Lookup a template by id. Returns undefined if not found. */
 export function getTemplate(id: string): ProjectTemplate | undefined {
