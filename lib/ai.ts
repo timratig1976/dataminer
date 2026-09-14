@@ -4,6 +4,8 @@ import { webSearch, formatSearchResultsForLlm, type SearchLayer, isCatalogUrl } 
 import { normalizeEdenModel, edenChatCompletion, edenScrapeUrl, type EdenRegion } from "./edenai";
 import { getCachedScrape, setCachedScrape } from "./db";
 import { lookupApolloContacts, ApolloBudget } from "./apollo";
+import { batchEnrichRow, BATCH_FIELDS } from "./batch-enrich";
+import { searchContacts } from "./contact-search";
 
 /**
  * Eden AI is the ONLY LLM provider. Model IDs use the "provider/model" format
@@ -248,6 +250,158 @@ export async function runAiColumn(
   // Apollo.io contacts — deterministic tool column, no LLM, 0-credit search endpoint
   if (column.tool === "apollo_contacts") {
     return await runApolloContactsTool(column, rowData, apolloBudget);
+  }
+
+  // ── Batch enrichment — 1 scrape + optional search + 1 LLM call → all fields ──
+  if (column.tool === "batch_enrich") {
+    const serpApiKey = process.env.SERP_API_KEY || undefined;
+    const braveApiKey = process.env.BRAVE_API_KEY || undefined;
+    const cachedScrape = await getCachedScrape(
+      rowData["domain"] ?? rowData["source_domain"] ?? rowData["source_url"] ?? ""
+    ).catch(() => null);
+
+    const result = await batchEnrichRow(rowData as Record<string, string | null>, {
+      edenApiKey: apiKey,
+      model: normalizeEdenModel(column.model ?? "openai/gpt-4o-mini"),
+      serpApiKey,
+      braveApiKey,
+      requestedFields: column.batchOutputFields ?? [...BATCH_FIELDS],
+      searchContacts: column.batchSearchContacts ?? true,
+      cachedScrape: cachedScrape?.markdown ?? undefined,
+      signal,
+    });
+
+    if (result.error && Object.keys(result.fields).length === 0) {
+      return { value: "", error: result.error };
+    }
+
+    // Write all fields to row columns
+    const multiValues: Record<string, string> = {};
+    for (const [field, val] of Object.entries(result.fields)) {
+      multiValues[field] = val ?? "";
+    }
+    if (result.scrapeMarkdown) {
+      const url = rowData["source_url"] ?? rowData["domain"] ?? "";
+      if (url) setCachedScrape(url, result.scrapeMarkdown, "").catch(() => null);
+    }
+    // Store debug info for detail modal
+    if (result.debugPrompt) multiValues[`_llm_prompt_${column.outputKey}`] = result.debugPrompt;
+    if (result.debugRawResponse) multiValues[`_llm_raw_${column.outputKey}`] = result.debugRawResponse;
+    if (result.scrapeError) multiValues[`_batch_scrape_error_${column.outputKey}`] = result.scrapeError;
+    if (result.searchError) multiValues[`_batch_search_error_${column.outputKey}`] = result.searchError;
+    if (result.sourcesUsed) multiValues[`_batch_sources_${column.outputKey}`] = result.sourcesUsed.join(", ");
+    if (result.tokensUsed) multiValues[`_llm_tokens_${column.outputKey}`] = JSON.stringify({ prompt: 0, completion: 0, total: result.tokensUsed });
+    if (result.costUsd !== undefined) multiValues[`_llm_cost_${column.outputKey}`] = String(result.costUsd);
+
+    // Primary output key gets a summary
+    const filledCount = Object.values(result.fields).filter(v => v && v !== "null").length;
+    const summaryValue = `${filledCount}/${Object.keys(result.fields).length} Felder angereichert`;
+
+    return {
+      value: summaryValue,
+      multiValues,
+      tokens: result.tokensUsed ? { prompt: 0, completion: 0, total: result.tokensUsed } : undefined,
+      costUsd: result.costUsd,
+      error: result.error,
+    };
+  }
+
+  // ── Contact search — Impressum + LinkedIn + Google → Entscheider ──────────
+  if (column.tool === "batch_contacts") {
+    const serpApiKey = process.env.SERP_API_KEY || undefined;
+    const braveApiKey = process.env.BRAVE_API_KEY || undefined;
+    const maxContacts = column.batchContactsMax ?? 3;
+    const prefix = column.batchContactsPrefix ?? "contact_";
+
+    const result = await searchContacts(rowData as Record<string, string | null>, {
+      edenApiKey: apiKey,
+      model: normalizeEdenModel(column.model ?? "openai/gpt-4o-mini"),
+      serpApiKey,
+      braveApiKey,
+      maxContacts,
+      scrapeImpressum: column.batchContactsImpressum ?? true,
+      searchLinkedIn: column.batchContactsLinkedIn ?? true,
+      signal,
+    });
+
+    if (result.error && result.contacts.length === 0) {
+      return { value: "", error: result.error };
+    }
+
+    // Write contacts as flat fields: contact_1_first_name, contact_1_last_name, etc.
+    // Also write primary contact directly into standard fields if they're empty
+    const multiValues: Record<string, string> = {};
+
+    // Primary contact → write into first_name, last_name, position if empty
+    const primary = result.contacts[0];
+    if (primary) {
+      // Always write to indexed fields
+      multiValues[`${prefix}1_first_name`] = primary.first_name ?? "";
+      multiValues[`${prefix}1_last_name`] = primary.last_name ?? "";
+      multiValues[`${prefix}1_position`] = primary.position ?? "";
+      multiValues[`${prefix}1_email`] = primary.email ?? "";
+      multiValues[`${prefix}1_phone`] = primary.phone ?? "";
+      multiValues[`${prefix}1_linkedin`] = primary.linkedin ?? "";
+
+      // Also write into standard flat fields (if not already set by batch_enrich)
+      if (!rowData["first_name"] || rowData["first_name"] === "") multiValues["first_name"] = primary.first_name ?? "";
+      if (!rowData["last_name"] || rowData["last_name"] === "") multiValues["last_name"] = primary.last_name ?? "";
+      if (!rowData["position"] || rowData["position"] === "") multiValues["position"] = primary.position ?? "";
+      if (primary.email) multiValues["contact_email"] = primary.email;
+      if (primary.phone) multiValues["contact_phone"] = primary.phone;
+      if (primary.linkedin) multiValues["linkedin"] = primary.linkedin;
+    }
+
+    // Additional contacts
+    for (let i = 1; i < result.contacts.length; i++) {
+      const c = result.contacts[i];
+      const n = i + 1;
+      multiValues[`${prefix}${n}_first_name`] = c.first_name ?? "";
+      multiValues[`${prefix}${n}_last_name`] = c.last_name ?? "";
+      multiValues[`${prefix}${n}_position`] = c.position ?? "";
+      multiValues[`${prefix}${n}_email`] = c.email ?? "";
+      multiValues[`${prefix}${n}_phone`] = c.phone ?? "";
+      multiValues[`${prefix}${n}_linkedin`] = c.linkedin ?? "";
+    }
+
+    // JSON summary in outputKey — structured for detail modal and sub-table display
+    const contactsJson = JSON.stringify(result.contacts.map(c => ({
+      first_name: c.first_name,
+      last_name: c.last_name,
+      position: c.position,
+      email: c.email,
+      phone: c.phone,
+      linkedin: c.linkedin,
+      source: c.source,
+    })));
+
+    // Human-readable summary for table cell display
+    const summaryText = result.contacts.length > 0
+      ? result.contacts.map(c =>
+          [c.first_name, c.last_name].filter(Boolean).join(" ") +
+          (c.position ? ` (${c.position})` : "") +
+          (c.email ? ` · ${c.email}` : "")
+        ).join("\n")
+      : "";
+
+    // Debug info
+    multiValues[`_contacts_sources_${column.outputKey}`] = result.sourcesUsed.join(", ");
+    multiValues[`_contacts_json_${column.outputKey}`] = contactsJson;
+    // Standard meta fields so the detail modal can pick them up
+    if (result.tokensUsed) multiValues[`_llm_tokens_${column.outputKey}`] = JSON.stringify({ prompt: 0, completion: 0, total: result.tokensUsed });
+    if (result.costUsd !== undefined) multiValues[`_llm_cost_${column.outputKey}`] = String(result.costUsd);
+    // Full prompt + raw LLM response stored under standard keys
+    if (result.debugPrompt) multiValues[`_llm_prompt_${column.outputKey}`] = result.debugPrompt;
+    if (result.debugRawResponse) multiValues[`_llm_raw_${column.outputKey}`] = result.debugRawResponse;
+    // Source URLs
+    if (result.sourceUrls?.length) multiValues[`_contacts_source_urls_${column.outputKey}`] = result.sourceUrls.join("\n");
+
+    return {
+      value: summaryText || contactsJson,
+      multiValues: { [column.outputKey]: summaryText, ...multiValues },
+      tokens: result.tokensUsed ? { prompt: 0, completion: 0, total: result.tokensUsed } : undefined,
+      costUsd: result.costUsd,
+    };
   }
 
   // ── System message builder ─────────────────────────────────────────────────
@@ -859,5 +1013,33 @@ Return ONLY valid JSON with the keys: legal_name, address, phone, email, managin
     prompt: "", // deterministic tool — no LLM prompt
     condition: "empty",
     conditionField: "apollo_contacts",
+  },
+  // ── Batch enrichment preset — replaces 6-8 individual column calls ──────
+  {
+    name: "🚀 Alles auf einmal anreichern",
+    outputKey: "_batch_status",
+    model: "openai/gpt-4o-mini",
+    tool: "batch_enrich",
+    batchOutputFields: ["company_name", "domain", "phone", "email", "city", "zip", "industry", "description", "first_name", "last_name", "position"],
+    batchSearchContacts: true,
+    prompt: "",
+    condition: "empty",
+    conditionField: "_batch_status",
+    outputMode: "text",
+  },
+  // ── Contact search preset ─────────────────────────────────────────────────
+  {
+    name: "👤 Kontakte & Entscheider finden",
+    outputKey: "contacts",
+    model: "openai/gpt-4o-mini",
+    tool: "batch_contacts",
+    batchContactsMax: 3,
+    batchContactsLinkedIn: true,
+    batchContactsImpressum: true,
+    batchContactsPrefix: "contact_",
+    prompt: "",
+    condition: "empty",
+    conditionField: "contacts",
+    outputMode: "text",
   },
 ];

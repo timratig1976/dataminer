@@ -8,7 +8,7 @@
  *   - logs.id is a native identity column
  */
 
-import { pgTable, text, integer, jsonb, timestamp, index } from "drizzle-orm/pg-core";
+import { pgTable, text, integer, jsonb, timestamp, index, boolean } from "drizzle-orm/pg-core";
 import type { AiColumn, CellStatus } from "../types";
 
 export const cases = pgTable("cases", {
@@ -33,6 +33,7 @@ export const settings = pgTable("settings", {
   id: text("id").primaryKey().default("global"),
   edenApiKey: text("eden_api_key"),
   edenRegion: text("eden_region").notNull().default("us"),
+  modelAllowlist: jsonb("model_allowlist").$type<string[]>().default([]),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
 });
 
@@ -76,3 +77,43 @@ export const apolloCache = pgTable("apollo_cache", {
   payload: jsonb("payload").notNull(),
   fetchedAt: timestamp("fetched_at", { withTimezone: true }).notNull(),
 });
+
+// ── Discovery jobs ─────────────────────────────────────────────────────────
+
+export const discoveryJobs = pgTable(
+  "discovery_jobs",
+  {
+    id: text("id").primaryKey(),
+    caseId: text("case_id")
+      .notNull()
+      .references(() => cases.id, { onDelete: "cascade" }),
+    status: text("status").notNull().default("pending"), // pending|running|done|error
+    plan: jsonb("plan"),         // DiscoveryPlan JSON
+    stepsTotal: integer("steps_total").notNull().default(0),
+    stepsDone: integer("steps_done").notNull().default(0),
+    rowsAdded: integer("rows_added").notNull().default(0),
+    rowsSkipped: integer("rows_skipped").notNull().default(0),
+    error: text("error"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+  },
+  (t) => [index("idx_discovery_jobs_case_id").on(t.caseId)]
+);
+
+// ── Agent goal runs ─────────────────────────────────────────────────────────
+
+export const agentRuns = pgTable(
+  "agent_runs",
+  {
+    id: text("id").primaryKey(),
+    caseId: text("case_id")
+      .notNull()
+      .references(() => cases.id, { onDelete: "cascade" }),
+    goal: jsonb("goal").notNull(),
+    status: text("status").notNull().default("planning"),
+    state: jsonb("state").notNull(),   // full AgentRunState (plan, stepResults, counts, etc.)
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+  },
+  (t) => [index("idx_agent_runs_case_id").on(t.caseId)]
+);

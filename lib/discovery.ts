@@ -38,6 +38,8 @@ export interface DiscoveryOptions {
   scraplingUrl?: string;
   scraplingToken?: string;
   edenApiKey?: string;
+  /** Firecrawl search depth. "deep" = more results, higher cost ($0.0038/tok vs basic) */
+  firecrawlDepth?: "basic" | "deep";
   signal?: AbortSignal;
 }
 
@@ -126,6 +128,7 @@ export async function discoverySearch(
     scraplingUrl,
     scraplingToken,
     edenApiKey,
+    firecrawlDepth = "deep",  // default: deep for discovery — more results per query
   } = options;
 
   if (!query.trim()) throw new Error("empty query");
@@ -154,6 +157,7 @@ export async function discoverySearch(
         maxResults: clampedLimit,
         forceLayer: layer,
         limitCap: MAX_DISCOVERY_LIMIT,
+        firecrawlDepth,  // pass through — "deep" by default for discovery
       });
 
       if (resp.results.length > 0) {
@@ -251,24 +255,28 @@ export function buildQueriesFromRows(
 
 export interface SeedRowData extends Record<string, string> {
   company_name: string;
+  domain: string;
   source_url: string;
   source_title: string;
   source_snippet: string;
   source_domain: string;
   search_query: string;
   search_source: string;
+  is_catalog: string;   // "true" if this row is a catalog/directory page
 }
 
 /** Convert an accepted discovery hit into a seed row for a case table. */
 export function hitToSeedRow(hit: DiscoveryHit): SeedRowData {
   return {
     company_name: hit.title || "",
+    domain: hit.domain,
     source_url: hit.url,
     source_title: hit.title,
     source_snippet: hit.snippet,
     source_domain: hit.domain,
     search_query: hit.searchQuery,
     search_source: hit.searchSource,
+    is_catalog: hit.isCatalog ? "true" : "",
   };
 }
 

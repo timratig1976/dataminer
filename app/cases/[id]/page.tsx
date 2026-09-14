@@ -1,953 +1,39 @@
 "use client";
 
-import { useEffect, useState, useCallback, use, useRef } from "react";
+import { useEffect, useState, useCallback, use, useRef, useContext } from "react";
 import { useRouter } from "next/navigation";
 import {
-  ArrowLeft, Plus, Play, Upload, Trash2, Settings, Save, Sparkles,
+  Plus, Play, Upload, Trash2, Settings, Save, Sparkles,
   Loader2, CheckCircle2, XCircle, SkipForward, Zap,
   Download, ScrollText, ChevronLeft, ChevronRight, GripVertical,
-  Database, Info, CheckCircle, AlertCircle, Search, MapPin, Building2, Gauge
+  Database, Info, CheckCircle, AlertCircle, Search, MapPin, Building2, Gauge, Sliders
 } from "lucide-react";
 import type { Case, RowData, AiColumn, CellStatus } from "@/lib/types";
 import { AddColumnModal } from "@/components/AddColumnModal";
 import { ImportModal } from "@/components/ImportModal";
 import { DiscoveryModal } from "@/components/DiscoveryModal";
+import { AgentGoalModal } from "@/components/AgentGoalModal";
+import AppendModal from "@/components/AppendModal";
 import { ColumnHeaderMenu } from "@/components/ColumnHeaderMenu";
 import GroupedTableView from "@/components/GroupedTableView";
 import { DEFAULT_MODEL_OPTIONS, mergeModelOptions } from "@/lib/model-options";
+import RunDetailModal from "@/components/case/RunDetailModal";
+import EditPromptModal from "@/components/case/EditPromptModal";
+import CostDashboard from "@/components/case/CostDashboard";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { useCaseData } from "@/hooks/useCaseData";
+import { useRunColumns } from "@/hooks/useRunColumns";
+import { CaseContext } from "@/hooks/CaseContext";
 
-// ── Run Detail Modal ──────────────────────────────────────────────────────────
-function RunDetailModal({ col, row: initialRow, caseId, onClose, onRowUpdate }: {
-  col: AiColumn;
-  row: RowData;
-  caseId: string;
-  onClose: () => void;
-  onRowUpdate: (rowId: string, patch: Partial<RowData>) => void;
-}) {
-  const [row, setRow] = useState(initialRow);
-  const [running, setRunning] = useState(false);
-  const [runError, setRunError] = useState<string|null>(null);
-  const [compareModels, setCompareModels] = useState<string[]>([col.model || "openai/gpt-4o-mini"]);
-  const [compareLoading, setCompareLoading] = useState(false);
-  const [compareError, setCompareError] = useState<string | null>(null);
-  const [compareResults, setCompareResults] = useState<Array<{ model: string; provider: string; ok: boolean; score: number; latencyMs: number; value: string; validation: "pass" | "fail"; validationReason: string; error?: string }>>([]);
-  const [recommendedModel, setRecommendedModel] = useState<string | null>(null);
-  const [modelOptions, setModelOptions] = useState<string[]>([...DEFAULT_MODEL_OPTIONS]);
-  const [smokeLoading, setSmokeLoading] = useState(false);
-  const [smokeError, setSmokeError] = useState<string | null>(null);
-  const [smokeResults, setSmokeResults] = useState<Array<{ model: string; provider: string; ok: boolean; latencyMs: number; preview?: string; error?: string }>>([]);
-
-  const multiKeys = col.multiKeys ?? [];
-  const extraOutputKeys = col.validateDomain
-    ? [...multiKeys.map(mk => mk.outputKey), "domain_validated"]
-    : multiKeys.map(mk => mk.outputKey);
-  const allOutputKeys = extraOutputKeys.length > 0 ? extraOutputKeys : [col.outputKey];
-
-  const savedStatus = row.cellStatuses[col.outputKey] ?? "idle";
-  const err = row.cellErrors[col.outputKey];
-  // All meta stored in row data with _ prefix
-  const rawResponse   = row.data[`_llm_raw_${col.outputKey}`] ?? "";
-  const exactPrompt   = row.data[`_llm_prompt_${col.outputKey}`] ?? "";
-  const tokensRaw     = row.data[`_llm_tokens_${col.outputKey}`] ?? "";
-  const costRaw       = row.data[`_llm_cost_${col.outputKey}`] ?? "";
-  const tokens        = tokensRaw ? (() => { try { return JSON.parse(tokensRaw); } catch { return null; } })() : null;
-  const costUsd       = costRaw ? parseFloat(costRaw) : null;
-  const companyName   = row.data["company_name"] ?? row.data["Unternehmensname"] ?? row.data["Name"] ?? "";
-  const requiredFields = col.requiredFields ?? [];
-  const inputMappings = col.inputMappings ?? {};
-  const placeholderKeys = Array.from(new Set(
-    (col.prompt.match(/\{([a-zA-Z_][a-zA-Z0-9_]*)\}/g) ?? [])
-      .map(m => m.slice(1, -1).trim())
-  ));
-
-  // Fallback rendered prompt (before first run)
-  const previewPrompt = col.prompt.replace(/\{([a-zA-Z_][a-zA-Z0-9_]*)\}/g, (_, rawKey) => {
-    const key = String(rawKey).trim();
-    const sourceKey = inputMappings[key] || key;
-    const v = row.data[sourceKey];
-    return (v != null && String(v).trim() !== "") ? String(v) : `{${key}}`;
-  });
-
-  useEffect(() => {
-    fetch(`/api/llm/models?caseId=${caseId}`)
-      .then((r) => r.json())
-      .then((data) => {
-        const next = Array.isArray(data?.models) ? data.models : [];
-        setModelOptions(mergeModelOptions(next));
-      })
-      .catch(() => {
-        setModelOptions([...DEFAULT_MODEL_OPTIONS]);
-      });
-  }, [caseId]);
-
-  async function handleRun() {
-    if (running) return;
-    setRunning(true);
-    setRunError(null);
-    try {
-      const res = await fetch("/api/run/cell", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ caseId, rowId: row.id, columnId: col.id }),
-      });
-      const result = await res.json();
-      if (result.error || !res.ok) { setRunError(result.error ?? "Unbekannter Fehler"); return; }
-      const extraData   = result.multiValues ?? {};
-      const metaData: Record<string,string> = {};
-      if (result.rawResponse)   metaData[`_llm_raw_${col.outputKey}`]    = result.rawResponse;
-      if (result.renderedPrompt) metaData[`_llm_prompt_${col.outputKey}`] = result.renderedPrompt;
-      if (result.tokens)        metaData[`_llm_tokens_${col.outputKey}`]  = JSON.stringify(result.tokens);
-      if (result.costUsd != null) metaData[`_llm_cost_${col.outputKey}`] = String(result.costUsd);
-      const newData     = { ...row.data, [col.outputKey]: result.value ?? "", ...extraData, ...metaData };
-      const newStatuses = { ...row.cellStatuses, [col.outputKey]: "done" as CellStatus };
-      for (const k of Object.keys(extraData)) newStatuses[k] = "done";
-      const updated = { ...row, data: newData, cellStatuses: newStatuses };
-      setRow(updated);
-      onRowUpdate(row.id, { data: newData, cellStatuses: newStatuses });
-    } catch (e: any) {
-      setRunError(e.message ?? "Netzwerkfehler");
-    } finally {
-      setRunning(false);
-    }
-  }
-
-  async function runSmokeTest() {
-    if (compareModels.length === 0) return;
-    setSmokeLoading(true);
-    setSmokeError(null);
-    setSmokeResults([]);
-    try {
-      const res = await fetch("/api/llm/smoke", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          caseId,
-          models: compareModels,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setSmokeError(data.error ?? "Smoke test failed");
-        return;
-      }
-      setSmokeResults(Array.isArray(data.results) ? data.results : []);
-    } catch (error: unknown) {
-      setSmokeError(error instanceof Error ? error.message : String(error));
-    } finally {
-      setSmokeLoading(false);
-    }
-  }
-
-  function toggleCompareModel(model: string) {
-    setCompareModels((prev) => {
-      if (prev.includes(model)) return prev.filter((m) => m !== model);
-      if (prev.length >= 3) return prev;
-      return [...prev, model];
-    });
-  }
-
-  async function runModelCompare() {
-    if (compareModels.length === 0) return;
-    setCompareLoading(true);
-    setCompareError(null);
-    setCompareResults([]);
-    setRecommendedModel(null);
-    try {
-      const res = await fetch("/api/llm/compare", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          caseId,
-          rowId: row.id,
-          column: col,
-          models: compareModels,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setCompareError(data.error ?? "Model comparison failed");
-        return;
-      }
-      const results = Array.isArray(data.results) ? data.results : [];
-      setCompareResults(results);
-      if (typeof data.recommendedModel === "string") {
-        setRecommendedModel(data.recommendedModel);
-      }
-    } catch (error: unknown) {
-      setCompareError(error instanceof Error ? error.message : String(error));
-    } finally {
-      setCompareLoading(false);
-    }
-  }
-
-  const box: React.CSSProperties = { border:"1px solid #e2e8f0", borderRadius:8, overflow:"hidden" };
-  const boxHdr: React.CSSProperties = { fontSize:10, fontWeight:700, color:"#64748b", padding:"6px 14px", background:"#f8fafc", borderBottom:"1px solid #e2e8f0", textTransform:"uppercase", letterSpacing:"0.07em" };
-  const pre: React.CSSProperties = { margin:0, padding:"11px 14px", fontSize:11, whiteSpace:"pre-wrap", wordBreak:"break-all", lineHeight:1.7, fontFamily:"monospace", maxHeight:220, overflowY:"auto" };
-
-  const hasRun = savedStatus === "done" || savedStatus === "error";
-
-  return (
-    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center"}}
-      onClick={e=>{if(e.target===e.currentTarget)onClose();}}>
-      <div style={{background:"#fff",borderRadius:12,width:"min(760px,96vw)",maxHeight:"90vh",display:"flex",flexDirection:"column",boxShadow:"0 28px 80px rgba(0,0,0,0.28)"}}>
-
-        {/* Header */}
-        <div style={{padding:"13px 18px",borderBottom:"1px solid #e5e7eb",display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
-          <Sparkles style={{width:14,height:14,color:"#7c3aed",flexShrink:0}}/>
-          <div style={{flex:1,minWidth:0}}>
-            <span style={{fontWeight:700,fontSize:13,color:"#111"}}>{col.name}</span>
-            {companyName && <span style={{fontSize:12,color:"#9ca3af",marginLeft:8}}>— {companyName}</span>}
-            <span style={{fontSize:11,color:"#d1d5db",marginLeft:8}}>{col.model ?? "openai/gpt-4o-mini"}</span>
-          </div>
-          <button onClick={handleRun} disabled={running}
-            style={{display:"flex",alignItems:"center",gap:5,padding:"5px 14px",background:running?"#c4b5fd":"#7c3aed",color:"#fff",border:"none",borderRadius:6,cursor:running?"not-allowed":"pointer",fontSize:12,fontWeight:600,flexShrink:0}}>
-            {running ? <Loader2 style={{width:11,height:11}} className="animate-spin"/> : <Play style={{width:11,height:11}}/>}
-            {running ? "Läuft…" : "Ausführen"}
-          </button>
-          <button onClick={runModelCompare} disabled={compareLoading || compareModels.length === 0}
-            style={{display:"flex",alignItems:"center",gap:5,padding:"5px 12px",background:compareLoading?"#93c5fd":"#2563eb",color:"#fff",border:"none",borderRadius:6,cursor:compareLoading?"not-allowed":"pointer",fontSize:12,fontWeight:600,flexShrink:0}}>
-            {compareLoading ? <Loader2 style={{width:11,height:11}} className="animate-spin"/> : <Zap style={{width:11,height:11}}/>}
-            {compareLoading ? "Teste…" : "3 Modelle testen"}
-          </button>
-          <button onClick={runSmokeTest} disabled={smokeLoading || compareModels.length === 0}
-            style={{display:"flex",alignItems:"center",gap:5,padding:"5px 12px",background:smokeLoading?"#c4b5fd":"#7c3aed",color:"#fff",border:"none",borderRadius:6,cursor:smokeLoading?"not-allowed":"pointer",fontSize:12,fontWeight:600,flexShrink:0}}>
-            {smokeLoading ? <Loader2 style={{width:11,height:11}} className="animate-spin"/> : <CheckCircle2 style={{width:11,height:11}}/>}
-            {smokeLoading ? "Smoke…" : "Smoke Test"}
-          </button>
-          <button onClick={onClose} style={{border:"none",background:"none",cursor:"pointer",fontSize:20,color:"#9ca3af",lineHeight:1,padding:"0 4px"}}>×</button>
-        </div>
-
-        <div style={{overflowY:"auto",padding:"14px 18px",display:"flex",flexDirection:"column",gap:10}}>
-
-          {/* Status row */}
-          <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
-            {running && <span style={{display:"inline-flex",alignItems:"center",gap:5,fontSize:12,color:"#d97706",background:"#fef3c7",padding:"3px 10px",borderRadius:10,fontWeight:600}}><Loader2 style={{width:10,height:10}} className="animate-spin"/> Läuft…</span>}
-            {!running && savedStatus==="done"    && <span style={{display:"inline-flex",alignItems:"center",gap:5,fontSize:12,color:"#7c3aed",background:"#ddd6fe",padding:"3px 10px",borderRadius:10,fontWeight:600}}><CheckCircle style={{width:10,height:10}}/> Fertig</span>}
-            {!running && savedStatus==="error"   && <span style={{display:"inline-flex",alignItems:"center",gap:5,fontSize:12,color:"#dc2626",background:"#fef2f2",padding:"3px 10px",borderRadius:10,fontWeight:600}}><AlertCircle style={{width:10,height:10}}/> Fehler</span>}
-            {!running && savedStatus==="idle"    && <span style={{fontSize:12,color:"#9ca3af"}}>○ Noch nicht ausgeführt</span>}
-            {!running && savedStatus==="skipped" && <span style={{fontSize:12,color:"#9ca3af",background:"#f3f4f6",padding:"3px 10px",borderRadius:10}}>⏭ Übersprungen</span>}
-            {/* tokens + cost badges */}
-            {tokens && <>
-              <span style={{fontSize:11,color:"#6366f1",background:"#eef2ff",padding:"2px 8px",borderRadius:8,fontFamily:"monospace"}}>↑{tokens.prompt} ↓{tokens.completion} = {tokens.total} tok</span>
-              {costUsd != null && <span style={{fontSize:11,color:"#0369a1",background:"#e0f2fe",padding:"2px 8px",borderRadius:8,fontFamily:"monospace"}}>${costUsd.toFixed(5)}</span>}
-            </>}
-            {runError && <span style={{fontSize:12,color:"#dc2626"}}>{runError}</span>}
-          </div>
-
-          <div style={{border:"1px solid #dbeafe",background:"#f8fbff",borderRadius:8,padding:10,display:"grid",gap:8}}>
-            <div style={{fontSize:11,fontWeight:600,color:"#1e3a8a",textTransform:"uppercase",letterSpacing:"0.05em"}}>Model Compare</div>
-            <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
-              {mergeModelOptions(compareModels, modelOptions).map((m) => {
-                const selected = compareModels.includes(m);
-                const disabled = !selected && compareModels.length >= 3;
-                return (
-                  <button
-                    key={m}
-                    type="button"
-                    onClick={() => toggleCompareModel(m)}
-                    disabled={disabled}
-                    style={{
-                      fontSize:11,
-                      padding:"3px 8px",
-                      borderRadius:999,
-                      border:"1px solid",
-                      cursor:disabled?"not-allowed":"pointer",
-                      opacity:disabled?0.5:1,
-                      fontFamily:"monospace",
-                      background:selected?"#dbeafe":"#fff",
-                      borderColor:selected?"#93c5fd":"#d1d5db",
-                      color:selected?"#1d4ed8":"#374151",
-                    }}
-                  >
-                    {selected ? "✓ " : ""}{m}
-                  </button>
-                );
-              })}
-            </div>
-            {compareError && <div style={{fontSize:12,color:"#dc2626"}}>{compareError}</div>}
-            {recommendedModel && (
-              <div style={{display:"flex",alignItems:"center",gap:8,fontSize:12,color:"#065f46",background:"#ecfdf5",border:"1px solid #a7f3d0",borderRadius:6,padding:"6px 8px"}}>
-                <span>Empfohlen: <strong style={{fontFamily:"monospace"}}>{recommendedModel}</strong></span>
-              </div>
-            )}
-            {compareResults.length > 0 && !recommendedModel && (
-              <div style={{fontSize:12,color:"#92400e",background:"#fffbeb",border:"1px solid #fde68a",borderRadius:6,padding:"6px 8px"}}>
-                Kein Modell hat die automatische Validierung bestanden.
-              </div>
-            )}
-            {compareResults.length > 0 && (
-              <div style={{display:"grid",gap:6}}>
-                {compareResults.map((r) => (
-                  <div key={r.model} style={{border:"1px solid #e5e7eb",borderRadius:6,padding:"7px 8px",background:"#fff"}}>
-                    <div style={{display:"flex",alignItems:"center",gap:8,fontSize:11,color:"#6b7280"}}>
-                      <span style={{fontFamily:"monospace",fontWeight:600,color:"#111827"}}>{r.model}</span>
-                      <span>· {r.provider}</span>
-                      <span>· score {r.score}</span>
-                      <span>· {r.validation}</span>
-                      <span>· {r.latencyMs}ms</span>
-                      <span style={{marginLeft:"auto",color:r.ok?"#7c3aed":"#dc2626",fontWeight:600}}>{r.ok ? "OK" : "FAIL"}</span>
-                    </div>
-                    <div style={{fontSize:11,color:r.validation==="pass"?"#5b21b6":"#b45309",marginTop:3}}>Validation: {r.validationReason}</div>
-                    <div style={{fontSize:12,color:r.ok?"#1f2937":"#991b1b",marginTop:4,whiteSpace:"pre-wrap",wordBreak:"break-word"}}>{r.ok ? (r.value || "(empty)") : (r.error || r.validationReason || "Unknown error")}</div>
-                  </div>
-                ))}
-              </div>
-            )}
-            {(smokeError || smokeResults.length > 0) && (
-              <div style={{marginTop:6,borderTop:"1px dashed #bfdbfe",paddingTop:8,display:"grid",gap:6}}>
-                <div style={{fontSize:11,fontWeight:600,color:"#4c1d95",textTransform:"uppercase",letterSpacing:"0.05em"}}>Smoke Results</div>
-                {smokeError && <div style={{fontSize:12,color:"#dc2626"}}>{smokeError}</div>}
-                {smokeResults.map((r) => (
-                  <div key={`smoke-${r.model}`} style={{display:"flex",alignItems:"center",gap:8,fontSize:11,background:"#fff",border:"1px solid #e5e7eb",borderRadius:6,padding:"6px 8px"}}>
-                    <span style={{fontFamily:"monospace",fontWeight:600,color:"#111827"}}>{r.model}</span>
-                    <span style={{color:"#6b7280"}}>· {r.provider}</span>
-                    <span style={{color:"#6b7280"}}>· {r.latencyMs}ms</span>
-                    <span style={{marginLeft:"auto",color:r.ok?"#7c3aed":"#dc2626",fontWeight:700}}>{r.ok ? "PASS" : "FAIL"}</span>
-                    <span style={{color:r.ok?"#5b21b6":"#991b1b"}}>{r.ok ? (r.preview || "ok") : (r.error || "error")}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Output fields */}
-          {(hasRun || running) && (
-            <div style={box}>
-              <div style={boxHdr}>Output</div>
-              <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
-                <tbody>
-                  {allOutputKeys.map(k => {
-                    const v = row.data[k] ?? "";
-                    const isValid = v.startsWith("✓"), isInvalid = v.startsWith("✗");
-                    return (
-                      <tr key={k} style={{borderBottom:"1px solid #f1f5f9"}}>
-                        <td style={{padding:"6px 14px",fontFamily:"monospace",color:"#94a3b8",whiteSpace:"nowrap",width:180,fontSize:11,verticalAlign:"top"}}>{k}</td>
-                        <td style={{padding:"6px 14px",wordBreak:"break-all",lineHeight:1.6,color:isInvalid?"#dc2626":isValid?"#6d28d9":"#1e293b",fontWeight:(isValid||isInvalid)?600:400}}>
-                          {running && !v ? <span style={{color:"#d1d5db",fontStyle:"italic"}}>wird berechnet…</span> : v || <span style={{color:"#cbd5e1",fontStyle:"italic"}}>—</span>}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-
-          {/* Error detail */}
-          {err && !running && (
-            <div style={{...box,border:"1px solid #fecaca"}}>
-              <div style={{...boxHdr,color:"#dc2626",background:"#fef2f2",borderBottom:"1px solid #fecaca"}}>Fehler</div>
-              <pre style={{...pre,color:"#991b1b"}}>{err}</pre>
-            </div>
-          )}
-
-          {/* Raw LLM response */}
-          {rawResponse && (
-            <div style={box}>
-              <div style={{...boxHdr,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-                <span>LLM Response (raw)</span>
-                {tokens && <span style={{fontSize:10,color:"#94a3b8",fontFamily:"monospace",textTransform:"none",letterSpacing:0}}>{tokens.completion} completion tokens</span>}
-              </div>
-              <pre style={{...pre,color:"#1e293b",background:"#fff"}}>{rawResponse}</pre>
-            </div>
-          )}
-
-          {/* Exact prompt sent */}
-          <div style={box}>
-            <div style={{...boxHdr,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-              <span>Prompt (gesendet an LLM)</span>
-              {tokens && <span style={{fontSize:10,color:"#94a3b8",fontFamily:"monospace",textTransform:"none",letterSpacing:0}}>{tokens.prompt} prompt tokens</span>}
-            </div>
-            <pre style={{...pre,color:"#374151",background:"#fafafa"}}>{exactPrompt || previewPrompt}</pre>
-          </div>
-
-          {/* Input variables */}
-          <div style={box}>
-            <div style={boxHdr}>Input-Variablen</div>
-            <table style={{width:"100%",borderCollapse:"collapse",fontSize:11}}>
-              <tbody>
-                {placeholderKeys.map(k => {
-                  const sourceKey = inputMappings[k] || k;
-                  const mappedValue = row.data[sourceKey];
-                  const isRequired = requiredFields.includes(k);
-                  const isMissing = String(mappedValue ?? "").trim() === "";
-                  return (
-                    <tr key={k} style={{borderBottom:"1px solid #f1f5f9"}}>
-                      <td style={{padding:"5px 14px",fontFamily:"monospace",color:"#94a3b8",whiteSpace:"nowrap",width:280}}>
-                        {k}
-                        {sourceKey !== k ? <span style={{color:"#64748b"}}> ← {sourceKey}</span> : null}
-                        {isRequired ? <span style={{marginLeft:8,color:isMissing?"#dc2626":"#6d28d9",fontFamily:"inherit"}}>{isMissing ? "(required, missing)" : "(required)"}</span> : null}
-                      </td>
-                      <td style={{padding:"5px 14px",color: mappedValue ? "#1e293b" : "#d1d5db",fontStyle: mappedValue ? "normal" : "italic"}}>
-                        {mappedValue ?? "(not provided)"}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ── Edit Prompt Modal ─────────────────────────────────────────────────────────
-function EditPromptModal({ col, caseId, onSave, onClose, cellContext, onRunCell, onOpenRunDetail, availableFields }: {
-  col: AiColumn; caseId: string;
-  onSave: (updated: AiColumn) => void;
-  onClose: () => void;
-  cellContext?: { rowId: string; value: string; status: CellStatus; error?: string; rowLabel?: string; multiValues?: Record<string,string> };
-  onRunCell?: () => void;
-  onOpenRunDetail?: () => void;
-  availableFields?: string[];
-}) {
-  const [draft, setDraft] = useState<AiColumn>({...col});
-  const [saving, setSaving] = useState(false);
-  const [compareModels, setCompareModels] = useState<string[]>([col.model || "openai/gpt-4o-mini"]);
-  const [compareLoading, setCompareLoading] = useState(false);
-  const [compareError, setCompareError] = useState<string | null>(null);
-  const [compareResults, setCompareResults] = useState<Array<{ model: string; provider: string; ok: boolean; score: number; latencyMs: number; value: string; validation: "pass" | "fail"; validationReason: string; error?: string }>>([]);
-  const [recommendedModel, setRecommendedModel] = useState<string | null>(null);
-  const [modelOptions, setModelOptions] = useState<string[]>([...DEFAULT_MODEL_OPTIONS]);
-  const promptRef = useRef<HTMLTextAreaElement>(null);
-  const requiredFields = draft.requiredFields ?? [];
-
-  useEffect(() => {
-    fetch(`/api/llm/models?caseId=${caseId}`)
-      .then((r) => r.json())
-      .then((data) => {
-        const next = Array.isArray(data?.models) ? data.models : [];
-        setModelOptions(mergeModelOptions(next));
-      })
-      .catch(() => {
-        setModelOptions([...DEFAULT_MODEL_OPTIONS]);
-      });
-  }, [caseId]);
-
-  function insertPlaceholder(field: string) {
-    const ta = promptRef.current;
-    const placeholder = `{${field}}`;
-
-    if (!ta) {
-      setDraft((d) => ({ ...d, prompt: d.prompt + placeholder }));
-      return;
-    }
-
-    const start = ta.selectionStart ?? draft.prompt.length;
-    const end = ta.selectionEnd ?? draft.prompt.length;
-    const scrollTop = ta.scrollTop;
-    const next = draft.prompt.slice(0, start) + placeholder + draft.prompt.slice(end);
-    const nextCursor = start + placeholder.length;
-
-    setDraft((d) => ({ ...d, prompt: next }));
-    requestAnimationFrame(() => {
-      const el = promptRef.current;
-      if (!el) return;
-      el.focus({ preventScroll: true });
-      el.setSelectionRange(nextCursor, nextCursor);
-      el.scrollTop = scrollTop;
-    });
-  }
-
-  async function save() {
-    setSaving(true);
-    const res = await fetch(`/api/cases/${caseId}`);
-    const c: Case = await res.json();
-    const updated = c.aiColumns.map(a => a.id === draft.id ? draft : a);
-    const r2 = await fetch(`/api/cases/${caseId}`, {
-      method: "PATCH", headers: {"Content-Type":"application/json"},
-      body: JSON.stringify({ aiColumns: updated }),
-    });
-    const saved = await r2.json();
-    onSave(saved.aiColumns.find((a: AiColumn) => a.id === draft.id) ?? draft);
-    setSaving(false);
-  }
-
-  function toggleCompareModel(model: string) {
-    setCompareModels((prev) => {
-      if (prev.includes(model)) return prev.filter((m) => m !== model);
-      if (prev.length >= 3) return prev;
-      return [...prev, model];
-    });
-  }
-
-  async function runModelCompare() {
-    if (!cellContext?.rowId || compareModels.length === 0) return;
-    setCompareLoading(true);
-    setCompareError(null);
-    setCompareResults([]);
-    setRecommendedModel(null);
-    try {
-      const res = await fetch("/api/llm/compare", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          caseId,
-          rowId: cellContext.rowId,
-          column: draft,
-          models: compareModels,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setCompareError(data.error ?? "Model comparison failed");
-        return;
-      }
-      const results = Array.isArray(data.results) ? data.results : [];
-      setCompareResults(results);
-      if (typeof data.recommendedModel === "string") {
-        setRecommendedModel(data.recommendedModel);
-        setDraft((d) => ({ ...d, model: data.recommendedModel }));
-      }
-    } catch (error: unknown) {
-      setCompareError(error instanceof Error ? error.message : String(error));
-    } finally {
-      setCompareLoading(false);
-    }
-  }
-
-  const inp: React.CSSProperties = {width:"100%",border:"1px solid #d1d5db",borderRadius:6,padding:"7px 10px",fontSize:13,outline:"none",background:"#fff",fontFamily:"inherit"};
-  const lbl: React.CSSProperties = {display:"block",fontSize:11,fontWeight:600,color:"#6b7280",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.05em"};
-
-  return (
-    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center"}}
-      onClick={e=>{if(e.target===e.currentTarget)onClose();}}>
-      <div style={{background:"#fff",borderRadius:12,width:"min(1080px,98vw)",maxHeight:"96vh",minHeight:"78vh",display:"flex",flexDirection:"column",boxShadow:"0 20px 60px rgba(0,0,0,0.2)"}}>
-        {/* Header */}
-        <div style={{padding:"16px 20px",borderBottom:"1px solid #e5e7eb",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-          <div style={{display:"flex",alignItems:"center",gap:8}}>
-            <Sparkles style={{width:16,height:16,color:"#7c3aed"}} />
-            <span style={{fontWeight:700,fontSize:15}}>KI-Spalte bearbeiten</span>
-            <span style={{fontSize:12,color:"#9ca3af",fontFamily:"monospace"}}>→ {col.outputKey}</span>
-          </div>
-          <button onClick={onClose} style={{border:"none",background:"none",cursor:"pointer",fontSize:18,color:"#9ca3af",lineHeight:1}}>×</button>
-        </div>
-
-        {/* Body */}
-        <div style={{overflowY:"auto",padding:"20px",display:"grid",gap:16}}>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
-            <div><label style={lbl}>Spaltenname</label>
-              <input style={inp} value={draft.name} onChange={e=>setDraft(d=>({...d,name:e.target.value}))} />
-            </div>
-            <div><label style={lbl}>Output Key</label>
-              <input style={{...inp,fontFamily:"monospace"}} value={draft.outputKey} onChange={e=>setDraft(d=>({...d,outputKey:e.target.value}))} />
-            </div>
-          </div>
-
-          <div>
-            <label style={lbl}>Prompt</label>
-            <textarea ref={promptRef} style={{...inp,fontFamily:"monospace",fontSize:12,minHeight:260,resize:"vertical",lineHeight:1.6}}
-              value={draft.prompt}
-              onChange={e=>{
-                const scroll = promptRef.current?.scrollTop ?? 0;
-                const selStart = e.target.selectionStart;
-                const selEnd = e.target.selectionEnd;
-                setDraft(d=>({...d,prompt:e.target.value}));
-                requestAnimationFrame(()=>{
-                  if(!promptRef.current) return;
-                  promptRef.current.scrollTop = scroll;
-                  promptRef.current.setSelectionRange(selStart, selEnd);
-                });
-              }} />
-            {/* Placeholder analysis */}
-            {availableFields && availableFields.length > 0 && (() => {
-              const used = [...new Set((draft.prompt.match(/\{([^}]+)\}/g)||[]).map(m=>m.slice(1,-1).trim()))];
-              const matched = used.filter(p=>availableFields.includes(p));
-              const unmatched = used.filter(p=>!availableFields.includes(p));
-              return (
-                <div style={{marginTop:6,display:"grid",gap:6}}>
-                  {/* used placeholders status */}
-                  {used.length > 0 && (
-                    <div style={{display:"flex",flexWrap:"wrap",gap:4,alignItems:"center"}}>
-                      <span style={{fontSize:11,color:"#6b7280",marginRight:2}}>Im Prompt:</span>
-                      {matched.map(p=>(
-                        <span key={p} style={{fontSize:11,background:"#ede9fe",color:"#6d28d9",padding:"2px 7px",borderRadius:10,fontFamily:"monospace"}} title="Spalte gefunden ✓">{"{"+p+"}"} ✓</span>
-                      ))}
-                      {unmatched.map(p=>(
-                        <span key={p} style={{fontSize:11,background:"#fef2f2",color:"#dc2626",padding:"2px 7px",borderRadius:10,fontFamily:"monospace"}} title="Spalte nicht gefunden!">{"{"+p+"}"} ✗</span>
-                      ))}
-                    </div>
-                  )}
-                  {/* available field chips */}
-                  <div style={{display:"flex",flexWrap:"wrap",gap:4,alignItems:"center"}}>
-                    <span style={{fontSize:11,color:"#6b7280",marginRight:2}}>Verfügbare Felder:</span>
-                    {availableFields.map(f=>{
-                      const inPrompt = draft.prompt.includes("{"+f+"}");
-                      return (
-                        <button key={f} type="button" onMouseDown={e=>e.preventDefault()} onClick={()=>insertPlaceholder(f)}
-                        style={{fontSize:11,padding:"2px 7px",borderRadius:10,fontFamily:"monospace",border:"1px solid",cursor:"pointer",
-                          background: inPrompt?"#f5f3ff":"#f9fafb",
-                          color: inPrompt?"#6d28d9":"#374151",
-                          borderColor: inPrompt?"#c4b5fd":"#d1d5db"}
-                        } title={inPrompt?"Bereits verwendet — klicken zum Einfügen":"Klicken zum Einfügen"}>
-                          {"{"+f+"}"}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              );
-            })()}
-
-            {requiredFields.length > 0 && availableFields && availableFields.length > 0 && (
-              <div style={{marginTop:10,border:"1px solid #fde68a",background:"#fffbeb",borderRadius:8,padding:10}}>
-                <div style={{fontSize:11,fontWeight:600,color:"#92400e",textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:6}}>Pflicht-Mapping</div>
-                <div style={{display:"grid",gap:6}}>
-                  {requiredFields.map((field) => {
-                    const current = draft.inputMappings?.[field] || "";
-                    return (
-                      <div key={field} style={{display:"grid",gridTemplateColumns:"180px 1fr",gap:8,alignItems:"center"}}>
-                        <span style={{fontFamily:"monospace",fontSize:12,color:"#374151"}}>{`{${field}}`}</span>
-                        <select
-                          style={{...inp,fontFamily:"monospace",padding:"6px 10px"}}
-                          value={current}
-                          onChange={e=>setDraft(d=>({
-                            ...d,
-                            inputMappings: {
-                              ...(d.inputMappings || {}),
-                              [field]: e.target.value,
-                            },
-                          }))}
-                        >
-                          <option value="">Feld wählen…</option>
-                          {availableFields.map((sourceField) => (
-                            <option key={sourceField} value={sourceField}>{sourceField}</option>
-                          ))}
-                        </select>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
-            {/* ── Web Search — inline under prompt ── */}
-            <div style={{marginTop:8,border:"1px solid #bfdbfe",borderRadius:8,overflow:"hidden"}}>
-              {/* Toggle header */}
-              <button type="button"
-                onClick={() => setDraft(d => ({
-                  ...d,
-                  useWebSearch: d.useWebSearch ? undefined : true,
-                  searchQuery: d.useWebSearch ? undefined : d.searchQuery,
-                }))}
-                style={{width:"100%",display:"flex",alignItems:"center",gap:8,padding:"7px 10px",background:draft.useWebSearch?"#dbeafe":"#f0f9ff",border:"none",cursor:"pointer",textAlign:"left"}}>
-                <span style={{fontSize:13}}>{draft.useWebSearch ? "🔍" : "🔍"}</span>
-                <span style={{fontSize:11,fontWeight:700,color:draft.useWebSearch?"#1e40af":"#64748b",textTransform:"uppercase",letterSpacing:"0.05em",flex:1}}>
-                  Web-Suche vor LLM
-                </span>
-                <span style={{fontSize:11,padding:"1px 8px",borderRadius:10,background:draft.useWebSearch?"#2563eb":"#e2e8f0",color:draft.useWebSearch?"#fff":"#64748b",fontWeight:600}}>
-                  {draft.useWebSearch ? "AN" : "AUS"}
-                </span>
-              </button>
-
-              {draft.useWebSearch && (
-                <div style={{padding:"10px 10px 12px",background:"#eff6ff",display:"grid",gap:8}}>
-                  {/* Search query input */}
-                  <div>
-                    <label style={{...lbl,color:"#1d4ed8",marginBottom:3}}>Suchanfrage-Template</label>
-                    <input style={{...inp,fontFamily:"monospace",fontSize:12,borderColor:"#93c5fd"}}
-                      value={draft.searchQuery || ""}
-                      onChange={e => setDraft(d => ({...d, searchQuery: e.target.value || undefined}))}
-                      placeholder="z.B. {company_name} offizieller Webauftritt" />
-                  </div>
-
-                  {/* Field chips for search query */}
-                  {availableFields && availableFields.length > 0 && (
-                    <div style={{display:"flex",flexWrap:"wrap",gap:4,alignItems:"center"}}>
-                      <span style={{fontSize:11,color:"#6b7280",marginRight:2}}>Felder:</span>
-                      {availableFields.map(f => {
-                        const inQuery = (draft.searchQuery || "").includes("{"+f+"}");
-                        return (
-                          <button key={f} type="button"
-                            onMouseDown={e => e.preventDefault()}
-                            onClick={() => setDraft(d => ({...d, searchQuery: (d.searchQuery || "") + "{"+f+"}"}))}
-                            style={{fontSize:11,padding:"2px 7px",borderRadius:10,fontFamily:"monospace",border:"1px solid",cursor:"pointer",
-                              background:inQuery?"#dbeafe":"#f9fafb",
-                              color:inQuery?"#1d4ed8":"#374151",
-                              borderColor:inQuery?"#93c5fd":"#d1d5db"}}>
-                            {"{"+f+"}"}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
-
-                  {/* Max results + layer */}
-                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-                    <div>
-                      <label style={{...lbl,color:"#1d4ed8",marginBottom:3}}>Max. Ergebnisse</label>
-                      <input type="number" min={1} max={10}
-                        style={{...inp,borderColor:"#93c5fd"}}
-                        value={draft.searchMaxResults ?? 5}
-                        onChange={e => setDraft(d => ({...d, searchMaxResults: Math.max(1, Math.min(10, Number(e.target.value)))}))} />
-                    </div>
-                    <div>
-                      <label style={{...lbl,color:"#1d4ed8",marginBottom:3}}>Layer</label>
-                      <select style={{...inp,borderColor:"#93c5fd"}}
-                        value={draft.searchForceLayer || ""}
-                        onChange={e => setDraft(d => ({...d, searchForceLayer: (e.target.value || undefined) as typeof d.searchForceLayer}))}>
-                        <option value="">Auto (SerpAPI → Brave → DDG → Playwright)</option>
-                        <option value="serpapi">Nur SerpAPI</option>
-                        <option value="brave">Nur Brave Search</option>
-                        <option value="duckduckgo">Nur DuckDuckGo</option>
-                        <option value="playwright">Nur Playwright</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  <div>
-                    <label style={{...lbl,color:"#1d4ed8",marginBottom:3}}>Evidenz-Tiefe (Firecrawl)</label>
-                    <select style={{...inp,borderColor:"#93c5fd"}}
-                      value={draft.evidenceMode || "snippet"}
-                      onChange={e => setDraft(d => ({...d, evidenceMode: (e.target.value === "snippet" ? undefined : e.target.value) as typeof d.evidenceMode}))}>
-                      <option value="snippet">Snippets (schnell, günstig)</option>
-                      <option value="page">Ganze Seiten lesen (Firecrawl-Scrape)</option>
-                      <option value="auto">Auto: erst Snippets, bei leerer Antwort Seiten lesen</option>
-                    </select>
-                  </div>
-
-                  <div style={{fontSize:11,color:"#3b82f6",lineHeight:1.5}}>
-                    Die Suchergebnisse werden automatisch als Kontext <strong>vor deinem Prompt</strong> eingefügt. Nutze Platzhalter wie <code style={{background:"#dbeafe",padding:"0 4px",borderRadius:3}}>{"{company_name}"}</code> um zeilenspezifische Suchen zu bauen.
-                    <br />
-                    <span style={{color:"#60a5fa"}}>„Ganze Seiten" lädt die Top-2 Treffer per Firecrawl als Markdown ins Prompt — für Infos, die nicht im Snippet stehen (Impressum, Adresse, Gründungsjahr …). Benötigt Eden-AI-Key, +1–3s pro Zeile.</span>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* ── Reasoning capture ── */}
-          <div style={{border:"1px solid #e9d5ff",borderRadius:8,overflow:"hidden"}}>
-            <button type="button"
-              onClick={() => setDraft(d => ({...d, captureReasoning: d.captureReasoning ? undefined : true}))}
-              style={{width:"100%",display:"flex",alignItems:"center",gap:8,padding:"7px 10px",background:draft.captureReasoning?"#f3e8ff":"#faf5ff",border:"none",cursor:"pointer",textAlign:"left"}}>
-              <span style={{fontSize:13}}>🧠</span>
-              <span style={{fontSize:11,fontWeight:700,color:draft.captureReasoning?"#6b21a8":"#94a3b8",textTransform:"uppercase",letterSpacing:"0.05em",flex:1}}>
-                Reasoning erfassen
-              </span>
-              <span style={{fontSize:11,padding:"1px 8px",borderRadius:10,background:draft.captureReasoning?"#7c3aed":"#e2e8f0",color:draft.captureReasoning?"#fff":"#64748b",fontWeight:600}}>
-                {draft.captureReasoning ? "AN" : "AUS"}
-              </span>
-            </button>
-            {draft.captureReasoning && (
-              <div style={{padding:"8px 10px",background:"#faf5ff",fontSize:11,color:"#7c3aed",lineHeight:1.5}}>
-                Das LLM gibt eine kurze Begründung seiner Antwort zurück (welche Quelle, warum, was abgelehnt). Wird als <code style={{background:"#ede9fe",padding:"0 4px",borderRadius:3}}>_reasoning_{draft.outputKey}</code> in der Zeile gespeichert.
-              </div>
-            )}
-          </div>
-
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12}}>
-            <div><label style={lbl}>Modell</label>
-              <select style={inp} value={draft.model||"openai/gpt-4o-mini"} onChange={e=>setDraft(d=>({...d,model:e.target.value}))}>
-                {mergeModelOptions([draft.model || "openai/gpt-4o-mini"], modelOptions).map((m) => <option key={m}>{m}</option>)}
-              </select>
-            </div>
-            <div><label style={lbl}>Output-Modus</label>
-              <select style={inp} value={draft.outputMode||"text"} onChange={e=>setDraft(d=>({...d,outputMode:e.target.value as "text"|"json"}))}>
-                <option value="text">Text</option><option value="json">JSON (Key extrahieren)</option>
-              </select>
-            </div>
-            {draft.outputMode==="json" && (
-              <div><label style={lbl}>JSON Key</label>
-                <input style={{...inp,fontFamily:"monospace"}} value={draft.jsonKey||""} onChange={e=>setDraft(d=>({...d,jsonKey:e.target.value}))} placeholder="z.B. url" />
-              </div>
-            )}
-          </div>
-
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
-            <div><label style={lbl}>Bedingung</label>
-              <select style={inp} value={draft.condition||""} onChange={e=>{
-                const nextCondition = e.target.value as AiColumn["condition"] | "";
-                setDraft(d=>({
-                  ...d,
-                  condition: nextCondition || undefined,
-                  conditionField: nextCondition ? d.conditionField : undefined,
-                }));
-              }}>
-                <option value="">Immer ausführen</option>
-                <option value="require_input">Nur wenn Eingabefeld vorhanden</option>
-                <option value="empty">Nur wenn Ausgabefeld leer (kein Re-Run)</option>
-                <option value="not_empty">Nur wenn Ausgabefeld befüllt</option>
-              </select>
-            </div>
-            {draft.condition && (
-              <div><label style={lbl}>Bedingungsfeld</label>
-                {availableFields && availableFields.length > 0 ? (
-                  <select style={{...inp,fontFamily:"monospace"}} value={draft.conditionField||""} onChange={e=>setDraft(d=>({...d,conditionField:e.target.value||undefined}))}>
-                    <option value="">Feld wählen…</option>
-                    {availableFields.map((field) => (
-                      <option key={field} value={field}>{field}</option>
-                    ))}
-                  </select>
-                ) : (
-                  <input style={{...inp,fontFamily:"monospace"}} value={draft.conditionField||""} onChange={e=>setDraft(d=>({...d,conditionField:e.target.value||undefined}))} placeholder="Feldname" />
-                )}
-              </div>
-            )}
-          </div>
-
-          {cellContext && (
-            <div style={{border:"1px solid #dbeafe",background:"#f8fbff",borderRadius:8,padding:12,display:"grid",gap:10}}>
-              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10}}>
-                <div>
-                  <div style={{fontSize:12,fontWeight:700,color:"#1e3a8a"}}>Model Compare</div>
-                  <div style={{fontSize:11,color:"#64748b"}}>Wähle bis zu 3 Modelle für denselben Prompt und diese Zeile.</div>
-                </div>
-                <button
-                  type="button"
-                  onClick={runModelCompare}
-                  disabled={compareLoading || compareModels.length === 0}
-                  style={{display:"flex",alignItems:"center",gap:6,padding:"6px 12px",background:"#2563eb",color:"#fff",border:"none",borderRadius:6,cursor:"pointer",fontSize:12,fontWeight:600,opacity:compareLoading?0.6:1}}
-                >
-                  {compareLoading ? <Loader2 style={{width:12,height:12}} className="animate-spin" /> : <Zap style={{width:12,height:12}} />}
-                  {compareLoading ? "Teste…" : "3 Modelle testen"}
-                </button>
-              </div>
-
-              <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
-                {mergeModelOptions(compareModels, modelOptions).map((m) => {
-                  const selected = compareModels.includes(m);
-                  const disabled = !selected && compareModels.length >= 3;
-                  return (
-                    <button
-                      key={m}
-                      type="button"
-                      onClick={() => toggleCompareModel(m)}
-                      disabled={disabled}
-                      style={{
-                        fontSize:11,
-                        padding:"3px 8px",
-                        borderRadius:999,
-                        border:"1px solid",
-                        cursor:disabled?"not-allowed":"pointer",
-                        opacity:disabled?0.5:1,
-                        fontFamily:"monospace",
-                        background:selected?"#dbeafe":"#fff",
-                        borderColor:selected?"#93c5fd":"#d1d5db",
-                        color:selected?"#1d4ed8":"#374151",
-                      }}
-                    >
-                      {selected ? "✓ " : ""}{m}
-                    </button>
-                  );
-                })}
-              </div>
-
-              {compareError && <div style={{fontSize:12,color:"#dc2626"}}>{compareError}</div>}
-
-              {recommendedModel && (
-                <div style={{display:"flex",alignItems:"center",gap:8,fontSize:12,color:"#065f46",background:"#ecfdf5",border:"1px solid #a7f3d0",borderRadius:6,padding:"6px 8px"}}>
-                  <span>Automatisch übernommen: <strong style={{fontFamily:"monospace"}}>{recommendedModel}</strong></span>
-                </div>
-              )}
-
-              {compareResults.length > 0 && (
-                <div style={{display:"grid",gap:6}}>
-                  {compareResults.map((r) => (
-                    <div key={r.model} style={{border:"1px solid #e5e7eb",borderRadius:6,padding:"7px 8px",background:"#fff"}}>
-                      <div style={{display:"flex",alignItems:"center",gap:8,fontSize:11,color:"#6b7280"}}>
-                        <span style={{fontFamily:"monospace",fontWeight:600,color:"#111827"}}>{r.model}</span>
-                        <span>· {r.provider}</span>
-                        <span>· score {r.score}</span>
-                        <span>· {r.validation}</span>
-                        <span>· {r.latencyMs}ms</span>
-                        <span style={{marginLeft:"auto",color:r.ok?"#7c3aed":"#dc2626",fontWeight:600}}>{r.ok ? "OK" : "FAIL"}</span>
-                      </div>
-                      <div style={{fontSize:11,color:r.validation==="pass"?"#5b21b6":"#b45309",marginTop:3}}>Validation: {r.validationReason}</div>
-                      <div style={{fontSize:12,color:r.ok?"#1f2937":"#991b1b",marginTop:4,whiteSpace:"pre-wrap",wordBreak:"break-word"}}>{r.ok ? (r.value || "(empty)") : (r.error || "Unknown error")}</div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* Cell log/error section */}
-        {cellContext && (
-          <div style={{margin:"0 20px 0",borderTop:"1px solid #e5e7eb",paddingTop:16}}>
-            <div style={{fontSize:11,fontWeight:600,color:"#6b7280",textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:8}}>
-              Zellen-Log{cellContext.rowLabel ? ` — ${cellContext.rowLabel}` : ""}
-            </div>
-            {/* Status badge */}
-            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
-              {cellContext.status==="error" && <span style={{display:"inline-flex",alignItems:"center",gap:4,fontSize:11,color:"#dc2626",background:"#fef2f2",padding:"3px 10px",borderRadius:10,fontWeight:600}}>✗ Fehler</span>}
-              {cellContext.status==="done" && <span style={{display:"inline-flex",alignItems:"center",gap:4,fontSize:11,color:"#7c3aed",background:"#ddd6fe",padding:"3px 10px",borderRadius:10,fontWeight:600}}>✓ Fertig</span>}
-              {cellContext.status==="running" && <span style={{display:"inline-flex",alignItems:"center",gap:4,fontSize:11,color:"#d97706",background:"#fef3c7",padding:"3px 10px",borderRadius:10,fontWeight:600}}><Loader2 style={{width:10,height:10}} className="animate-spin" /> Läuft</span>}
-              {cellContext.status==="idle" && <span style={{fontSize:11,color:"#9ca3af"}}>○ Noch nicht ausgeführt</span>}
-              {cellContext.status==="skipped" && <span style={{display:"inline-flex",alignItems:"center",gap:4,fontSize:11,color:"#9ca3af",background:"#f3f4f6",padding:"3px 10px",borderRadius:10}}>⏭ Übersprungen</span>}
-              {onRunCell && (
-                <button onClick={()=>{onRunCell();}}
-                  style={{display:"flex",alignItems:"center",gap:5,padding:"4px 12px",background:"#7c3aed",color:"#fff",border:"none",borderRadius:5,cursor:"pointer",fontSize:12,fontWeight:600,marginLeft:"auto"}}>
-                  <Play style={{width:11,height:11}} /> Jetzt ausführen
-                </button>
-              )}
-              {onOpenRunDetail && (
-                <button onClick={onOpenRunDetail}
-                  style={{display:"flex",alignItems:"center",gap:5,padding:"4px 12px",background:"#2563eb",color:"#fff",border:"none",borderRadius:5,cursor:"pointer",fontSize:12,fontWeight:600}}>
-                  <Info style={{width:11,height:11}} /> Run + Detail-Log
-                </button>
-              )}
-            </div>
-            {cellContext.error && (
-              <div style={{background:"#fef2f2",border:"1px solid #fecaca",borderRadius:6,padding:"10px 12px",marginBottom:8}}>
-                <div style={{fontSize:11,fontWeight:600,color:"#dc2626",marginBottom:4}}>Fehlermeldung</div>
-                <pre style={{fontSize:12,color:"#991b1b",margin:0,whiteSpace:"pre-wrap",wordBreak:"break-all",fontFamily:"monospace",lineHeight:1.5}}>{cellContext.error}</pre>
-              </div>
-            )}
-            {cellContext.status==="done" && (cellContext.value || cellContext.multiValues) && (
-              <div style={{background:"#f8fafc",border:"1px solid #e2e8f0",borderRadius:6,overflow:"hidden"}}>
-                <div style={{fontSize:11,fontWeight:600,color:"#475569",padding:"7px 12px",borderBottom:"1px solid #e2e8f0",background:"#f1f5f9",textTransform:"uppercase",letterSpacing:"0.05em"}}>
-                  Output
-                </div>
-                <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
-                  <tbody>
-                    {cellContext.multiValues
-                      ? Object.entries(cellContext.multiValues).map(([k, v]) => (
-                          <tr key={k} style={{borderBottom:"1px solid #f1f5f9"}}>
-                            <td style={{padding:"6px 12px",fontFamily:"monospace",color:"#64748b",whiteSpace:"nowrap",width:180,verticalAlign:"top"}}>{k}</td>
-                            <td style={{padding:"6px 12px",color:v.startsWith("✗")?"#dc2626":v.startsWith("✓")?"#6d28d9":"#1e293b",wordBreak:"break-all",lineHeight:1.5}}>{v||<span style={{color:"#cbd5e1",fontStyle:"italic"}}>empty</span>}</td>
-                          </tr>
-                        ))
-                      : (
-                          <tr>
-                            <td style={{padding:"6px 12px",fontFamily:"monospace",color:"#64748b",whiteSpace:"nowrap",width:180}}>{col.outputKey}</td>
-                            <td style={{padding:"6px 12px",color:"#1e293b",wordBreak:"break-all"}}>{cellContext.value}</td>
-                          </tr>
-                        )
-                    }
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Footer */}
-        <div style={{padding:"14px 20px",borderTop:"1px solid #e5e7eb",display:"flex",alignItems:"center",gap:8,marginTop:16}}>
-          <button onClick={save} disabled={saving}
-            style={{display:"flex",alignItems:"center",gap:6,padding:"8px 20px",background:"#7c3aed",color:"#fff",border:"none",borderRadius:6,cursor:"pointer",fontSize:13,fontWeight:600,opacity:saving?.6:1}}>
-            {saving ? <Loader2 style={{width:13,height:13}} className="animate-spin" /> : <Save style={{width:13,height:13}} />}
-            Speichern
-          </button>
-          <button onClick={onClose} style={{padding:"7px 16px",border:"1px solid #d1d5db",borderRadius:6,background:"#fff",cursor:"pointer",fontSize:13,color:"#374151"}}>
-            Abbrechen
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 // ── Inline Settings Panel ─────────────────────────────────────────────────────
 function SettingsPanel({ caseId, onCaseUpdated }: { caseId: string; onCaseUpdated: (c: Case) => void }) {
-  const [caseData, setCaseData] = useState<Case | null>(null);
-  const [name, setName] = useState("");
+  // Use shared context — avoids re-fetching case data that CasePage already has
+  const ctx = useContext(CaseContext);
+  const [caseData, setCaseDataLocal] = useState<Case | null>(ctx?.caseData ?? null);
+  const [name, setName] = useState(ctx?.caseData?.name ?? "");
   const [edenApiKey, setEdenApiKey] = useState("");
-  const [edenApiKeyMasked, setEdenApiKeyMasked] = useState<string | undefined>(undefined);
+  const [edenApiKeyMasked, setEdenApiKeyMasked] = useState<string | undefined>(ctx?.caseData?.edenApiKeyMasked);
   const [modelCatalog, setModelCatalog] = useState<string[]>([]);
   const [enabledModels, setEnabledModels] = useState<string[]>([]);
   const [modelsSaving, setModelsSaving] = useState(false);
@@ -961,12 +47,20 @@ function SettingsPanel({ caseId, onCaseUpdated }: { caseId: string; onCaseUpdate
   const [addingCol, setAddingCol] = useState(false);
   const [newCol, setNewCol] = useState<Partial<AiColumn>>({});
 
+  // Sync from context when it updates (no separate fetch needed)
   useEffect(() => {
-    fetch(`/api/cases/${caseId}`).then(r => r.json()).then((c: Case) => {
-      setCaseData(c); setName(c.name);
-      setEdenApiKey(""); setEdenApiKeyMasked(c.edenApiKeyMasked);
-    });
-  }, [caseId]);
+    if (ctx?.caseData) {
+      setCaseDataLocal(ctx.caseData);
+      setName(ctx.caseData.name);
+      setEdenApiKeyMasked(ctx.caseData.edenApiKeyMasked);
+    } else {
+      // Fallback: fetch if context not available
+      fetch(`/api/cases/${caseId}`).then(r => r.json()).then((c: Case) => {
+        setCaseDataLocal(c); setName(c.name);
+        setEdenApiKey(""); setEdenApiKeyMasked(c.edenApiKeyMasked);
+      });
+    }
+  }, [caseId, ctx?.caseData?.updatedAt]);
 
   useEffect(() => {
     fetch(`/api/llm/models?caseId=${caseId}`)
@@ -985,15 +79,13 @@ function SettingsPanel({ caseId, onCaseUpdated }: { caseId: string; onCaseUpdate
 
   async function saveMeta() {
     setSaving(true);
-    const res = await fetch(`/api/cases/${caseId}`, {
-      method: "PATCH", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        name: name.trim(),
-        edenApiKey: edenApiKey.trim() || undefined,
-      }),
-    });
-    const updated = await res.json();
-    setCaseData(updated);
+    const updated = ctx?.updateCase
+      ? await ctx.updateCase({ name: name.trim(), edenApiKey: edenApiKey.trim() || undefined })
+      : await fetch(`/api/cases/${caseId}`, {
+          method: "PATCH", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: name.trim(), edenApiKey: edenApiKey.trim() || undefined }),
+        }).then(r => r.json());
+    setCaseDataLocal(updated);
     onCaseUpdated(updated);
     setEdenApiKey("");
     setEdenApiKeyMasked(updated.edenApiKeyMasked);
@@ -1006,13 +98,13 @@ function SettingsPanel({ caseId, onCaseUpdated }: { caseId: string; onCaseUpdate
 
   async function saveModelAllowlist() {
     setModelsSaving(true);
-    const res = await fetch(`/api/cases/${caseId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ modelAllowlist: enabledModels }),
-    });
-    const updated = await res.json();
-    setCaseData(updated);
+    const updated = ctx?.updateCase
+      ? await ctx.updateCase({ modelAllowlist: enabledModels })
+      : await fetch(`/api/cases/${caseId}`, {
+          method: "PATCH", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ modelAllowlist: enabledModels }),
+        }).then(r => r.json());
+    setCaseDataLocal(updated);
     onCaseUpdated(updated);
     setModelsSaving(false);
     setModelsSavedMsg(true);
@@ -1050,7 +142,7 @@ function SettingsPanel({ caseId, onCaseUpdated }: { caseId: string; onCaseUpdate
       body: JSON.stringify({ aiColumns: cols }),
     });
     const updated = await res.json();
-    setCaseData(updated); onCaseUpdated(updated); return updated;
+    setCaseDataLocal(updated); onCaseUpdated(updated); return updated;
   }
 
   async function saveColEdit() {
@@ -1151,42 +243,20 @@ function SettingsPanel({ caseId, onCaseUpdated }: { caseId: string; onCaseUpdate
               {smokeLoading ? <Loader2 style={{width:12,height:12}} className="animate-spin" /> : <Zap style={{width:12,height:12}} />}
               {smokeLoading ? "Smoke läuft…" : "Smoke Test"}
             </button>
-            <button style={btn("#7c3aed")} onClick={saveModelAllowlist} disabled={modelsSaving || modelCatalog.length===0}>
-              {modelsSaving ? <Loader2 style={{width:12,height:12}} className="animate-spin" /> : <Save style={{width:12,height:12}} />}
-              {modelsSavedMsg ? "✓ Gespeichert" : "Modelle anwenden"}
-            </button>
           </div>
         </div>
-        <div style={{display:"flex",gap:8,marginBottom:10}}>
-          <button style={btn("#fff", "#374151")} onClick={()=>setEnabledModels([...modelCatalog])}>Alle auswählen</button>
-          <button style={btn("#fff", "#374151")} onClick={()=>setEnabledModels([])}>Alle abwählen</button>
-          <span style={{fontSize:12,color:"#6b7280",display:"inline-flex",alignItems:"center"}}>{enabledModels.length} / {modelCatalog.length} aktiv</span>
-        </div>
-        <div style={{display:"grid",gridTemplateColumns:"repeat(3,minmax(0,1fr))",gap:8}}>
-          {modelCatalog.map((m) => {
-            const selected = enabledModels.includes(m);
-            return (
-              <button
-                key={m}
-                type="button"
-                onClick={() => toggleEnabledModel(m)}
-                style={{
-                  textAlign:"left",
-                  fontSize:12,
-                  padding:"6px 8px",
-                  borderRadius:6,
-                  border:"1px solid",
-                  fontFamily:"monospace",
-                  cursor:"pointer",
-                  background:selected?"#ede9fe":"#fff",
-                  borderColor:selected?"#c4b5fd":"#d1d5db",
-                  color:selected?"#5b21b6":"#374151",
-                }}
-              >
-                {selected ? "✓ " : "○ "}{m}
-              </button>
-            );
-          })}
+        {/* Model curation is global — link to /settings/models */}
+        <a href="/settings/models"
+          style={{display:"flex",alignItems:"center",gap:10,padding:"12px 14px",border:"1px solid #e9d5ff",borderRadius:8,background:"#f5f3ff",textDecoration:"none",color:"#6d28d9",marginBottom:10}}>
+          <Sliders style={{width:16,height:16,flexShrink:0}} />
+          <div style={{flex:1}}>
+            <div style={{fontSize:13,fontWeight:600}}>Globale Modell-Curation</div>
+            <div style={{fontSize:11,color:"#7c3aed",marginTop:1}}>Welche Modelle in allen Cases angeboten werden — in den globalen Einstellungen konfigurieren</div>
+          </div>
+          <span style={{fontSize:12,color:"#a78bfa"}}>→</span>
+        </a>
+        <div style={{fontSize:11,color:"#9ca3af"}}>
+          Aktive Modelle aus globalem Katalog: <strong style={{color:"#6d28d9"}}>{enabledModels.length > 0 ? enabledModels.length : modelCatalog.length}</strong>
         </div>
         {smokeError && <div style={{marginTop:10,fontSize:12,color:"#dc2626"}}>{smokeError}</div>}
         {smokeResults.length > 0 && (
@@ -1277,223 +347,248 @@ function CellStatusIcon({ status }: { status: CellStatus }) {
   return null;
 }
 
+function EmailExtrapolateButton({ caseId, onDone }: { caseId: string; onDone: () => void }) {
+  const [state, setState] = useState<"idle" | "running" | "done">("idle");
+  const [stats, setStats] = useState({ processed: 0, confirmed: 0, total: 0, catchAll: 0 });
+  const [learned, setLearned] = useState<string[]>([]);
+
+  async function run(verify: boolean) {
+    setState("running");
+    setStats({ processed: 0, confirmed: 0, total: 0, catchAll: 0 });
+    try {
+      const res = await fetch(`/api/cases/${caseId}/extrapolate-email/stream`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ verify, concurrency: 6, timeoutMs: 5000 }),
+      });
+      if (!res.body) return;
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n\n"); buffer = lines.pop() ?? "";
+        for (const line of lines) {
+          const d = line.replace(/^data: /, "").trim();
+          if (!d) continue;
+          try {
+            const ev = JSON.parse(d);
+            if (ev.type === "learned") setLearned(ev.patterns ?? []);
+            if (ev.type === "start") setStats(s => ({ ...s, total: ev.total }));
+            if (ev.type === "progress") setStats(s => ({
+              ...s,
+              processed: s.processed + 1,
+              confirmed: s.confirmed + (ev.status === "confirmed" ? 1 : 0),
+              catchAll: s.catchAll + (ev.status === "catchall" ? 1 : 0),
+            }));
+            if (ev.type === "done") { onDone(); setState("done"); }
+          } catch { /* skip */ }
+        }
+      }
+    } catch { setState("idle"); }
+  }
+
+  if (state === "idle" || state === "done") return (
+    <div style={{display:"flex",alignItems:"center",gap:4}}>
+      <button onClick={() => run(false)}
+        title="Email-Adressen aus Kontaktnamen + Domain ableiten (ohne SMTP-Check)"
+        style={{display:"flex",alignItems:"center",gap:4,padding:"4px 9px",border:"1px solid #c4b5fd",borderRadius:5,background:"#f5f3ff",cursor:"pointer",fontSize:12,color:"#7c3aed"}}>
+        ⚡ Emails
+      </button>
+      <button onClick={() => run(true)}
+        title="Emails ableiten + SMTP-Verify (langsamer, ~30s)"
+        style={{padding:"4px 6px",border:"1px solid #c4b5fd",borderRadius:5,background:"#f5f3ff",cursor:"pointer",fontSize:10,color:"#7c3aed"}}>
+        +✓
+      </button>
+    </div>
+  );
+
+  return (
+    <div style={{display:"flex",alignItems:"center",gap:6,padding:"3px 9px",border:"1px solid #c4b5fd",borderRadius:5,background:"#f5f3ff",fontSize:11,color:"#7c3aed"}}>
+      <Loader2 style={{width:10,height:10}} className="animate-spin"/>
+      {stats.processed}/{stats.total}
+      {stats.confirmed > 0 && <span style={{color:"#15803d",fontWeight:600}}>✓{stats.confirmed}</span>}
+      {learned.length > 0 && <span style={{fontSize:9,color:"#a78bfa"}}>{learned[0]}</span>}
+    </div>
+  );
+}
+
+function CatalogDeepCrawlButton({ caseId, onDone, catalogCount }: { caseId: string; onDone: () => void; catalogCount: number }) {
+  const [state, setState] = useState<"idle" | "running" | "done">("idle");
+  const [stats, setStats] = useState({ done: 0, total: 0, added: 0 });
+  const [currentCatalog, setCurrentCatalog] = useState("");
+
+  async function run() {
+    setState("running");
+    setStats({ done: 0, total: catalogCount, added: 0 });
+    try {
+      const res = await fetch(`/api/cases/${caseId}/deep-crawl-catalogs`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ maxPagesPerCatalog: 3, dryRun: false }),
+      });
+      if (!res.body) return;
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n\n"); buffer = lines.pop() ?? "";
+        for (const line of lines) {
+          const d = line.replace(/^data: /, "").trim();
+          if (!d) continue;
+          try {
+            const ev = JSON.parse(d);
+            if (ev.type === "catalog_start") { setCurrentCatalog(ev.name?.slice(0, 30) ?? ""); }
+            if (ev.type === "catalog_done") { setStats(s => ({ ...s, done: s.done + 1, added: s.added + (ev.added ?? 0) })); }
+            if (ev.type === "done") { onDone(); setState("done"); }
+          } catch { /* skip */ }
+        }
+      }
+    } catch { setState("idle"); }
+  }
+
+  const catalogLabel = `📋 Kataloge scrapen (${catalogCount})`;
+
+  if (state === "idle" || state === "done") return (
+    <button onClick={run}
+      title={`${catalogCount} gefundene Katalogseiten scrapen — extrahiert alle dort gelisteten Firmen`}
+      style={{display:"flex",alignItems:"center",gap:5,padding:"4px 9px",border:"1px solid #fde68a",borderRadius:5,background:"#fefce8",cursor:"pointer",fontSize:12,color:"#854d0e",fontWeight:500}}>
+      {state === "done" ? `✓ ${stats.added} Firmen` : catalogLabel}
+    </button>
+  );
+
+  return (
+    <div style={{display:"flex",alignItems:"center",gap:6,padding:"3px 9px",border:"1px solid #fde68a",borderRadius:5,background:"#fefce8",fontSize:11,color:"#854d0e"}}>
+      <Loader2 style={{width:10,height:10}} className="animate-spin"/>
+      {stats.done}/{stats.total} · {currentCatalog}
+    </div>
+  );
+}
+
+function CatalogScrapeButton({ url, caseId, onScraped }: { url: string; caseId: string; onScraped: () => void }) {  const [scraping, setScraping] = useState(false);
+  const [result, setResult] = useState<{added: number; pages: number} | null>(null);
+  return (
+    <div style={{display:"flex",alignItems:"center",gap:4,marginTop:2,flexWrap:"wrap"}}>
+      <span style={{fontSize:10,color:"#b45309",background:"#fef3c7",border:"1px solid #fde68a",padding:"1px 6px",borderRadius:6,fontWeight:600}}>
+        📋 Katalog
+      </span>
+      <button
+        onClick={async (e) => {
+          e.stopPropagation();
+          if (scraping || result) return;
+          setScraping(true);
+          try {
+            const res = await fetch(`/api/cases/${caseId}/scrape-catalog`, {
+              method: "POST",
+              headers: {"Content-Type":"application/json"},
+              body: JSON.stringify({ url, maxPages: 5 }),
+            });
+            const d = await res.json();
+            setResult({ added: d.added ?? 0, pages: d.pagesScraped ?? 1 });
+            if ((d.added ?? 0) > 0) onScraped();
+          } catch { setResult({ added: -1, pages: 0 }); }
+          finally { setScraping(false); }
+        }}
+        title={result ? `${result.added} Firmen von ${result.pages} Seiten` : "Firmenliste von dieser Katalogseite extrahieren"}
+        style={{fontSize:10,
+          color: result ? (result.added > 0 ? "#15803d" : "#6b7280") : "#1d4ed8",
+          background: result ? (result.added > 0 ? "#dcfce7" : "#f3f4f6") : "#eff6ff",
+          border:`1px solid ${result ? (result.added > 0 ? "#bbf7d0" : "#d1d5db") : "#bfdbfe"}`,
+          padding:"1px 7px",borderRadius:6,cursor: result ? "default" : "pointer",fontWeight:600,
+          display:"flex",alignItems:"center",gap:3,opacity:scraping?0.6:1}}>
+        {scraping ? "⚙️ Scrape…" : result ? (result.added > 0 ? `✓ ${result.added} Firmen` : "0 gefunden") : "↓ Firmen extrahieren"}
+      </button>
+    </div>
+  );
+}
+
 export default function CasePage({ params }: { params: Promise<{ id: string }> }) {
   const { id: caseId } = use(params);
   const router = useRouter();
 
-  const [caseData, setCaseData] = useState<Case | null>(null);
-  const [rows, setRows] = useState<RowData[]>([]);
+  // ── Data & columns ────────────────────────────────────────────────────────
+  const {
+    caseData, setCaseData,
+    rows, setRows,
+    sourceColumns, setSourceColumns,
+    colOrder, setColOrder,
+    rangeBis, setRangeBis,
+    rangeMax, setRangeMax,
+    totals,
+    refresh,
+  } = useCaseData(caseId);
+
+  // ── UI state ──────────────────────────────────────────────────────────────
   const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
   const [showAddCol, setShowAddCol] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [showDiscovery, setShowDiscovery] = useState(false);
+  const [showAgentGoal, setShowAgentGoal] = useState(false);
+  const [showAppend, setShowAppend] = useState(false);
   const [editingCell, setEditingCell] = useState<{ rowId: string; key: string } | null>(null);
   const [editValue, setEditValue] = useState("");
-  const [runningCells, setRunningCells] = useState<Set<string>>(new Set()); // "rowId:colId"
-  const [sourceColumns, setSourceColumns] = useState<string[]>([]);
   const [page, setPage] = useState(0);
   const [pageSize] = useState(50);
   const [showLogs, setShowLogs] = useState(false);
   const [logs, setLogs] = useState<{ id: number; message: string; createdAt: string }[]>([]);
-  const [activeTab, setActiveTab] = useState<"Tabelle" | "Einstellungen" | "Log" | "Export">("Tabelle");
+  const [activeTab, setActiveTab] = useState<"Tabelle" | "Quellen" | "Einstellungen" | "Log" | "Export">("Tabelle");
   const [showUpload, setShowUpload] = useState(false);
   const [showPromptCols, setShowPromptCols] = useState(false);
   const [rangeVon, setRangeVon] = useState(1);
-  const [rangeBis, setRangeBis] = useState<number>(0);
-  const [rangeMax, setRangeMax] = useState(0);
-  const [colOrder, setColOrder] = useState<string[]>([]);
   const [colWidths, setColWidths] = useState<Record<string, number>>({});
   const [dragCol, setDragCol] = useState<string | null>(null);
   const [dragOverCol, setDragOverCol] = useState<string | null>(null);
   const [editingPromptCol, setEditingPromptCol] = useState<AiColumn | null>(null);
   const [editingPromptCell, setEditingPromptCell] = useState<{col: AiColumn; row: RowData} | null>(null);
   const [runDetailCell, setRunDetailCell] = useState<{col: AiColumn; row: RowData} | null>(null);
-  const [sequentialMode, setSequentialMode] = useState(false);
-  const [concurrency, setConcurrency] = useState(5);
   const [reasoningModal, setReasoningModal] = useState<{content: string; title: string} | null>(null);
-  const [globalRunError, setGlobalRunError] = useState<string | null>(null);
-  const [abortControllers, setAbortControllers] = useState<Record<string, AbortController>>({});
-  const [runningColumnId, setRunningColumnId] = useState<string | null>(null);
-  const [runningRowIds, setRunningRowIds] = useState<Set<string>>(new Set());
-  const [operationIds, setOperationIds] = useState<Record<string, string>>({});
-  const [runningCellTimestamps, setRunningCellTimestamps] = useState<Record<string, number>>({});
   const [viewMode, setViewMode] = useState<"flat" | "grouped">("flat");
+  const [showRunOptions, setShowRunOptions] = useState(false);
+  const [runConfirm, setRunConfirm] = useState<{mode: "all_force" | "empty_only"} | null>(null);
 
-  // Auto-detect grouped view: if case has columnGroup columns, enable by default
+  // Auto-detect grouped view
   const hasColumnGroups = caseData?.aiColumns?.some(c => c.columnGroup);
+  // Only show Firmen/Kontakte run-phase buttons for NON-batch columns with explicit groups
+  const hasPhaseColumns = caseData?.aiColumns?.some(c => c.columnGroup && !c.tool);
   useEffect(() => {
     if (hasColumnGroups && viewMode === "flat") setViewMode("grouped");
   }, [hasColumnGroups]);
 
-  // Calculate total tokens and costs across all rows
-  const calculateTotals = useCallback(() => {
-    let totalTokens = 0;
-    let totalCostUsd = 0;
+  // ── Run logic (via hook) ──────────────────────────────────────────────────
+  const {
+    runningCells, runningColumnId, runningRowIds,
+    globalRunError, setGlobalRunError,
+    concurrency, setConcurrency,
+    sequentialMode, setSequentialMode,
+    runCell, stopCell,
+    runColumn, stopColumn,
+    runPhase, runSelectedRows,
+    stopAll,
+  } = useRunColumns(caseId, caseData, rows, setRows, selectedRows, setColOrder);
 
-    rows.forEach(row => {
-      Object.entries(row.data).forEach(([key, value]) => {
-        if (key.startsWith('_llm_tokens_') && typeof value === 'string') {
-          try {
-            const tokens = JSON.parse(value);
-            if (tokens.total) {
-              totalTokens += tokens.total;
-            }
-          } catch {
-            // Ignore parse errors
-          }
-        }
-        if (key.startsWith('_llm_cost_') && typeof value === 'string') {
-          const cost = parseFloat(value);
-          if (!isNaN(cost)) {
-            totalCostUsd += cost;
-          }
-        }
-      });
-    });
-
-    // Convert USD to Euro (approximate rate: 1 USD = 0.92 EUR)
-    const usdToEurRate = 0.92;
-    const totalCostEur = totalCostUsd * usdToEurRate;
-
-    return { totalTokens, totalCostUsd, totalCostEur };
-  }, [rows]);
-
-  const totals = calculateTotals();
-
-  // Cleanup stuck running cells (only clean up cells running > 10 min or completed)
-  useEffect(() => {
-    // Only start cleanup if there are running cells
-    if (runningCells.size === 0) return;
-
-    const timeout = setTimeout(() => {
-      const now = Date.now();
-      const maxRunTime = 10 * 60 * 1000; // 10 minutes
-
-      setRunningCells(prev => {
-        const cleaned = new Set<string>();
-        const newTimestamps: Record<string, number> = {};
-
-        prev.forEach(key => {
-          const [rowId, colId] = key.split(':');
-          const row = rows.find(r => r.id === rowId);
-          const startTime = runningCellTimestamps[key];
-
-          if (row) {
-            const col = caseData?.aiColumns.find(c => c.id === colId);
-            if (col) {
-              const status = row.cellStatuses[col.outputKey];
-              const isRunningTooLong = startTime && (now - startTime > maxRunTime);
-              
-              // Remove if: not actually running, or running too long
-              if (status !== 'running' || isRunningTooLong) {
-                console.log('Cleaning up stuck running cell:', key, 'actual status:', status);
-              } else {
-                cleaned.add(key);
-                newTimestamps[key] = startTime || now;
-              }
-            }
-          }
-        });
-
-        setRunningCellTimestamps(newTimestamps);
-        return cleaned;
-      });
-    }, 30000); // Check after 30 seconds
-
-    return () => clearTimeout(timeout);
-  }, [runningCells.size, rows, caseData?.aiColumns, runningCellTimestamps]);
-
-  const refresh = useCallback(async () => {
-    const [c, r] = await Promise.all([
-      fetch(`/api/cases/${caseId}`).then((x) => x.json()),
-      fetch(`/api/rows?caseId=${caseId}`).then((x) => x.json()),
-    ]);
-    setCaseData(c);
-    setRows(r);
-    
-    // Clear any stuck "running" statuses from previous session
-    const rowsWithStuckStatus = r.filter((row: RowData) => 
-      Object.keys(row.cellStatuses).some(key => row.cellStatuses[key] === 'running')
-    );
-    
-    if (rowsWithStuckStatus.length > 0) {
-      console.log('Clearing stuck running statuses from previous session:', rowsWithStuckStatus.length);
-      rowsWithStuckStatus.forEach((row: RowData) => {
-        Object.keys(row.cellStatuses).forEach(key => {
-          if (row.cellStatuses[key] === 'running') {
-            // Update the row in the database to clear the running status
-            fetch(`/api/rows/${row.id}`, {
-              method: 'PATCH',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ 
-                cellStatuses: { ...row.cellStatuses, [key]: 'skipped' }
-              }),
-            }).catch(console.error);
-          }
-        });
-      });
-    }
-    
-    if (r.length > 0) {
-      const aiKeys = c.aiColumns.map((col: AiColumn) => col.outputKey);
-      // all multiKey sub-outputs (e.g. domain_confidence, domain_validated) written to row data
-      const allMultiKeys = c.aiColumns.flatMap((col: AiColumn) => (col.multiKeys ?? []).map((mk: {outputKey: string}) => mk.outputKey));
-      const allDataKeys = Object.keys(r[0].data).filter(k => !k.startsWith("_"));
-      const srcKeys = allDataKeys.filter(k => !aiKeys.includes(k) && !allMultiKeys.includes(k));
-      // orphan = in data and is a multiKey sub-output OR unknown key (e.g. domain_validated from validateDomain)
-      const orphanKeys = allDataKeys.filter(k => !srcKeys.includes(k) && !aiKeys.includes(k));
-      setSourceColumns(srcKeys);
-      setColOrder(prev => {
-        // Use DB-saved order as base; only fall back to derived order if nothing saved
-        const savedOrder: string[] = c.colOrder?.length ? c.colOrder : [];
-        const base = savedOrder.length > 0 ? savedOrder : [...srcKeys, ...aiKeys, ...orphanKeys];
-        // If we already have a local order (user reordered mid-session), keep it but append new keys
-        const activeBase = prev.length > 0 ? prev : base;
-        const existing = new Set(activeBase);
-        const toAdd = allDataKeys.filter(k => !existing.has(k));
-        return toAdd.length > 0 ? [...activeBase, ...toAdd] : activeBase;
-      });
-    }
-    setRangeBis(r.length);
-    setRangeMax(r.length);
-  }, [caseId]);
-
-  useEffect(() => { refresh(); }, [refresh]);
-
-  // Debounce-save colOrder to DB whenever it changes
-  useEffect(() => {
-    if (!colOrder.length) return;
-    const t = setTimeout(() => {
-      fetch(`/api/cases/${caseId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ colOrder }),
-      });
-    }, 800);
-    return () => clearTimeout(t);
-  }, [colOrder, caseId]);
-
+  // ── Logs ──────────────────────────────────────────────────────────────────
   async function fetchLogs() {
     const data = await fetch(`/api/logs?caseId=${caseId}&limit=300`).then((r) => r.json());
     setLogs(data);
   }
-
   useEffect(() => {
-    if (showLogs || activeTab === "Log") fetchLogs();
+    if (showLogs || activeTab === "Log" || activeTab === "Quellen") fetchLogs();
   }, [showLogs, activeTab]);
 
-  // ── Cell editing ──────────────────────────────────────────────────────────
+  // ── Cell inline editing ───────────────────────────────────────────────────
   function startEdit(rowId: string, key: string, current: string) {
     setEditingCell({ rowId, key });
     setEditValue(current ?? "");
   }
-
   async function commitEdit() {
     if (!editingCell) return;
     const { rowId, key } = editingCell;
-    setRows((prev) =>
-      prev.map((r) => r.id === rowId ? { ...r, data: { ...r.data, [key]: editValue } } : r)
-    );
+    setRows((prev) => prev.map((r) => r.id === rowId ? { ...r, data: { ...r.data, [key]: editValue } } : r));
     setEditingCell(null);
     await fetch(`/api/rows/${rowId}`, {
       method: "PATCH",
@@ -1502,359 +597,10 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
     });
   }
 
-  // ── Run single cell ───────────────────────────────────────────────────────
-  async function runCell(rowId: string, col: AiColumn) {
-    const key = `${rowId}:${col.id}`;
-    const abortController = new AbortController();
-    setAbortControllers(prev => ({ ...prev, [key]: abortController }));
-    setRunningCells((prev) => new Set(prev).add(key));
-    setRunningCellTimestamps(prev => ({ ...prev, [key]: Date.now() }));
-    setRows((prev) =>
-      prev.map((r) => r.id === rowId
-        ? { ...r, cellStatuses: { ...r.cellStatuses, [col.outputKey]: "running" } }
-        : r)
-    );
-    try {
-      const res = await fetch("/api/run/cell", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ caseId, rowId, columnId: col.id }),
-        signal: abortController.signal,
-      });
-      const result = await res.json();
-      if (result.operationId) {
-        setOperationIds(prev => ({ ...prev, [key]: result.operationId }));
-      }
-      try {
-        setRows((prev) =>
-          prev.map((r) => {
-            if (r.id !== rowId) return r;
-            const extraData = result.multiValues ?? {};
-            const extraStatuses: Record<string,string> = {};
-            for (const k of Object.keys(extraData)) extraStatuses[k] = result.status ?? "done";
-            const metaData: Record<string, string> = {};
-            const metaPrefix = `_llm_`;
-            for (const [key, val] of Object.entries(result as Record<string, unknown>)) {
-              if (key.startsWith(metaPrefix) && typeof val === "string") {
-                metaData[key] = val;
-              }
-            }
-            return {
-              ...r,
-              data: { ...r.data, [col.outputKey]: result.value ?? r.data[col.outputKey], ...extraData, ...metaData },
-              cellStatuses: { ...r.cellStatuses, [col.outputKey]: result.status ?? (res.ok ? "done" : "error"), ...extraStatuses },
-              cellErrors: result.error ? { ...r.cellErrors, [col.outputKey]: result.error } : r.cellErrors,
-            };
-          })
-        );
-      } catch (error) {
-        console.error('Error updating row status:', error);
-      }
-      if (result.multiValues) {
-        const newKeys = Object.keys(result.multiValues);
-        setColOrder(prev => {
-          const existing = new Set(prev);
-          const toAdd = newKeys.filter(k => !existing.has(k));
-          return toAdd.length > 0 ? [...prev, ...toAdd] : prev;
-        });
-      }
-    } finally {
-      setRunningCells((prev) => { const s = new Set(prev); s.delete(key); return s; });
-      setAbortControllers(prev => { const { [key]: _, ...rest } = prev; return rest; });
-      setRunningCellTimestamps(prev => { const { [key]: _, ...rest } = prev; return rest; });
-      setOperationIds(prev => { const { [key]: _, ...rest } = prev; return rest; });
-    }
-  }
+  // ── Stop all selected rows ────────────────────────────────────────────────
+  function stopSelectedRows() { setSelectedRows(new Set()); }
 
-  function stopCell(rowId: string, col: AiColumn) {
-    const key = `${rowId}:${col.id}`;
-    const opId = operationIds[key];
 
-    // Call server-side cancellation endpoint
-    if (opId) {
-      fetch(`/api/run/cell?operationId=${opId}`, { method: 'DELETE' }).catch(console.error);
-    }
-
-    // Abort local fetch request
-    const controller = abortControllers[key];
-    if (controller) {
-      controller.abort();
-      setAbortControllers(prev => { const { [key]: _, ...rest } = prev; return rest; });
-    }
-    // Always update UI state even if controller not found
-    setRunningCells((prev) => { const s = new Set(prev); s.delete(key); return s; });
-    setOperationIds(prev => { const { [key]: _, ...rest } = prev; return rest; });
-    setRunningCellTimestamps(prev => { const { [key]: _, ...rest } = prev; return rest; });
-    setRows((prev) =>
-      prev.map((r) => r.id === rowId
-        ? {
-            ...r,
-            cellStatuses: { ...r.cellStatuses, [col.outputKey]: "skipped" },
-            data: {
-              ...r.data,
-              [col.outputKey]: "", // Clear the main output
-              [`_reasoning_${col.outputKey}`]: "", // Clear reasoning
-            },
-          }
-        : r)
-    );
-  }
-
-  // ── Run phase: company-only or contact-only columns ──────────────────────
-  async function runPhase(phase: "company" | "contact") {
-    if (!caseData) return;
-    const cols = caseData.aiColumns.filter(c => c.columnGroup === phase);
-    if (cols.length === 0) { alert(`Keine ${phase === "company" ? "Firmen" : "Kontakt"}-Spalten gefunden.`); return; }
-    const key = `phase:${phase}:${Date.now()}`;
-    const abortController = new AbortController();
-    setAbortControllers(prev => ({ ...prev, [key]: abortController }));
-    const targetIds = selectedRows.size > 0 ? [...selectedRows] : rows.map(r => r.id);
-    setRunningRowIds(new Set(targetIds));
-    setGlobalRunError(null);
-    try {
-      for (const col of cols) {
-        setRows(prev => prev.map(r => targetIds.includes(r.id)
-          ? { ...r, cellStatuses: { ...r.cellStatuses, [col.outputKey]: "running" } }
-          : r));
-        const res = await fetch("/api/run/column", {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ caseId, columnId: col.id, rowIds: targetIds, runMode: "empty_only", concurrency }),
-          signal: abortController.signal,
-        });
-        const json = await res.json();
-        if (!res.ok) {
-          setGlobalRunError(`Fehler bei Spalte "${col.name}": ${json?.error ?? `HTTP ${res.status}`}`);
-          setRows(prev => prev.map(r => targetIds.includes(r.id)
-            ? { ...r, cellStatuses: { ...r.cellStatuses, [col.outputKey]: "error" }, cellErrors: { ...r.cellErrors, [col.outputKey]: json?.error ?? `HTTP ${res.status}` } }
-            : r));
-          break;
-        }
-        const results = json.results;
-        setRows(prev => prev.map(r => {
-          const result = results?.[r.id];
-          if (!result) {
-            // Row was targeted but server skipped it (e.g. runMode "empty_only"
-            // filtered it out because it already had a value) — clear the
-            // optimistic "running" status so it doesn't spin forever.
-            if (targetIds.includes(r.id) && r.cellStatuses[col.outputKey] === "running") {
-              return { ...r, cellStatuses: { ...r.cellStatuses, [col.outputKey]: "skipped" } };
-            }
-            return r;
-          }
-          const extraData = result.multiValues ?? {};
-          const extraStatuses: Record<string,string> = {};
-          for (const k of Object.keys(extraData)) extraStatuses[k] = result.status ?? "done";
-          return {
-            ...r,
-            data: { ...r.data, [col.outputKey]: result.value ?? r.data[col.outputKey], ...extraData },
-            cellStatuses: { ...r.cellStatuses, [col.outputKey]: result.status, ...extraStatuses },
-            cellErrors: result.error ? { ...r.cellErrors, [col.outputKey]: result.error } : r.cellErrors,
-          };
-        }));
-      }
-    } catch (error: any) {
-      if (error.name !== 'AbortError' && !error.message?.includes('abort')) setGlobalRunError(error.message ?? "Unbekannter Fehler beim Ausführen");
-    } finally {
-      setAbortControllers(prev => { const { [key]: _, ...rest } = prev; return rest; });
-      setOperationIds(prev => { const { [key]: _, ...rest } = prev; return rest; });
-      setRunningRowIds(new Set());
-    }
-  }
-
-  // ── Run entire column ─────────────────────────────────────────────────────
-  async function runColumn(col: AiColumn, runMode: "all_force" | "empty_only" = "all_force") {
-    const key = `col:${col.id}`;
-    const abortController = new AbortController();
-    setAbortControllers(prev => ({ ...prev, [key]: abortController }));
-    setRunningColumnId(col.id);
-
-    const targetIds = selectedRows.size > 0 ? [...selectedRows] : rows.map((r) => r.id);
-    const targetRows = runMode === "empty_only"
-      ? rows.filter((r) => targetIds.includes(r.id) && (() => {
-          const raw = r.data[col.outputKey];
-          const text = typeof raw === "string" ? raw.trim() : String(raw ?? "").trim();
-          return text === "" || /^notfound$/i.test(text);
-        })())
-      : rows.filter((r) => targetIds.includes(r.id));
-    const runIds = targetRows.map((r) => r.id);
-
-    // Optimistically mark targeted rows as running
-    setRows((prev) =>
-      prev.map((r) =>
-        runIds.includes(r.id)
-          ? { ...r, cellStatuses: { ...r.cellStatuses, [col.outputKey]: "running" } }
-          : r
-      )
-    );
-    try {
-      const res = await fetch("/api/run/column", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ caseId, columnId: col.id, rowIds: targetIds, runMode, concurrency }),
-        signal: abortController.signal,
-      });
-      const json = await res.json();
-      if (!res.ok) {
-        setGlobalRunError(`Fehler bei Spalte "${col.name}": ${json?.error ?? `HTTP ${res.status}`}`);
-        setRows((prev) => prev.map((r) =>
-          runIds.includes(r.id)
-            ? { ...r, cellStatuses: { ...r.cellStatuses, [col.outputKey]: "error" }, cellErrors: { ...r.cellErrors, [col.outputKey]: json?.error ?? `HTTP ${res.status}` } }
-            : r
-        ));
-        return;
-      }
-      const results = json.results;
-      if (json.operationId) {
-        setOperationIds(prev => ({ ...prev, [key]: json.operationId }));
-      }
-      setRows((prev) =>
-        prev.map((r) => {
-          const result = results?.[r.id];
-          if (!result) {
-            if (runIds.includes(r.id) && r.cellStatuses[col.outputKey] === "running") {
-              return { ...r, cellStatuses: { ...r.cellStatuses, [col.outputKey]: "skipped" } };
-            }
-            return r;
-          }
-          const extraData = result.multiValues ?? {};
-          const metaData = result.metaData ?? {};
-          const extraStatuses: Record<string,string> = {};
-          for (const k of Object.keys(extraData)) extraStatuses[k] = result.status ?? "done";
-          return {
-            ...r,
-            data: { ...r.data, [col.outputKey]: result.value ?? r.data[col.outputKey], ...extraData, ...metaData },
-            cellStatuses: { ...r.cellStatuses, [col.outputKey]: result.status, ...extraStatuses },
-            cellErrors: result.error ? { ...r.cellErrors, [col.outputKey]: result.error } : r.cellErrors,
-          };
-        })
-      );
-    } catch (error: any) {
-      if (error.name !== 'AbortError' && !error.message?.includes('abort')) setGlobalRunError(error.message ?? "Unbekannter Fehler beim Ausführen");
-    } finally {
-      setAbortControllers(prev => { const { [key]: _, ...rest } = prev; return rest; });
-      setRunningColumnId(null);
-      setOperationIds(prev => { const { [key]: _, ...rest } = prev; return rest; });
-    }
-  }
-
-  function stopColumn(col: AiColumn) {
-    const key = `col:${col.id}`;
-    const opId = operationIds[key];
-
-    // Call server-side cancellation endpoint
-    if (opId) {
-      fetch(`/api/run/column?operationId=${opId}`, { method: 'DELETE' }).catch(console.error);
-    }
-
-    const controller = abortControllers[key];
-    if (controller) {
-      controller.abort();
-      setAbortControllers(prev => { const { [key]: _, ...rest } = prev; return rest; });
-    }
-    setOperationIds(prev => { const { [key]: _, ...rest } = prev; return rest; });
-    setRunningColumnId(null);
-  }
-
-  // ── Run all columns for selected rows ─────────────────────────────────────
-  async function runSelectedRows() {
-    if (!caseData) return;
-    if (caseData.aiColumns.length === 0) {
-      alert("Keine KI-Spalten konfiguriert. Bitte zuerst eine Prompt-Spalte hinzufügen.");
-      return;
-    }
-    const key = `rows:${Date.now()}`;
-    const abortController = new AbortController();
-    setAbortControllers(prev => ({ ...prev, [key]: abortController }));
-    setRunningRowIds(new Set(selectedRows.size > 0 ? [...selectedRows] : rows.map((r) => r.id)));
-
-    const targetIds = selectedRows.size > 0 ? [...selectedRows] : rows.map((r) => r.id);
-    setGlobalRunError(null);
-    try {
-      for (const col of caseData.aiColumns) {
-        setRows((prev) =>
-          prev.map((r) =>
-            targetIds.includes(r.id)
-              ? { ...r, cellStatuses: { ...r.cellStatuses, [col.outputKey]: "running" } }
-              : r
-          )
-        );
-        const res = await fetch("/api/run/column", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ caseId, columnId: col.id, rowIds: targetIds, concurrency }),
-          signal: abortController.signal,
-        });
-        const json = await res.json();
-        if (!res.ok) {
-          setGlobalRunError(`Fehler bei Spalte "${col.name}": ${json?.error ?? `HTTP ${res.status}`}`);
-          setRows((prev) => prev.map((r) =>
-            targetIds.includes(r.id)
-              ? { ...r, cellStatuses: { ...r.cellStatuses, [col.outputKey]: "error" }, cellErrors: { ...r.cellErrors, [col.outputKey]: json?.error ?? `HTTP ${res.status}` } }
-              : r
-          ));
-          break; // stop the whole pipeline — no point running later columns
-        }
-        const results = json.results;
-        if (json.operationId) {
-          setOperationIds(prev => ({ ...prev, [key]: json.operationId }));
-        }
-        setRows((prev) =>
-          prev.map((r) => {
-            const result = results?.[r.id];
-            if (!result) {
-              if (targetIds.includes(r.id) && r.cellStatuses[col.outputKey] === "running") {
-                return { ...r, cellStatuses: { ...r.cellStatuses, [col.outputKey]: "skipped" } };
-              }
-              return r;
-            }
-            const extraData = result.multiValues ?? {};
-            const extraStatuses: Record<string,string> = {};
-            for (const k of Object.keys(extraData)) extraStatuses[k] = result.status ?? "done";
-            return {
-              ...r,
-              data: { ...r.data, [col.outputKey]: result.value ?? r.data[col.outputKey], ...extraData },
-              cellStatuses: { ...r.cellStatuses, [col.outputKey]: result.status, ...extraStatuses },
-              cellErrors: result.error ? { ...r.cellErrors, [col.outputKey]: result.error } : r.cellErrors,
-            };
-          })
-        );
-      }
-    } catch (error: any) {
-      if (error.name === 'AbortError' || error.message?.includes('abort')) {
-        // Canceled
-      } else {
-        setGlobalRunError(error.message ?? "Unbekannter Fehler beim Ausführen");
-      }
-    } finally {
-      setAbortControllers(prev => { const { [key]: _, ...rest } = prev; return rest; });
-      setOperationIds(prev => { const { [key]: _, ...rest } = prev; return rest; });
-      setRunningRowIds(new Set());
-    }
-  }
-
-  function stopSelectedRows() {
-    const key = Object.keys(abortControllers).find(k => k.startsWith('rows:'));
-    const opId = key ? operationIds[key] : undefined;
-
-    // Call server-side cancellation endpoint
-    if (opId) {
-      fetch(`/api/run/column?operationId=${opId}`, { method: 'DELETE' }).catch(console.error);
-    }
-
-    if (key) {
-      const controller = abortControllers[key];
-      if (controller) {
-        controller.abort();
-        setAbortControllers(prev => { const { [key]: _, ...rest } = prev; return rest; });
-      }
-    }
-    if (opId && key) {
-      setOperationIds(prev => { const { [key]: _, ...rest } = prev; return rest; });
-    }
-    setRunningRowIds(new Set());
-  }
-
-  // ── Delete rows ───────────────────────────────────────────────────────────
   async function deleteSelectedRows() {
     if (selectedRows.size === 0 || !confirm(`Delete ${selectedRows.size} row(s)?`)) return;
     await Promise.all([...selectedRows].map((id) => fetch(`/api/rows/${id}`, { method: "DELETE" })));
@@ -1918,14 +664,18 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
     );
   }
 
-  const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
-  const pageRows = rows.slice(page * pageSize, (page + 1) * pageSize);
-  const allSelected = rows.length > 0 && selectedRows.size === rows.length;
-  const doneCount = rows.filter((r) => Object.values(r.cellStatuses).some((s) => s === "done")).length;
-  const errorCount = rows.filter((r) => Object.values(r.cellStatuses).some((s) => s === "error")).length;
-  const processedCount = rows.filter((r) => Object.values(r.cellStatuses).some((s) => s === "done" || s === "error")).length;
-  const runTarget = rows.length - doneCount;
-  const selCount = selectedRows.size > 0 ? selectedRows.size : rows.length;
+  // Split catalog rows (raw source material) from real data rows
+  const catalogRows = rows.filter(r => r.data["is_catalog"] === "true");
+  const dataRows = rows.filter(r => r.data["is_catalog"] !== "true");
+
+  const totalPages = Math.max(1, Math.ceil(dataRows.length / pageSize));
+  const pageRows = dataRows.slice(page * pageSize, (page + 1) * pageSize);
+  const allSelected = dataRows.length > 0 && selectedRows.size === dataRows.length;
+  const doneCount = dataRows.filter((r) => Object.values(r.cellStatuses).some((s) => s === "done")).length;
+  const errorCount = dataRows.filter((r) => Object.values(r.cellStatuses).some((s) => s === "error")).length;
+  const processedCount = dataRows.filter((r) => Object.values(r.cellStatuses).some((s) => s === "done" || s === "error")).length;
+  const runTarget = dataRows.length - doneCount;
+  const selCount = selectedRows.size > 0 ? selectedRows.size : dataRows.length;
 
   // shared cell editor
   function EditInput({ rowId, k }: { rowId: string; k: string }) {
@@ -1938,9 +688,50 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
     );
   }
 
-  const tabs = ["Tabelle","Einstellungen","Log","Export"] as const;
+  // ── Shared updateCase helper (used by SettingsPanel + AddColumnModal) ────
+  const updateCase = async (patch: Record<string, unknown>): Promise<Case> => {
+    const res = await fetch(`/api/cases/${caseId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    });
+    const updated: Case = await res.json();
+    setCaseData(updated);
+    return updated;
+  };
+
+  const tabs = ["Tabelle","Quellen","Einstellungen","Log","Export"] as const;
+
+  function tabIcon(t: string): string {
+    switch (t) {
+      case "Tabelle": return "📋 ";
+      case "Quellen": return "🔍 ";
+      case "Einstellungen": return "⚙️ ";
+      case "Log": return "📜 ";
+      case "Export": return "📤 ";
+      default: return "";
+    }
+  }
+
+  // Build context value once so child components can consume it
+  const caseContextValue = caseData ? {
+    caseId,
+    caseData,
+    setCaseData: (c: Case) => setCaseData(c),
+    rows,
+    setRows,
+    sourceColumns,
+    colOrder,
+    setColOrder,
+    totals,
+    refresh,
+    updateCase,
+  } : null;
 
   return (
+    <ErrorBoundary>
+    {caseContextValue ? (
+      <CaseContext.Provider value={caseContextValue}>
     <div style={{display:"flex",height:"100vh",background:"#f9fafb",overflow:"hidden",fontSize:14,color:"#1f2937"}}>
 
       {/* ════ SIDEBAR ════ */}
@@ -1965,13 +756,23 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
         <div style={{flex:1,overflowY:"auto"}}>
           <div style={{margin:"8px 12px",borderRadius:8,background:"#f5f3ff",color:"#111827",padding:"10px 14px",cursor:"pointer",borderLeft:"3px solid #7c3aed"}}>
             <div style={{fontWeight:600,fontSize:13,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>📁 {caseData.name}</div>
-            <div style={{fontSize:11,color:"#6b7280",marginTop:2}}>{rows.length} Zeilen · {new Date(caseData.updatedAt).toLocaleDateString("de-DE")}</div>
+<div style={{fontSize:11,color:"#6b7280",marginTop:2}}>{dataRows.length} Zeilen{catalogRows.length > 0 ? ` · ${catalogRows.length} Kataloge` : ""} · {new Date(caseData.updatedAt).toLocaleDateString("de-DE")}</div>
           </div>
         </div>
-        {/* API key */}
-        <div style={{padding:"12px 16px",borderTop:"1px solid #f3f4f6",fontSize:11,color:"#6b7280",display:"flex",alignItems:"center",gap:4}}>
-          🔑 Globale Einstellungen
-          <Settings style={{width:12,height:12,marginLeft:"auto",cursor:"pointer",color:"#9ca3af"}} onClick={() => router.push(`/cases/${caseId}/settings`)} />
+        {/* Bottom icons */}
+        <div style={{padding:"10px 12px",borderTop:"1px solid #f3f4f6",display:"flex",alignItems:"center",gap:4}}>
+          <button title="API & Region" onClick={() => router.push("/settings")}
+            style={{padding:6,borderRadius:6,border:"none",background:"none",cursor:"pointer",color:"#9ca3af",display:"flex",alignItems:"center"}}
+            onMouseEnter={e=>(e.currentTarget.style.color="#7c3aed",e.currentTarget.style.background="#f5f3ff")}
+            onMouseLeave={e=>(e.currentTarget.style.color="#9ca3af",e.currentTarget.style.background="none")}>
+            <Settings style={{width:15,height:15}} />
+          </button>
+          <button title="Modell-Auswahl" onClick={() => router.push("/settings/models")}
+            style={{padding:6,borderRadius:6,border:"none",background:"none",cursor:"pointer",color:"#9ca3af",display:"flex",alignItems:"center"}}
+            onMouseEnter={e=>(e.currentTarget.style.color="#7c3aed",e.currentTarget.style.background="#f5f3ff")}
+            onMouseLeave={e=>(e.currentTarget.style.color="#9ca3af",e.currentTarget.style.background="none")}>
+            <Sliders style={{width:15,height:15}} />
+          </button>
         </div>
       </div>
 
@@ -1983,17 +784,8 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
           <div style={{marginBottom:6}}>
             <div style={{fontSize:16,fontWeight:700,color:"#111"}}>{caseData.name}</div>
             <div style={{fontSize:12,color:"#6b7280",marginTop:2,display:"flex",alignItems:"center",gap:8}}>
-              <span>{new Date(caseData.createdAt).toLocaleDateString("de-DE")} · {rows.length} Zeilen · {sourceColumns.length} Quellspalten · {caseData.aiColumns.length} KI-Spalten</span>
-              {totals.totalTokens > 0 && (
-                <span style={{background:"#f5f3ff",color:"#6d28d9",padding:"2px 8px",borderRadius:4,fontSize:11,fontWeight:600}}>
-                  🧠 {totals.totalTokens.toLocaleString()} tokens
-                </span>
-              )}
-              {totals.totalCostEur > 0 && (
-                <span style={{background:"#fef3c7",color:"#92400e",padding:"2px 8px",borderRadius:4,fontSize:11,fontWeight:600}}>
-                  💰 €{totals.totalCostEur.toFixed(2)}
-                </span>
-              )}
+              <span>{new Date(caseData.createdAt).toLocaleDateString("de-DE")} · {dataRows.length} Zeilen{catalogRows.length > 0 ? ` + ${catalogRows.length} Kataloge` : ""} · {sourceColumns.length} Quellspalten · {caseData.aiColumns.length} KI-Spalten</span>
+              <CostDashboard totals={totals} rowCount={rows.length} colCount={caseData.aiColumns.length} />
             </div>
           </div>
           {/* Tabs */}
@@ -2001,7 +793,7 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
             {tabs.map(t => (
               <button key={t} onClick={() => setActiveTab(t)}
                 style={{padding:"6px 16px",border:"none",borderBottom: activeTab===t ? "2px solid #6d28d9" : "2px solid transparent",background:"none",cursor:"pointer",fontSize:13,fontWeight:500,color: activeTab===t ? "#6d28d9" : "#6b7280",marginBottom:-1}}>
-                {t==="Tabelle"?"📋 ":t==="Einstellungen"?"⚙️ ":t==="Log"?"📜 ":"📤 "}{t}
+                {tabIcon(t)}{t}
               </button>
             ))}
             {/* View mode toggle — only visible in Tabelle tab when columnGroups exist */}
@@ -2027,32 +819,47 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
           </div>
         </div>
 
-        {/* ══ TAB: TABELLE ══ */}
-        {activeTab === "Tabelle" && viewMode === "grouped" && (
-          <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
-            <GroupedTableView caseId={caseId} />
-          </div>
-        )}
+        {/* ══ TAB: TABELLE — shared toolbar + conditional content ══ */}
+        {activeTab === "Tabelle" && (<>
 
-        {activeTab === "Tabelle" && viewMode !== "grouped" && (<>
-
-          {/* ── Compact toolbar — everything in one row ── */}
+          {/* ── Compact toolbar — always visible regardless of view mode ── */}
           <div style={{background:"#fff",borderBottom:"1px solid #e5e7eb",flexShrink:0}}>
 
             {/* Single toolbar row */}
-            <div style={{padding:"8px 16px",display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
-              {/* Data actions */}
-              <button onClick={() => setShowImport(true)}
-                style={{display:"flex",alignItems:"center",gap:5,padding:"4px 10px",border:"1px solid #d1d5db",borderRadius:5,background:"#fff",cursor:"pointer",fontSize:12,color:"#374151"}}>
-                <Upload style={{width:12,height:12}} /> CSV
+            <div style={{padding:"8px 16px",display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+
+              {/* ── Daten-Gruppe ── */}
+              <span style={{fontSize:10,color:"#9ca3af",fontWeight:600,textTransform:"uppercase",letterSpacing:"0.04em"}}>Daten</span>
+              <button onClick={() => setShowImport(true)} title="CSV, XLSX oder JSON importieren"
+                style={{display:"flex",alignItems:"center",gap:5,padding:"4px 9px",border:"1px solid #d1d5db",borderRadius:5,background:"#fff",cursor:"pointer",fontSize:12,color:"#374151"}}>
+                <Upload style={{width:11,height:11}} /> Import
               </button>
-              <button onClick={() => setShowDiscovery(true)}
-                style={{display:"flex",alignItems:"center",gap:5,padding:"4px 10px",border:"1px solid #d1d5db",borderRadius:5,background:"#fff",cursor:"pointer",fontSize:12,color:"#374151"}}>
-                <Search style={{width:12,height:12}} /> Leads
+              <button onClick={() => setShowAppend(true)}
+                title="KI-gesteuerte Discovery: Google Search, Maps, Kataloge — Plan erstellen & ausführen, Query-Log sichtbar"
+                style={{display:"flex",alignItems:"center",gap:5,padding:"4px 9px",border:"1px solid #86efac",borderRadius:5,background:"#f0fdf4",cursor:"pointer",fontSize:12,color:"#166534",fontWeight:500}}>
+                🔍 Suchen & Crawlen
               </button>
+              <button onClick={() => setShowAgentGoal(true)}
+                title="Ziel-basierte Suche: Definiere Anzahl & Ziel, KI plant und führt automatisch mehrere Runden aus"
+                style={{display:"flex",alignItems:"center",gap:5,padding:"4px 9px",border:"1px solid #fda4af",borderRadius:5,background:"#fff1f2",cursor:"pointer",fontSize:12,color:"#be123c",fontWeight:500}}>
+                🎯 Ziel-Suche
+              </button>
+              {/* Email extrapolation — shown when rows have names but no contact_email */}
+              {rows.some(r => r.data["first_name"] && r.data["last_name"] && !r.data["contact_email"]) && (
+                <EmailExtrapolateButton caseId={caseId} onDone={refresh} />
+              )}
+              {/* Catalog deep-crawl — shown when catalog rows exist */}
+              {catalogRows.length > 0 && (
+                <CatalogDeepCrawlButton caseId={caseId} onDone={refresh} catalogCount={catalogRows.length} />
+              )}
+
+              <span style={{width:1,height:16,background:"#e5e7eb",flexShrink:0}}/>
+
+              {/* ── KI-Gruppe ── */}
+              <span style={{fontSize:10,color:"#9ca3af",fontWeight:600,textTransform:"uppercase",letterSpacing:"0.04em"}}>KI</span>
               <button onClick={() => setShowAddCol(true)}
-                style={{display:"flex",alignItems:"center",gap:5,padding:"4px 10px",border:"1px solid #c4b5fd",borderRadius:5,background:"#f5f3ff",cursor:"pointer",fontSize:12,color:"#6d28d9"}}>
-                <Plus style={{width:12,height:12}} /> KI-Spalte
+                style={{display:"flex",alignItems:"center",gap:5,padding:"4px 9px",border:"1px solid #c4b5fd",borderRadius:5,background:"#f5f3ff",cursor:"pointer",fontSize:12,color:"#6d28d9"}}>
+                <Plus style={{width:11,height:11}} /> Spalte
               </button>
 
               {/* Divider */}
@@ -2060,12 +867,12 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
 
               {/* Run buttons */}
               {runningRowIds.size > 0 ? (
-                <button onClick={stopSelectedRows}
+                <button onClick={stopAll}
                   style={{display:"flex",alignItems:"center",gap:5,padding:"4px 12px",background:"#dc2626",color:"#fff",border:"none",borderRadius:5,cursor:"pointer",fontSize:12,fontWeight:600}}>
                   ■ Stop ({runningRowIds.size})
                 </button>
               ) : (<>
-                {hasColumnGroups ? (<>
+                {hasPhaseColumns ? (<>
                   <button onClick={() => runPhase("company")}
                     style={{display:"flex",alignItems:"center",gap:5,padding:"4px 12px",background:"#7c3aed",color:"#fff",border:"none",borderRadius:5,cursor:"pointer",fontSize:12,fontWeight:600}}>
                     <Building2 style={{width:11,height:11}}/> Firmen
@@ -2075,21 +882,53 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
                     👤 Kontakte
                   </button>
                 </>) : (
-                  <button onClick={runSelectedRows}
-                    style={{display:"flex",alignItems:"center",gap:5,padding:"4px 12px",background:"#7c3aed",color:"#fff",border:"none",borderRadius:5,cursor:"pointer",fontSize:12,fontWeight:600}}>
-                    ▶ Alle ausführen
-                  </button>
+                  <div style={{position:"relative"}}>
+                    <button onClick={() => setRunConfirm({ mode: "all_force" })}
+                      title="KI-Spalten ausführen"
+                      style={{display:"flex",alignItems:"center",gap:5,padding:"4px 12px",background:"#7c3aed",color:"#fff",border:"none",borderRadius:6,cursor:"pointer",fontSize:12,fontWeight:600}}>
+                      ▶ Ausführen
+                    </button>
+                    {showRunOptions && (
+                      <div style={{position:"absolute",top:"calc(100% + 4px)",right:0,background:"#fff",border:"1px solid #e5e7eb",borderRadius:8,padding:"12px 14px",boxShadow:"0 4px 16px rgba(0,0,0,0.12)",zIndex:100,minWidth:200}}>
+                        <div style={{fontSize:11,fontWeight:600,color:"#6b7280",textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:10}}>Ausführungs-Optionen</div>
+                        {/* Option 2: Empty only */}
+                        {/* Option 1: All cells (overwrite) */}
+                        <button onClick={() => { setShowRunOptions(false); setRunConfirm({ mode: "all_force" }); }}
+                          style={{width:"100%",textAlign:"left",padding:"7px 10px",border:"1px solid #e9d5ff",borderRadius:6,background:"#faf5ff",cursor:"pointer",fontSize:12,color:"#6d28d9",marginBottom:6,display:"flex",alignItems:"center",gap:6}}>
+                          <span style={{fontSize:14}}>▶</span>
+                          <div>
+                            <div style={{fontWeight:600}}>Alle Zellen ausführen</div>
+                            <div style={{fontSize:10,color:"#9ca3af",marginTop:1}}>Überschreibt vorhandene Werte</div>
+                          </div>
+                        </button>
+                        {/* Option 2: Empty only */}
+                        <button onClick={() => { setShowRunOptions(false); setRunConfirm({ mode: "empty_only" }); }}
+                          style={{width:"100%",textAlign:"left",padding:"7px 10px",border:"1px solid #e9d5ff",borderRadius:6,background:"#faf5ff",cursor:"pointer",fontSize:12,color:"#6d28d9",marginBottom:8,display:"flex",alignItems:"center",gap:6}}>
+                          <span style={{fontSize:14}}>◐</span>
+                          <div>
+                            <div style={{fontWeight:600}}>Nur leere Zellen füllen</div>
+                            <div style={{fontSize:10,color:"#9ca3af",marginTop:1}}>Bereits befüllte Werte bleiben unberührt</div>
+                          </div>
+                        </button>
+                        {/* Concurrency slider */}
+                        <div style={{padding:"4px 2px"}}>
+                          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:6}}>
+                            <span style={{fontSize:11,color:"#6b7280",fontWeight:600}}>Parallelität</span>
+                            <span style={{fontSize:12,fontFamily:"monospace",color:"#7c3aed",fontWeight:700}}>{concurrency}x</span>
+                          </div>
+                          <input type="range" min={1} max={20} value={concurrency}
+                            onChange={e => setConcurrency(Number(e.target.value))}
+                            style={{width:"100%",accentColor:"#7c3aed"}} />
+                          <div style={{display:"flex",justifyContent:"space-between",fontSize:10,color:"#9ca3af",marginTop:2}}>
+                            <span>1x (seriell)</span>
+                            <span>20x (max parallel)</span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 )}
               </>)}
-
-              {/* Concurrency */}
-              <div style={{display:"flex",alignItems:"center",gap:4}}>
-                <Gauge style={{width:11,height:11,color:"#9ca3af"}}/>
-                <input type="range" min={1} max={20} value={concurrency}
-                  onChange={e => setConcurrency(Number(e.target.value))}
-                  style={{width:64,height:3,accentColor:"#7c3aed"}} />
-                <span style={{fontSize:11,color:"#9ca3af",fontFamily:"monospace",minWidth:20}}>{concurrency}x</span>
-              </div>
 
               {/* Divider */}
               <span style={{width:1,height:18,background:"#e5e7eb",flexShrink:0}}/>
@@ -2108,6 +947,17 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
                 title="Alle Status zurücksetzen"
                 style={{padding:"4px 8px",border:"1px solid #d1d5db",borderRadius:5,background:"#fff",cursor:"pointer",fontSize:11,color:"#6b7280"}}>
                 ↺ Reset
+              </button>
+              <button
+                title="Doppelte Zeilen (gleiche Domain) entfernen"
+                onClick={async () => {
+                  const res = await fetch(`/api/cases/${caseId}/dedupe`, { method: "POST" });
+                  const d = await res.json();
+                  if (d.removed > 0) { refresh(); }
+                  else { alert("Keine Duplikate gefunden"); }
+                }}
+                style={{padding:"4px 8px",border:"1px solid #fecaca",borderRadius:5,background:"#fff",cursor:"pointer",fontSize:11,color:"#dc2626"}}>
+                ⊘ Dedupe
               </button>
               <a href={`/api/export?caseId=${caseId}`}
                 style={{display:"flex",alignItems:"center",gap:4,padding:"4px 8px",border:"1px solid #d1d5db",borderRadius:5,background:"#fff",fontSize:11,color:"#374151",textDecoration:"none"}}>
@@ -2129,6 +979,76 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
               </div>
             )}
 
+            {/* ── Live Run Status Panel ────────────────────────────────── */}
+            {(runningColumnId || runningRowIds.size > 0) && (
+              <div style={{padding:"8px 16px",background:"#eff6ff",borderTop:"1px solid #bfdbfe",display:"flex",flexWrap:"wrap",alignItems:"center",gap:10}}>
+                {/* Column being processed */}
+                {runningColumnId && (() => {
+                  const col = caseData.aiColumns.find(c => c.id === runningColumnId);
+                  return col ? (
+                    <div style={{display:"flex",alignItems:"center",gap:6,fontSize:12}}>
+                      <Loader2 style={{width:11,height:11,color:"#2563eb"}} className="animate-spin"/>
+                      <span style={{fontWeight:600,color:"#1e40af"}}>Spalte: {col.name}</span>
+                      {col.tool === "batch_enrich" && <span style={{fontSize:10,color:"#3b82f6",background:"#dbeafe",padding:"1px 5px",borderRadius:4}}>🚀 Batch-Enrich</span>}
+                      {col.tool === "batch_contacts" && <span style={{fontSize:10,color:"#7c3aed",background:"#ede9fe",padding:"1px 5px",borderRadius:4}}>👤 Kontakt-Suche</span>}
+                    </div>
+                  ) : null;
+                })()}
+                {/* Row progress */}
+                {runningRowIds.size > 0 && (
+                  <div style={{display:"flex",alignItems:"center",gap:6,fontSize:12,color:"#1d4ed8"}}>
+                    <span>{runningRowIds.size} Zeilen aktiv</span>
+                    {/* Mini progress bar */}
+                    {(() => {
+                      const col = caseData.aiColumns.find(c => c.id === runningColumnId);
+                      if (!col) return null;
+                      const done = rows.filter(r => {
+                        const s = r.cellStatuses[col.outputKey];
+                        return s === "done" || s === "skipped" || s === "error";
+                      }).length;
+                      const total = rows.length;
+                      return (
+                        <div style={{display:"flex",alignItems:"center",gap:5}}>
+                          <div style={{width:100,height:5,background:"#bfdbfe",borderRadius:3,overflow:"hidden"}}>
+                            <div style={{height:"100%",background:"#2563eb",borderRadius:3,transition:"width 0.3s",width:`${(done/total)*100}%`}}/>
+                          </div>
+                          <span style={{fontSize:11,fontFamily:"monospace",color:"#1e40af"}}>{done}/{total}</span>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                )}
+                {/* Running cells count */}
+                {runningCells.size > 0 && (
+                  <span style={{fontSize:11,color:"#3b82f6"}}>
+                    {runningCells.size} parallel
+                  </span>
+                )}
+                {/* Done / Error counts */}
+                {(() => {
+                  const col = caseData.aiColumns.find(c => c.id === runningColumnId);
+                  if (!col) return null;
+                  const doneN = rows.filter(r => r.cellStatuses[col.outputKey] === "done").length;
+                  const errN = rows.filter(r => r.cellStatuses[col.outputKey] === "error").length;
+                  return (
+                    <div style={{display:"flex",gap:6,fontSize:11}}>
+                      {doneN > 0 && <span style={{color:"#15803d",fontWeight:600}}>✓ {doneN}</span>}
+                      {errN > 0 && <span style={{color:"#dc2626",fontWeight:600}}>✗ {errN}</span>}
+                    </div>
+                  );
+                })()}
+                {/* Stop button */}
+                <button
+                  onClick={() => {
+                    const col = caseData.aiColumns.find(c => c.id === runningColumnId);
+                    if (col) stopColumn(col);
+                  }}
+                  style={{marginLeft:"auto",padding:"2px 10px",background:"#dc2626",color:"#fff",border:"none",borderRadius:5,cursor:"pointer",fontSize:11,fontWeight:600,display:"flex",alignItems:"center",gap:4}}>
+                  ■ Stop
+                </button>
+              </div>
+            )}
+
             {/* No AI columns warning */}
             {caseData.aiColumns.length === 0 && (
               <div style={{padding:"6px 16px",background:"#fefce8",borderTop:"1px solid #fde68a",display:"flex",alignItems:"center",gap:8,fontSize:12,color:"#92400e"}}>
@@ -2137,10 +1057,17 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
             )}
           </div>
 
+          {/* ── CONTENT: Grouped or Flat ── */}
+          {viewMode === "grouped" ? (
+            <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
+              <GroupedTableView caseId={caseId} />
+            </div>
+          ) : (<>
+
           {/* ── TABLE ── */}
-          <div style={{flex:1,overflowY:"auto",overflowX:"auto",background:"#f9fafb",padding:"16px"}}>
-          <div style={{background:"#fff",borderRadius:8,border:"1px solid #e5e7eb",overflow:"hidden"}}>
-            <table style={{width:"100%",borderCollapse:"collapse",fontSize:13,minWidth:"max-content"}}>
+          <div style={{flex:1,overflow:"auto",background:"#f9fafb",padding:"16px"}}>
+          <div style={{background:"#fff",borderRadius:8,border:"1px solid #e5e7eb",overflow:"hidden",minWidth:"max-content"}}>
+            <table style={{borderCollapse:"collapse",fontSize:13,minWidth:"max-content",width:"100%"}}>
               <thead style={{position:"sticky",top:0,zIndex:20}}>
                 <tr style={{background:"#f9fafb",borderBottom:"1px solid #e5e7eb"}}>
                   <th style={{width:32,padding:"6px 8px",borderRight:"1px solid #e5e7eb"}}>
@@ -2198,7 +1125,7 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
                             <span style={{flex:1,color:"#0d9488",fontSize:11,fontWeight:600}}>{key}</span>
                           ) : (
                             <div className="group/hdr" style={{display:"flex",alignItems:"center",gap:4,width:"100%"}}>
-                              <span style={{flex:1}}>{key==="company_name"?"Firma":key}</span>
+                              <span style={{flex:1}}>{key==="company_name"?"Firma":key==="contacts"?"Kontakt":key}</span>
                               <button
                                 onClick={e=>{e.stopPropagation();deleteSourceColumn(key);}}
                                 className="opacity-0 group-hover/hdr:opacity-100"
@@ -2243,7 +1170,28 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
                     : "pending";
                   const sel = selectedRows.has(row.id);
                   return (
-                    <tr key={row.id} style={{background: sel?"#ede9fe":rowState==="running"?"#fefce8":rowState==="error"?"#fef2f2":"#fff",borderBottom:"1px solid #f3f4f6"}}>
+                    <tr key={row.id}
+                      style={{background: sel?"#ede9fe":rowState==="running"?"#fefce8":rowState==="error"?"#fef2f2":"#fff",borderBottom:"1px solid #f3f4f6"}}
+                      onContextMenu={e => {
+                        e.preventDefault();
+                        // Simple inline context menu via browser confirm — proper menu would need a portal
+                        const choice = window.confirm(
+                          `Zeile: ${row.data["company_name"] ?? row.data[sourceColumns[0]] ?? row.id.slice(0,8)}\n\n` +
+                          `[OK] = Alle Spalten neu ausführen (überschreibt)\n` +
+                          `[Abbrechen] = Nur leere Zellen füllen`
+                        );
+                        if (choice) {
+                          // run all columns for this row — force
+                          for (const col of caseData.aiColumns) runCell(row.id, col);
+                        } else {
+                          // run only empty columns for this row
+                          for (const col of caseData.aiColumns) {
+                            const val = row.data[col.outputKey];
+                            const isEmpty = !val || String(val).trim() === "" || /^notfound$/i.test(String(val));
+                            if (isEmpty) runCell(row.id, col);
+                          }
+                        }
+                      }}>
                       <td style={{width:32,padding:"6px 10px",borderRight:"1px solid #f3f4f6"}}>
                         <input type="checkbox" checked={sel}
                           onChange={e => { const s=new Set(selectedRows); e.target.checked?s.add(row.id):s.delete(row.id); setSelectedRows(s); }}
@@ -2275,15 +1223,48 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
                         {rowState === "pending" && (
                           <span style={{fontSize:11,color:"#9ca3af"}}>○ Ausstehend</span>
                         )}
+                        {/* Source badge */}
+                        {(() => {
+                          const src = row.data["search_source"] ?? "";
+                          const query = row.data["search_query"] ?? "";
+                          if (!src) return null;
+                          const icon = src.includes("maps") ? "🗺️" : src === "firecrawl" ? "🔥" : src === "linkup" ? "🔗" : src === "serpapi" ? "🔍" : "🌐";
+                          const label = src.includes("maps") ? "Maps" : src === "firecrawl" ? "Firecrawl" : src === "linkup" ? "Linkup" : src === "serpapi" ? "SerpApi" : src;
+                          return (
+                            <span title={`Quelle: ${src}\nQuery: ${query}`}
+                              style={{display:"inline-flex",alignItems:"center",gap:3,fontSize:10,color:"#6b7280",background:"#f3f4f6",padding:"1px 5px",borderRadius:6,marginTop:2,cursor:"help",maxWidth:80,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                              {icon} {label}
+                            </span>
+                          );
+                        })()}
+                        {/* Demote: move row to catalog tab */}
+                        <button
+                          onClick={async (e) => {
+                            e.stopPropagation();
+                            await fetch(`/api/rows/${row.id}`, {
+                              method: "PATCH",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({ data: { ...row.data, is_catalog: "true" } }),
+                            });
+                            refresh();
+                          }}
+                          title="Als Katalogseite markieren — in Quellen verschieben"
+                          style={{border:"none",background:"none",cursor:"pointer",padding:"1px 4px",fontSize:9,color:"#d1d5db",display:"block",marginTop:1}}
+                          onMouseEnter={e => (e.currentTarget.style.color = "#6b7280")}
+                          onMouseLeave={e => (e.currentTarget.style.color = "#d1d5db")}
+                        >
+                          📚 Als Katalog
+                        </button>
                       </td>
                       {(colOrder.length > 0 ? colOrder : [...sourceColumns,...caseData.aiColumns.map(c=>c.outputKey)]).map(key => {
                         const aiCol = caseData.aiColumns.find(c=>c.outputKey===key);
                         const isSrc = sourceColumns.includes(key);
                         if (aiCol) {
-                          const status: CellStatus = row.cellStatuses[aiCol.outputKey]??"idle";
-                          const val = row.data[aiCol.outputKey]??"";
-                          const err = row.cellErrors[aiCol.outputKey];
-                          const isEd = editingCell?.rowId===row.id && editingCell.key===aiCol.outputKey;
+                          const col = aiCol; // narrow for closure
+                          const status: CellStatus = row.cellStatuses[col.outputKey]??"idle";
+                          const val = row.data[col.outputKey]??"";
+                          const err = row.cellErrors[col.outputKey];
+                          const isEd = editingCell?.rowId===row.id && editingCell.key===col.outputKey;
                           const hasRun = status==="done"||status==="error"||status==="skipped";
                           const notFound = status==="done" && !val;
                           const isValid = val.startsWith("✓");
@@ -2291,9 +1272,9 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
                           // Primary click action depends on state
                           function handleCellClick(e: React.MouseEvent) {
                             e.stopPropagation();
-                            if (status === "running") { stopCell(row.id, aiCol); return; }
-                            if (status === "idle") { runCell(row.id, aiCol); return; }
-                            setRunDetailCell({col: aiCol, row}); // done/error/skipped → show details
+                            if (status === "running") { stopCell(row.id, col); return; }
+                            if (status === "idle") { runCell(row.id, col); return; }
+                            setRunDetailCell({col, row}); // done/error/skipped → show details
                           }
                           return (
                             <td key={key}
@@ -2306,10 +1287,11 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
                                 borderRight:"1px solid #f3f4f6",
                                 cursor: status==="idle" ? "pointer" : "default",
                                 background: status==="error"?"#fef2f2": status==="idle"?"":undefined,
-                                minWidth: 100,
+                                minWidth: aiCol.tool==="batch_contacts" ? 220 : 100,
+                                verticalAlign: aiCol.tool==="batch_contacts" ? "top" : "middle",
                               }}>
                               {isEd ? <EditInput rowId={row.id} k={aiCol.outputKey} /> : (
-                                <div style={{display:"flex",alignItems:"center",gap:4,minHeight:22,position:"relative"}}>
+                                <div style={{display:"flex",alignItems: aiCol.tool==="batch_contacts" ? "flex-start" : "center",gap:4,minHeight:22,position:"relative"}}>
 
                                   {/* ── RUNNING ── */}
                                   {status==="running" && <>
@@ -2348,9 +1330,29 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
                                     {isInvalid && (
                                       <span style={{fontSize:12,fontWeight:600,color:"#dc2626",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={val}>{val.slice(2)}</span>
                                     )}
-                                    {val && !isValid && !isInvalid && (
-                                      <span style={{fontSize:12,color:"#1f2937",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={val}>{val}</span>
-                                    )}
+                                    {val && !isValid && !isInvalid && (() => {
+                                      // Special rendering for batch_contacts column
+                                      const contactsJsonKey = `_contacts_json_${aiCol.outputKey}`;
+                                      const contactsRaw = row.data[contactsJsonKey];
+                                      if (aiCol.tool === "batch_contacts" && contactsRaw) {
+                                        try {
+                                          const contacts: Array<{first_name:string|null; last_name:string|null; position:string|null; email:string|null; phone:string|null}> = JSON.parse(contactsRaw);
+                                          if (contacts.length > 0) return (
+                                            <div style={{flex:1,display:"flex",flexDirection:"column",gap:3,minWidth:0}}>
+                                              {contacts.slice(0,3).map((c, i) => (
+                                                <div key={i} style={{fontSize:11,lineHeight:1.4,borderBottom: i < contacts.length-1 && i < 2 ? "1px solid #f3f4f6" : "none",paddingBottom: i < contacts.length-1 && i < 2 ? 2 : 0}}>
+                                                  <span style={{fontWeight:600,color:"#1e293b"}}>{[c.first_name,c.last_name].filter(Boolean).join(" ")}</span>
+                                                  {c.position && <span style={{color:"#9ca3af",marginLeft:4}}>· {c.position}</span>}
+                                                  {c.email && <div style={{fontSize:10,color:"#2563eb",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.email}</div>}
+                                                </div>
+                                              ))}
+                                              {contacts.length > 3 && <span style={{fontSize:10,color:"#9ca3af"}}>+{contacts.length-3} weitere</span>}
+                                            </div>
+                                          );
+                                        } catch { /* fall through */ }
+                                      }
+                                      return <span style={{fontSize:12,color:"#1f2937",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={val}>{val}</span>;
+                                    })()}
                                     {/* Re-run icon — only visible on hover */}
                                     <button
                                       onClick={e=>{e.stopPropagation();runCell(row.id,aiCol);}}
@@ -2370,6 +1372,52 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
                         const isEd = editingCell?.rowId===row.id && editingCell.key===key;
                         const isValidated = !isSrc && !aiCol;
                         const isReasoning = key.startsWith("_reasoning_");
+
+                        // ── Contacts aggregation cell ─────────────────────
+                        if (key === "contacts" && isSrc) {
+                          const d = row.data as Record<string, string|null>;
+                          // Build contacts from _contacts_json or flat fields
+                          type ContactEntry = {name:string; position:string; email:string; phone:string; extrapolated?:string};
+                          const contacts: ContactEntry[] = [];
+                          const jsonKey = Object.keys(d).find(k => k.startsWith("_contacts_json_"));
+                          if (jsonKey && d[jsonKey]) {
+                            try {
+                              const parsed = JSON.parse(d[jsonKey]!);
+                              if (Array.isArray(parsed)) {
+                                parsed.slice(0,3).forEach((c: Record<string,string|null>) => contacts.push({
+                                  name: [c.first_name,c.last_name].filter(Boolean).join(" "),
+                                  position: c.position ?? "",
+                                  email: c.email ?? "",
+                                  phone: c.phone ?? "",
+                                }));
+                              }
+                            } catch { /* ignore */ }
+                          }
+                          if (contacts.length === 0 && (d["first_name"] || d["last_name"])) {
+                            contacts.push({
+                              name: [d["first_name"],d["last_name"]].filter(Boolean).join(" "),
+                              position: d["position"] ?? "",
+                              email: d["contact_email"] ?? d["email"] ?? "",
+                              phone: d["contact_phone"] ?? d["phone"] ?? "",
+                              extrapolated: d["email_extrapolated"] ?? "",
+                            });
+                          }
+                          if (contacts.length === 0) return <td key={key} style={{padding:"6px 12px",borderRight:"1px solid #f3f4f6",color:"#d1d5db",fontSize:11}}>—</td>;
+                          return (
+                            <td key={key} style={{padding:"4px 10px",borderRight:"1px solid #f3f4f6",verticalAlign:"top",minWidth:220,maxWidth:300}}>
+                              {contacts.map((c, i) => (
+                                <div key={i} style={{fontSize:11,lineHeight:1.5,borderBottom:i<contacts.length-1?"1px solid #f3f4f6":undefined,paddingBottom:i<contacts.length-1?3:0,marginBottom:i<contacts.length-1?3:0}}>
+                                  <div style={{fontWeight:600,color:"#1e293b"}}>{c.name || "—"}{c.position && <span style={{fontWeight:400,color:"#94a3b8",marginLeft:4}}>· {c.position}</span>}</div>
+                                  <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+                                    {c.email && <a href={`mailto:${c.email}`} style={{color:"#2563eb",textDecoration:"none",fontSize:10}}>{c.email}</a>}
+                                    {!c.email && c.extrapolated && <span style={{color:"#a855f7",fontSize:10}}>⚡ {c.extrapolated}</span>}
+                                    {c.phone && <span style={{color:"#6b7280",fontSize:10}}>📞 {c.phone}</span>}
+                                  </div>
+                                </div>
+                              ))}
+                            </td>
+                          );
+                        }
                         return (
                           <td key={key} style={{padding:"6px 12px",borderRight:"1px solid #f3f4f6",maxWidth:200,
                             background: isValidated ? (val.startsWith("✗")?"#fef2f2":val.startsWith("✓")?"#f5f3ff":undefined) : undefined,
@@ -2380,10 +1428,22 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
                             }
                           }}>
                             {isEd ? <EditInput rowId={row.id} k={key} /> :
-                              <span style={{fontSize:12,display:"block",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",
-                                color: isValidated ? (val.startsWith("✗")?"#dc2626":val.startsWith("✓")?"#6d28d9":"#4b5563") : isReasoning?"#7c3aed":key==="company_name"?"#1f2937":"#4b5563",
-                                fontStyle: isReasoning?"italic":undefined
-                              }} title={val}>{isReasoning ? `🧠 ${val}` : val}</span>}
+                              (() => {
+                                // Domain/URL columns → clickable link
+                                const isDomainCol = key === "domain" || key === "source_domain" || key === "source_url" || key === "website";
+                                const isUrl = val && (val.startsWith("http") || (isDomainCol && val.includes(".")));
+                                const href = isUrl ? (val.startsWith("http") ? val : `https://${val}`) : null;
+                                const content = isReasoning ? `🧠 ${val}` : val;
+                                const textStyle: React.CSSProperties = {
+                                  fontSize:12,display:"block",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",
+                                  color: isDomainCol && href ? "#2563eb" : isValidated ? (val.startsWith("✗")?"#dc2626":val.startsWith("✓")?"#6d28d9":"#4b5563") : isReasoning?"#7c3aed":key==="company_name"?"#1f2937":"#4b5563",
+                                  fontStyle: isReasoning?"italic":undefined,
+                                  textDecoration: isDomainCol && href ? "none" : undefined,
+                                };
+                                return href
+                                  ? <a href={href} target="_blank" rel="noopener noreferrer" style={textStyle} title={val} onClick={e => e.stopPropagation()}>{content}</a>
+                                  : <span style={textStyle} title={val}>{content}</span>;
+                              })()}
                           </td>
                         );
                       })}
@@ -2410,7 +1470,180 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
             <span>Page {page+1} of {totalPages}</span>
           </div>
 
-        </>)}
+        </>)} {/* end flat view */}
+        </>)} {/* end activeTab === Tabelle */}
+
+        {/* ══ TAB: QUELLEN — Plan/Queries + Katalogseiten ══ */}
+        {activeTab === "Quellen" && (
+          <div style={{flex:1,overflowY:"auto",background:"#f8fafc",padding:"16px",display:"flex",flexDirection:"column",gap:16}}>
+
+            {/* ── Katalogseiten (Rohmaterial zum Scrapen) ── */}
+            {catalogRows.length > 0 && (
+              <div style={{background:"#fff",borderRadius:10,border:"1px solid #fbbf24",overflow:"hidden"}}>
+                <div style={{padding:"12px 16px",background:"#fffbeb",borderBottom:"1px solid #fde68a",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                  <div style={{display:"flex",alignItems:"center",gap:8}}>
+                    <span style={{fontSize:18}}>📚</span>
+                    <div>
+                      <div style={{fontWeight:700,fontSize:13,color:"#92400e"}}>{catalogRows.length} Katalogseiten</div>
+                      <div style={{fontSize:11,color:"#a16207"}}>Keine echten Leads — Rohmaterial zum Scrapen und Extrahieren</div>
+                    </div>
+                  </div>
+                  <CatalogDeepCrawlButton caseId={caseId} onDone={refresh} catalogCount={catalogRows.length} />
+                </div>
+                <div style={{padding:"8px 12px",maxHeight:300,overflowY:"auto"}}>
+                  <div style={{display:"grid",gap:4}}>
+                    {catalogRows.map((row, i) => {
+                      const toggleCatalog = async () => {
+                        const newData = { ...row.data };
+                        delete newData.is_catalog; // remove flag = promote to data row
+                        await fetch(`/api/rows/${row.id}`, {
+                          method: "PATCH",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ data: newData }),
+                        });
+                        refresh();
+                      };
+                      return (
+                      <div key={row.id} style={{display:"flex",alignItems:"center",gap:10,padding:"6px 8px",borderRadius:6,background:i%2===0?"#fafafa":"#fff",fontSize:12}}>
+                        <span style={{color:"#9ca3af",fontSize:10,minWidth:20}}>{i+1}</span>
+                        <div style={{flex:1,minWidth:0}}>
+                          <div style={{fontWeight:500,color:"#1e293b",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                            {row.data["source_title"] || row.data["company_name"] || row.data["source_url"]}
+                          </div>
+                          <div style={{fontSize:10,color:"#9ca3af",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                            {row.data["source_url"]} · {row.data["search_source"]}
+                          </div>
+                        </div>
+                        <button onClick={toggleCatalog} title="Als Lead übernehmen — in Tabelle verschieben"
+                          style={{border:"1px solid #d1d5db",borderRadius:5,background:"#fff",cursor:"pointer",padding:"2px 8px",fontSize:11,color:"#374151",whiteSpace:"nowrap"}}>
+                          ✅ Als Lead
+                        </button>
+                        <CatalogScrapeButton url={row.data["source_url"] ?? ""} caseId={caseId} onScraped={refresh} />
+                      </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ── Discovery-Plan & Query-Log ── */}
+            {(() => {
+              const planLogs = logs.filter(l =>
+                l.message.startsWith("🔍 DISCOVERY PLAN") ||
+                l.message.startsWith("✅ Step") ||
+                l.message.startsWith("🏁 DISCOVERY") ||
+                l.message.startsWith("  🔍") ||
+                l.message.startsWith("🔗 DEEP CRAWL") ||
+                l.message.startsWith("  📋")
+              );
+              const planStarts = logs.filter(l => l.message.startsWith("🔍 DISCOVERY PLAN:"));
+
+              if (planLogs.length === 0 && catalogRows.length === 0) return (
+                <div style={{textAlign:"center",padding:"48px 0"}}>
+                  <div style={{fontSize:48,marginBottom:12}}>🔍</div>
+                  <div style={{fontSize:15,fontWeight:600,color:"#1e293b",marginBottom:6}}>Noch keine Quellen vorhanden</div>
+                  <div style={{fontSize:13,color:"#64748b",marginBottom:20}}>Starte eine Discovery-Suche um Queries und Katalogseiten zu sammeln.</div>
+                  <button onClick={() => setShowAppend(true)}
+                    style={{padding:"8px 20px",border:"1px solid #86efac",borderRadius:7,background:"#f0fdf4",cursor:"pointer",color:"#166534",fontWeight:600,fontSize:13}}>
+                    🔍 Suche starten
+                  </button>
+                </div>
+              );
+
+              if (planLogs.length === 0) return null;
+
+              // Group logs by plan run
+              const runs: Array<{plan: typeof logs[0]; queries: typeof logs; steps: typeof logs; done: typeof logs[0]|null}> = [];
+              let currentRun: typeof runs[0] | null = null;
+
+              for (const l of planLogs) {
+                if (l.message.startsWith("🔍 DISCOVERY PLAN")) {
+                  currentRun = { plan: l, queries: [], steps: [], done: null };
+                  runs.push(currentRun);
+                } else if (currentRun) {
+                  if (l.message.startsWith("🏁")) currentRun.done = l;
+                  else if (l.message.startsWith("✅ Step")) currentRun.steps.push(l);
+                  else if (l.message.startsWith("  🔍")) currentRun.queries.push(l);
+                }
+              }
+
+              return (
+                <div style={{display:"flex",flexDirection:"column",gap:12}}>
+                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                    <div style={{fontSize:11,fontWeight:700,color:"#64748b",textTransform:"uppercase",letterSpacing:"0.05em"}}>
+                      {planStarts.length} Discovery-Läufe · {planLogs.length} Log-Einträge
+                    </div>
+                    <button onClick={() => setShowAppend(true)}
+                      style={{fontSize:11,padding:"4px 12px",border:"1px solid #86efac",borderRadius:6,background:"#f0fdf4",cursor:"pointer",color:"#166534",fontWeight:600}}>
+                      + Neue Suche
+                    </button>
+                  </div>
+
+                  {runs.reverse().map((run, ri) => {
+                    const planMsg = run.plan.message.replace("🔍 DISCOVERY PLAN: ", "");
+                    const totalFound = run.queries.reduce((s, q) => {
+                      const m = q.message.match(/→ (\d+) neu/);
+                      return s + (m ? parseInt(m[1]) : 0);
+                    }, 0);
+                    const isDone = !!run.done;
+
+                    return (
+                      <div key={ri} style={{background:"#fff",borderRadius:10,border:"1px solid #e2e8f0",overflow:"hidden"}}>
+                        <div style={{padding:"12px 16px",background:isDone?"#f0fdf4":"#eff6ff",borderBottom:"1px solid #e2e8f0",display:"flex",alignItems:"flex-start",gap:10}}>
+                          <span style={{fontSize:18}}>{isDone?"✅":"⏳"}</span>
+                          <div style={{flex:1,minWidth:0}}>
+                            <div style={{fontWeight:700,fontSize:13,color:"#1e293b",marginBottom:2}}>{planMsg}</div>
+                            <div style={{fontSize:11,color:"#64748b",display:"flex",gap:12,flexWrap:"wrap"}}>
+                              <span>🕐 {new Date(run.plan.createdAt).toLocaleString("de-DE")}</span>
+                              <span>📊 {run.queries.length} Queries</span>
+                              {totalFound > 0 && <span style={{color:"#15803d",fontWeight:600}}>✓ {totalFound} neue Einträge</span>}
+                            </div>
+                          </div>
+                        </div>
+
+                        {run.steps.length > 0 && (
+                          <div style={{padding:"8px 16px",borderBottom:"1px solid #f1f5f9",background:"#fafafa",display:"flex",flexWrap:"wrap",gap:6}}>
+                            {run.steps.map((s, si) => {
+                              const m = s.message.match(/Step \d+\/\d+: "([^"]+)" → (\d+) neue/);
+                              const added = m ? parseInt(m[2]) : 0;
+                              return (
+                                <span key={si} style={{fontSize:10,padding:"2px 7px",borderRadius:10,background:added>0?"#dcfce7":"#f3f4f6",color:added>0?"#15803d":"#6b7280",fontWeight:added>0?600:400}}>
+                                  {m?.[1]?.slice(0,30) ?? s.message.slice(0,30)} · {added>0?`+${added}`:0}
+                                </span>
+                              );
+                            })}
+                          </div>
+                        )}
+
+                        {run.queries.length > 0 && (
+                          <div style={{padding:"8px 16px",maxHeight:200,overflowY:"auto"}}>
+                            <div style={{fontSize:10,fontWeight:600,color:"#94a3b8",textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:6}}>
+                              Alle {run.queries.length} Queries
+                            </div>
+                            <div style={{display:"grid",gap:2}}>
+                              {run.queries.map((q, qi) => {
+                                const m = q.message.match(/Query: "([^"]+)" → (\d+)/);
+                                const found = m ? parseInt(m[2]) : 0;
+                                return (
+                                  <div key={qi} style={{display:"flex",alignItems:"center",gap:8,fontSize:11}}>
+                                    <span style={{color:found>0?"#15803d":"#9ca3af",fontWeight:found>0?600:400,minWidth:30,textAlign:"right"}}>{found>0?`+${found}`:"0"}</span>
+                                    <span style={{color:"#374151",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{m?.[1] ?? q.message}</span>
+                                    <span style={{fontSize:10,color:"#94a3b8",fontFamily:"monospace"}}>{new Date(q.createdAt).toLocaleTimeString("de-DE")}</span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
+          </div>
+        )}
 
         {/* ══ TAB: LOG ══ */}
         {activeTab === "Log" && (
@@ -2424,12 +1657,15 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
             </div>
             {logs.length===0
               ? <span style={{color:"#475569"}}>Noch keine Logs.</span>
-              : logs.map(l => (
-                <div key={l.id} style={{lineHeight:1.6,padding:"1px 4px",borderRadius:3}}>
-                  <span style={{color:"#475569",marginRight:10,userSelect:"none"}}>{new Date(l.createdAt).toLocaleTimeString("de-DE")}</span>
-                  {l.message}
-                </div>
-              ))}
+              : logs.map(l => {
+                const isDisc = l.message.startsWith("🔍") || l.message.startsWith("✅") || l.message.startsWith("🏁");
+                return (
+                  <div key={l.id} style={{lineHeight:1.6,padding:"1px 4px",borderRadius:3,color: isDisc ? "#38bdf8" : "#94a3b8"}}>
+                    <span style={{color:"#475569",marginRight:10,userSelect:"none"}}>{new Date(l.createdAt).toLocaleTimeString("de-DE")}</span>
+                    {l.message}
+                  </div>
+                );
+              })}
           </div>
         )}
 
@@ -2493,6 +1729,64 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
 
       </div>
 
+      {/* ── Run Confirmation Modal ── */}
+      {runConfirm && (
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:3000,display:"flex",alignItems:"center",justifyContent:"center"}}
+          onClick={() => setRunConfirm(null)}>
+          <div style={{background:"#fff",borderRadius:12,padding:"28px 32px",maxWidth:420,width:"90%",boxShadow:"0 20px 60px rgba(0,0,0,0.2)"}}
+            onClick={e => e.stopPropagation()}>
+            {/* Icon + Title */}
+            <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:16}}>
+              <div style={{width:40,height:40,background:runConfirm.mode==="all_force"?"#fef3c7":"#ede9fe",borderRadius:10,display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0}}>
+                {runConfirm.mode==="all_force" ? "⚡" : "◐"}
+              </div>
+              <div>
+                <div style={{fontWeight:700,fontSize:15,color:"#111"}}>
+                  {runConfirm.mode==="all_force" ? "Alle Zellen ausführen?" : "Nur leere Zellen füllen?"}
+                </div>
+                <div style={{fontSize:12,color:"#6b7280",marginTop:2}}>
+                  {selectedRows.size > 0 ? `${selectedRows.size} ausgewählte Zeilen` : `${rows.length} Zeilen`}
+                  {" · "}{caseData?.aiColumns.length ?? 0} KI-Spalten
+                </div>
+              </div>
+            </div>
+
+            {/* Warning for overwrite mode */}
+            {runConfirm.mode === "all_force" && (() => {
+              const filledCount = rows.filter(r => caseData?.aiColumns.some(c => r.data[c.outputKey] && r.data[c.outputKey] !== "")).length;
+              return filledCount > 0 ? (
+                <div style={{background:"#fef9c3",border:"1px solid #fde68a",borderRadius:8,padding:"10px 12px",fontSize:12,color:"#92400e",marginBottom:16}}>
+                  ⚠ <strong>{filledCount} Zeilen</strong> haben bereits Werte — diese werden überschrieben.
+                </div>
+              ) : null;
+            })()}
+
+            {runConfirm.mode === "empty_only" && (
+              <div style={{background:"#f0fdf4",border:"1px solid #bbf7d0",borderRadius:8,padding:"10px 12px",fontSize:12,color:"#166534",marginBottom:16}}>
+                ✓ Bereits befüllte Zellen bleiben unberührt.
+              </div>
+            )}
+
+            {/* Estimated cost */}
+            <div style={{fontSize:11,color:"#9ca3af",marginBottom:20}}>
+              Parallelität: {concurrency}x · Schätzung: {Math.ceil((selectedRows.size > 0 ? selectedRows.size : rows.length) / concurrency)} Batches
+            </div>
+
+            {/* Actions */}
+            <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+              <button onClick={() => setRunConfirm(null)}
+                style={{padding:"8px 18px",border:"1px solid #d1d5db",borderRadius:7,background:"#fff",cursor:"pointer",fontSize:13,color:"#374151",fontWeight:500}}>
+                Abbrechen
+              </button>
+              <button onClick={() => { const m = runConfirm.mode; setRunConfirm(null); runSelectedRows(m); }}
+                style={{padding:"8px 20px",border:"none",borderRadius:7,background:runConfirm.mode==="all_force"?"#7c3aed":"#059669",color:"#fff",cursor:"pointer",fontSize:13,fontWeight:600,display:"flex",alignItems:"center",gap:6}}>
+                {runConfirm.mode==="all_force" ? "⚡ Alle ausführen" : "◐ Nur Leere füllen"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showAddCol && <AddColumnModal caseId={caseId} onClose={()=>setShowAddCol(false)} onAdded={(u:Case)=>{
         setCaseData(u);
         setColOrder(prev => {
@@ -2505,6 +1799,8 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
         availableFields={[...sourceColumns, ...caseData.aiColumns.map(c=>c.outputKey)]} />}
       {showImport && <ImportModal caseId={caseId} onClose={()=>setShowImport(false)} onImported={()=>{setShowImport(false);refresh();}} />}
       {showDiscovery && <DiscoveryModal caseId={caseId} rows={rows} sourceColumns={sourceColumns} onClose={()=>setShowDiscovery(false)} onImported={()=>{refresh();}} />}
+      {showAgentGoal && <AgentGoalModal caseId={caseId} rowsCount={rows.length} onClose={()=>setShowAgentGoal(false)} onImported={()=>{refresh();}} />}
+      {showAppend && <AppendModal caseId={caseId} onRowsAdded={(n)=>{if(n>0)refresh();}} onClose={()=>setShowAppend(false)} />}
       {(editingPromptCol || editingPromptCell) && caseData && (
         <EditPromptModal
           col={editingPromptCell?.col ?? editingPromptCol!}
@@ -2571,5 +1867,12 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
         </div>
       )}
     </div>
+    </CaseContext.Provider>
+    ) : (
+      <div style={{display:"flex",height:"100vh",alignItems:"center",justifyContent:"center"}}>
+        <Loader2 className="animate-spin" style={{width:24,height:24,color:"#7c3aed"}} />
+      </div>
+    )}
+    </ErrorBoundary>
   );
 }

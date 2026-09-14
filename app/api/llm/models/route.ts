@@ -1,26 +1,38 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getCase, resolveEdenKey, resolveEdenRegion } from "@/lib/db";
+import { getCase, resolveEdenKey, resolveEdenRegion, getGlobalSettings } from "@/lib/db";
 import { DEFAULT_MODEL_OPTIONS, mergeModelOptions } from "@/lib/model-options";
 import { listEdenModels, type EdenModelInfo, type EdenRegion } from "@/lib/edenai";
 
 /**
  * GET /api/llm/models — Eden AI model catalog (single provider).
- * The catalog is public (no key required); region filters availability.
+ *
+ * Model priority:
+ *   1. Global settings modelAllowlist (curated by admin in /settings/models)
+ *   2. Case-level modelAllowlist (legacy / override)
+ *   3. Default model list fallback
  */
 export async function GET(req: NextRequest) {
   const caseId = req.nextUrl.searchParams.get("caseId") || undefined;
-  let modelAllowlist: string[] = [];
 
-  let edenKey = await resolveEdenKey();
-  let edenRegion: EdenRegion = await resolveEdenRegion();
+  // Always load global settings first
+  const globalSettings = await getGlobalSettings();
+  const globalAllowlist: string[] = globalSettings.modelAllowlist ?? [];
 
+  let edenKey = globalSettings.edenApiKey ?? await resolveEdenKey();
+  let edenRegion: EdenRegion = globalSettings.edenRegion ?? await resolveEdenRegion();
+
+  // Case-level overrides (key/region only — model list comes from global)
+  let caseAllowlist: string[] = [];
   if (caseId) {
     const caseData = await getCase(caseId);
     if (!caseData) return NextResponse.json({ error: "Case not found" }, { status: 404 });
-    edenKey = await resolveEdenKey(caseData);
-    edenRegion = await resolveEdenRegion(caseData);
-    modelAllowlist = caseData.modelAllowlist ?? [];
+    if (caseData.edenApiKey) edenKey = caseData.edenApiKey;
+    if (caseData.edenRegion) edenRegion = caseData.edenRegion as EdenRegion;
+    caseAllowlist = caseData.modelAllowlist ?? [];
   }
+
+  // Effective allowlist: global wins; case-level only used if global is empty
+  const effectiveAllowlist = globalAllowlist.length > 0 ? globalAllowlist : caseAllowlist;
 
   let edenModels: string[] = [];
   const providerErrors: Record<string, string> = {};
@@ -32,10 +44,12 @@ export async function GET(req: NextRequest) {
     providerErrors.edenai = e instanceof Error ? e.message : String(e);
   }
 
-  const allModels = mergeModelOptions([...edenModels, ...modelAllowlist], DEFAULT_MODEL_OPTIONS);
-  const enabledModels = modelAllowlist.length > 0
-    ? allModels.filter((m) => modelAllowlist.includes(m))
-    : allModels;
+  // If allowlist is set: show exactly those models (in order), else show defaults
+  const enabledModels = effectiveAllowlist.length > 0
+    ? effectiveAllowlist
+    : [...DEFAULT_MODEL_OPTIONS];
+
+  const allModels = mergeModelOptions([...edenModels, ...enabledModels], DEFAULT_MODEL_OPTIONS);
 
   return NextResponse.json({
     caseId: caseId ?? null,
@@ -47,7 +61,7 @@ export async function GET(req: NextRequest) {
     providerErrors,
     keysPresent: { edenai: Boolean(edenKey) },
     edenRegion,
-    // every model goes through Eden — the provider prefix is informational only
+    globalAllowlist,
     providersByModel: Object.fromEntries(allModels.map((m) => [m, "edenai"])),
   });
 }

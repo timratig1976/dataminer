@@ -44,6 +44,14 @@ export function AddColumnModal({ caseId, onClose, onAdded, availableFields = [] 
   const [searchForceLayer, setSearchForceLayer] = useState<"" | "serpapi" | "duckduckgo" | "playwright">("" );
   const [evidenceMode, setEvidenceMode] = useState<"snippet" | "page" | "auto">("snippet");
   const [captureReasoning, setCaptureReasoning] = useState(false);
+  // Batch enrichment fields
+  const [batchTool, setBatchTool] = useState<string | undefined>(undefined);
+  const [batchOutputFields, setBatchOutputFields] = useState<string[]>([]);
+  const [batchSearchContacts, setBatchSearchContacts] = useState(true);
+  // batch_contacts config
+  const [contactsMax, setContactsMax] = useState(3);
+  const [contactsLinkedIn, setContactsLinkedIn] = useState(true);
+  const [contactsImpressum, setContactsImpressum] = useState(true);
   const [saving, setSaving] = useState(false);
   const promptTextareaId = useId();
 
@@ -74,6 +82,12 @@ export function AddColumnModal({ caseId, onClose, onAdded, availableFields = [] 
     setOutputMode(p.outputMode || "text");
     setJsonKey(p.jsonKey || "");
     setEvidenceMode(p.evidenceMode || "snippet");
+    setBatchTool((p as { tool?: string }).tool || undefined);
+    setBatchOutputFields(((p as { batchOutputFields?: string[] }).batchOutputFields) ?? []);
+    setBatchSearchContacts(((p as { batchSearchContacts?: boolean }).batchSearchContacts) ?? true);
+    setContactsMax((p as { batchContactsMax?: number }).batchContactsMax ?? 3);
+    setContactsLinkedIn((p as { batchContactsLinkedIn?: boolean }).batchContactsLinkedIn ?? true);
+    setContactsImpressum((p as { batchContactsImpressum?: boolean }).batchContactsImpressum ?? true);
     const nextRequired = p.requiredFields || [];
     setRequiredFields(nextRequired);
     const nextMappings: Record<string, string> = {};
@@ -91,8 +105,9 @@ export function AddColumnModal({ caseId, onClose, onAdded, availableFields = [] 
   }
 
   const isPlain = colType === "text" || colType === "number";
+  const isBatch = batchTool === "batch_enrich" || batchTool === "batch_contacts";
   const hasMissingRequiredMappings = colType === "ai" && requiredFields.some((field) => !(inputMappings[field] || "").trim());
-  const canSave = name.trim() !== "" && outputKey.trim() !== "" && (isPlain || prompt.trim() !== "") && !hasMissingRequiredMappings;
+  const canSave = name.trim() !== "" && outputKey.trim() !== "" && (isPlain || isBatch || prompt.trim() !== "") && !hasMissingRequiredMappings;
 
   async function save() {
     if (!canSave) return;
@@ -133,6 +148,17 @@ export function AddColumnModal({ caseId, onClose, onAdded, availableFields = [] 
         searchForceLayer: useWebSearch && searchForceLayer ? searchForceLayer : undefined,
         evidenceMode: useWebSearch && evidenceMode !== "snippet" ? evidenceMode : undefined,
         captureReasoning: captureReasoning || undefined,
+        // Batch enrichment fields
+        ...(batchTool ? {
+          tool: batchTool as AiColumn["tool"],
+          batchOutputFields: batchOutputFields.length > 0 ? batchOutputFields : undefined,
+          batchSearchContacts: batchSearchContacts || undefined,
+          ...(batchTool === "batch_contacts" ? {
+            batchContactsMax: contactsMax,
+            batchContactsLinkedIn: contactsLinkedIn,
+            batchContactsImpressum: contactsImpressum,
+          } : {}),
+        } : {}),
       };
       const caseRes = await fetch(`/api/cases/${caseId}`).then((r) => r.json());
       const res = await fetch(`/api/cases/${caseId}`, {
@@ -257,9 +283,109 @@ export function AddColumnModal({ caseId, onClose, onAdded, availableFields = [] 
               ) : (
                 <div className="space-y-4">
 
-                  {/* Prompt + field chips */}
-                  <div>
-                    <label className="text-xs font-medium text-gray-600 uppercase tracking-wide">Prompt</label>
+                  {/* Batch contacts config */}
+                  {batchTool === "batch_contacts" && (
+                    <div className="rounded-xl border-2 border-blue-200 bg-blue-50 p-4 space-y-3">
+                      <div className="flex items-center gap-2">
+                        <span className="text-lg">👤</span>
+                        <div>
+                          <div className="font-semibold text-blue-900 text-sm">Kontakt-Suche — Impressum + LinkedIn + Google</div>
+                          <div className="text-xs text-blue-600">Scrapt /impressum, sucht auf LinkedIn und Google → findet Geschäftsführer, Inhaber, direkte Kontaktdaten</div>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <div className="text-xs font-semibold text-blue-700 mb-1">Max. Kontakte</div>
+                          <input type="number" min={1} max={5} value={contactsMax}
+                            onChange={e => setContactsMax(Math.max(1, Math.min(5, Number(e.target.value))))}
+                            className="w-full border border-blue-200 rounded-lg px-3 py-1.5 text-sm" />
+                        </div>
+                        <div className="flex flex-col gap-2 pt-1">
+                          <label className="flex items-center gap-2 cursor-pointer text-sm text-blue-800">
+                            <input type="checkbox" checked={contactsImpressum} onChange={e => setContactsImpressum(e.target.checked)} className="accent-blue-600" />
+                            /impressum scrapen
+                          </label>
+                          <label className="flex items-center gap-2 cursor-pointer text-sm text-blue-800">
+                            <input type="checkbox" checked={contactsLinkedIn} onChange={e => setContactsLinkedIn(e.target.checked)} className="accent-blue-600" />
+                            LinkedIn durchsuchen
+                          </label>
+                        </div>
+                      </div>
+
+                      <div className="bg-white/60 rounded-lg p-3 text-xs text-blue-700 space-y-1">
+                        <div><strong>Schreibt direkt in:</strong></div>
+                        <div className="font-mono ml-2">first_name, last_name, position → Primärkontakt</div>
+                        <div className="font-mono ml-2">contact_email, contact_phone, linkedin → Direkte Kontaktdaten</div>
+                        <div className="font-mono ml-2">contact_1_*, contact_2_*, contact_3_* → Alle Kontakte indiziert</div>
+                        <div className="mt-1 text-blue-500">💡 Generische Emails (info@, kontakt@) werden ignoriert — nur persönliche Emails werden gespeichert.</div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Batch enrichment config — shown when preset is batch_enrich */}
+                  {batchTool === "batch_enrich" && (
+                    <div className="rounded-xl border-2 border-violet-200 bg-violet-50 p-4 space-y-3">
+                      <div className="flex items-center gap-2">
+                        <span className="text-lg">🚀</span>
+                        <div>
+                          <div className="font-semibold text-violet-900 text-sm">Batch Enrichment — 1 Crawl → alle Felder</div>
+                          <div className="text-xs text-violet-600">Scrapt die Domain der Zeile + optional Kontaktsuche → 1 LLM-Call schreibt alle Felder gleichzeitig</div>
+                        </div>
+                      </div>
+
+                      <div>
+                        <div className="text-xs font-semibold text-violet-700 uppercase mb-1.5">Ziel-Felder (werden beschrieben)</div>
+                        <div className="text-xs text-violet-600 mb-2">
+                          Diese Keys müssen als Spalten existieren. Tipp: lege erst die Textspalten an, dann dieses Preset.
+                        </div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {["company_name","domain","phone","email","city","zip","industry","description","first_name","last_name","position","linkedin"].map(f => {
+                            const active = batchOutputFields.includes(f);
+                            const exists = availableFields.includes(f);
+                            return (
+                              <button key={f} type="button"
+                                onClick={() => setBatchOutputFields(prev =>
+                                  prev.includes(f) ? prev.filter(x => x !== f) : [...prev, f]
+                                )}
+                                className={`px-2 py-0.5 rounded text-xs font-mono border transition-colors ${
+                                  active
+                                    ? exists
+                                      ? "bg-green-100 border-green-300 text-green-800"
+                                      : "bg-amber-100 border-amber-300 text-amber-800"
+                                    : "bg-white border-gray-200 text-gray-400"
+                                }`}
+                                title={active && !exists ? "⚠ Spalte existiert noch nicht — lege sie zuerst an" : ""}
+                              >
+                                {active && exists ? "✓ " : active && !exists ? "⚠ " : ""}{f}
+                              </button>
+                            );
+                          })}
+                        </div>
+                        {batchOutputFields.some(f => !availableFields.includes(f)) && (
+                          <p className="text-xs text-amber-600 mt-1.5">
+                            ⚠ Gelbe Felder sind noch keine Spalten — sie werden trotzdem befüllt, aber nicht als eigenständige Spalten angezeigt bis du sie anlegst.
+                          </p>
+                        )}
+                      </div>
+
+                      <label className="flex items-center gap-2 cursor-pointer text-sm text-violet-800">
+                        <input type="checkbox" checked={batchSearchContacts}
+                          onChange={e => setBatchSearchContacts(e.target.checked)}
+                          className="accent-violet-600" />
+                        Kontaktsuche (LinkedIn / Impressum) — findet Vorname, Nachname, Position
+                      </label>
+
+                      <div className="bg-white/60 rounded-lg p-3 text-xs text-violet-700 space-y-0.5">
+                        <div>💡 <strong>Empfehlung:</strong> Lege zuerst alle Zielfelder als <strong>Text-Spalten</strong> an:</div>
+                        <div className="font-mono ml-4">domain, phone, email, city, industry, first_name, last_name, position</div>
+                        <div>Dann dieses Preset hinzufügen → einmal „Alle ausführen" → fertig.</div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Prompt + field chips — hidden for batch tools */}
+                  <div style={{display: isBatch ? "none" : undefined}}>                    <label className="text-xs font-medium text-gray-600 uppercase tracking-wide">Prompt</label>
                     <p className="text-xs text-gray-400 mt-0.5 mb-1">Platzhalter: &#123;company_name&#125;, &#123;website&#125; usw.</p>
                     <textarea id={promptTextareaId} value={prompt} onChange={e => setPrompt(e.target.value)} rows={12}
                       placeholder="Find the official website domain for {company_name}..."

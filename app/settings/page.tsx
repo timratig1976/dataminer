@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Save, Key, Loader2, Sparkles, Globe, CheckCircle2, Trash2 } from "lucide-react";
+import { ArrowLeft, Save, Key, Loader2, Sparkles, Globe, CheckCircle2, Trash2, ChevronRight, Sliders } from "lucide-react";
 
 interface SettingsState {
   edenApiKeyMasked?: string;
@@ -268,6 +268,32 @@ export default function SettingsPage() {
           <div>1. Case-eigener Eden-Key (falls im Case gesetzt)</div>
           <div>2. Dieser globale Key (verschlüsselt in der DB)</div>
           <div>3. ENV <code className="font-mono">EDEN_API_KEY</code></div>
+        </div>
+
+        {/* Navigation to sub-pages */}
+        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+          <button
+            onClick={() => router.push("/settings/models")}
+            className="w-full flex items-center gap-3 px-5 py-4 hover:bg-gray-50 transition-colors text-left border-t border-gray-100"
+          >
+            <Sliders className="w-4 h-4 text-violet-500 flex-shrink-0" />
+            <div className="flex-1">
+              <div className="text-sm font-medium text-gray-900">Modell-Auswahl</div>
+              <div className="text-xs text-gray-400">Welche KI-Modelle im Spalten-Editor angeboten werden</div>
+            </div>
+            <ChevronRight className="w-4 h-4 text-gray-300" />
+          </button>
+          <button
+            onClick={() => router.push("/settings/llm-test")}
+            className="w-full flex items-center gap-3 px-5 py-4 hover:bg-gray-50 transition-colors text-left border-t border-gray-100"
+          >
+            <Sparkles className="w-4 h-4 text-blue-500 flex-shrink-0" />
+            <div className="flex-1">
+              <div className="text-sm font-medium text-gray-900">LLM-Testing</div>
+              <div className="text-xs text-gray-400">Smoke Test, Modelle vergleichen, Latenz messen</div>
+            </div>
+            <ChevronRight className="w-4 h-4 text-gray-300" />
+          </button>
         </div>
       </div>
     </div>

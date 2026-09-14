@@ -16,11 +16,12 @@ import { migrate } from "drizzle-orm/postgres-js/migrator";
 import fs from "fs";
 import path from "path";
 import type { Case, RowData, GroupedRowsResponse, CompanyGroup } from "./types";
+import type { AgentRunState, AgentRunListItem } from "./agent-types";
 import { decryptSecret, encryptSecret, maskSecret } from "./secrets";
-import { cases, rows, logs, scrapeCache, apolloCache, settings } from "./db/schema";
+import { cases, rows, logs, scrapeCache, apolloCache, settings, agentRuns } from "./db/schema";
 
 // Re-export schema tables for scripts/migration tooling
-export { cases, rows, logs, scrapeCache, apolloCache, settings };
+export { cases, rows, logs, scrapeCache, apolloCache, settings, agentRuns };
 
 const DEFAULT_URL = `postgres://${process.env.USER ?? "postgres"}@localhost:5432/dataminer`;
 const databaseUrl = process.env.DATABASE_URL?.trim() || DEFAULT_URL;
@@ -99,6 +100,17 @@ async function ensureSchema(client: postgres.Sql): Promise<void> {
         eden_region TEXT NOT NULL DEFAULT 'eu',
         updated_at TIMESTAMPTZ NOT NULL
       );
+
+      CREATE TABLE IF NOT EXISTS agent_runs (
+        id TEXT PRIMARY KEY,
+        case_id TEXT NOT NULL REFERENCES cases(id) ON DELETE CASCADE,
+        goal JSONB NOT NULL,
+        status TEXT NOT NULL DEFAULT 'planning',
+        state JSONB NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_agent_runs_case_id ON agent_runs(case_id);
     `);
   }
 }
@@ -220,6 +232,7 @@ export interface GlobalSettings {
   edenApiKey?: string;
   edenApiKeyMasked?: string;
   edenRegion: "eu" | "us";
+  modelAllowlist: string[];
   updatedAt: string;
 }
 
@@ -237,14 +250,14 @@ export async function getGlobalSettings(): Promise<GlobalSettings> {
   return {
     edenApiKey: key,
     edenApiKeyMasked: maskSecret(key),
-    // Default to "us": openai/* models and Firecrawl web search are US-only on Eden AI.
     edenRegion: row?.edenRegion === "eu" ? "eu" : "us",
+    modelAllowlist: (row?.modelAllowlist as string[] | null) ?? [],
     updatedAt: row ? toIso(row.updatedAt) : new Date().toISOString(),
   };
 }
 
 /** Save global settings. An undefined/empty key clears the stored key. */
-export async function saveGlobalSettings(patch: { edenApiKey?: string; edenRegion?: "eu" | "us" }): Promise<GlobalSettings> {
+export async function saveGlobalSettings(patch: { edenApiKey?: string; edenRegion?: "eu" | "us"; modelAllowlist?: string[] }): Promise<GlobalSettings> {
   await initDb();
   const now = new Date();
   const region = patch.edenRegion === "eu" ? "eu" : "us";
@@ -255,14 +268,15 @@ export async function saveGlobalSettings(patch: { edenApiKey?: string; edenRegio
       id: GLOBAL_SETTINGS_ID,
       edenApiKey: encrypted,
       edenRegion: region,
+      modelAllowlist: patch.modelAllowlist ?? [],
       updatedAt: now,
     })
     .onConflictDoUpdate({
       target: settings.id,
       set: {
-        // keep the old key when the patch does not provide one (undefined)
         edenApiKey: patch.edenApiKey !== undefined ? encrypted : sql`${settings.edenApiKey}`,
         edenRegion: region,
+        modelAllowlist: patch.modelAllowlist !== undefined ? patch.modelAllowlist : sql`${settings.modelAllowlist}`,
         updatedAt: now,
       },
     });
@@ -526,22 +540,42 @@ export async function appendDiscoveryRows(
   const db = getDb();
   return await db.transaction(async (tx) => {
     const executor = tx as unknown as PostgresJsDatabase;
-    // Serialise concurrent discovery imports for this case
     await executor.execute(sql`SELECT id FROM ${cases} WHERE id = ${caseId} FOR UPDATE`);
 
-    const existing = new Set(await getExistingDomainsWith(executor, caseId));
+    const existingDomains = new Set(await getExistingDomainsWith(executor, caseId));
+
+    // Also load existing _parent_row_id values to avoid duplicate contact rows
+    const existingRows = await executor.select({ data: rows.data }).from(rows)
+      .where(eq(rows.caseId, caseId));
+    const existingParentIds = new Set(
+      existingRows
+        .map(r => (r.data as Record<string, string>)["_parent_row_id"])
+        .filter(Boolean)
+    );
+
     const maxIdx = await getMaxRowIndexWith(executor, caseId);
     let duplicates = 0;
     const toInsert: RowData[] = [];
     let nextIdx = maxIdx + 1;
 
     for (const seed of seeds) {
-      const domain = String(seed.data.source_domain ?? "").toLowerCase().trim();
-      if (domain && existing.has(domain)) {
+      const data = seed.data as Record<string, string>;
+
+      // Check for contact row duplicate by parent
+      if (data["_parent_row_id"] && existingParentIds.has(data["_parent_row_id"])) {
         duplicates++;
         continue;
       }
-      if (domain) existing.add(domain);
+
+      // Check domain duplicate (try both domain and source_domain fields)
+      const domain = (data["domain"] ?? data["source_domain"] ?? "").toLowerCase().trim();
+      if (domain && existingDomains.has(domain)) {
+        duplicates++;
+        continue;
+      }
+
+      if (domain) existingDomains.add(domain);
+      if (data["_parent_row_id"]) existingParentIds.add(data["_parent_row_id"]);
       toInsert.push({ ...seed, rowIndex: nextIdx++ });
     }
 
@@ -629,4 +663,71 @@ export async function setApolloCache(lookupKey: string, payload: unknown): Promi
       target: apolloCache.lookupKey,
       set: { payload: payload ?? null, fetchedAt: new Date() },
     });
+}
+
+// ── Agent runs ───────────────────────────────────────────────────────────────
+
+export async function createAgentRun(run: AgentRunState): Promise<void> {
+  await initDb();
+  await getDb().insert(agentRuns).values({
+    id: run.id,
+    caseId: run.caseId,
+    goal: run.goal as unknown as Record<string, unknown>,
+    status: run.status,
+    state: run as unknown as Record<string, unknown>,
+    createdAt: new Date(run.startedAt),
+    updatedAt: new Date(run.updatedAt),
+  });
+}
+
+export async function getAgentRun(runId: string): Promise<AgentRunState | null> {
+  await initDb();
+  const rows_ = await getDb()
+    .select()
+    .from(agentRuns)
+    .where(eq(agentRuns.id, runId))
+    .limit(1);
+  const row = rows_[0];
+  if (!row) return null;
+  return row.state as unknown as AgentRunState;
+}
+
+export async function updateAgentRunState(run: AgentRunState): Promise<void> {
+  await initDb();
+  await getDb()
+    .update(agentRuns)
+    .set({
+      status: run.status,
+      state: run as unknown as Record<string, unknown>,
+      updatedAt: new Date(run.updatedAt),
+    })
+    .where(eq(agentRuns.id, run.id));
+}
+
+export async function listAgentRuns(caseId: string): Promise<AgentRunListItem[]> {
+  await initDb();
+  const result = await getDb()
+    .select({
+      id: agentRuns.id,
+      status: agentRuns.status,
+      state: agentRuns.state,
+      createdAt: agentRuns.createdAt,
+    })
+    .from(agentRuns)
+    .where(eq(agentRuns.caseId, caseId))
+    .orderBy(desc(agentRuns.createdAt))
+    .limit(50);
+
+  return result.map((r) => {
+    const s = r.state as Record<string, unknown>;
+    const goal = s.goal as Record<string, unknown> | undefined;
+    return {
+      id: r.id,
+      goal: typeof goal?.description === "string" ? goal.description : "",
+      status: r.status as AgentRunListItem["status"],
+      targetCount: typeof goal?.targetCount === "number" ? goal.targetCount : 0,
+      uniqueCount: typeof s.uniqueCount === "number" ? s.uniqueCount as number : 0,
+      startedAt: toIso(r.createdAt),
+    };
+  });
 }

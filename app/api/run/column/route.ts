@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getCase, listRows, updateRowCell, resolveEdenKey, resolveEdenRegion } from "@/lib/db";
+import { getCase, listRows, updateRowCell, resolveEdenKey, resolveEdenRegion, appendLog } from "@/lib/db";
 import { inferProviderFromModel, runAiColumn } from "@/lib/ai";
 import { registerOperation, isOperationCancelled, removeOperation, cancelOperation } from "@/lib/operations";
 import { ApolloBudget } from "@/lib/apollo";
@@ -163,6 +163,8 @@ export async function POST(req: NextRequest) {
       await updateRowCell(row.id, col.outputKey, result.value, "skipped");
       for (const [key, val] of Object.entries(metaData)) await updateRowCell(row.id, key, val, "done");
       results[row.id] = { status: "skipped", value: result.value, metaData };
+      const company = row.data["company_name"] ?? row.data[Object.keys(row.data).find(k => k.toLowerCase().includes("name")) ?? ""] ?? row.id.slice(0,8);
+      await appendLog(caseId, `⏭ [${col.name}] ${company} — skipped: ${result.skipReason ?? "condition not met"}`);
       return;
     }
 
@@ -170,6 +172,8 @@ export async function POST(req: NextRequest) {
       await updateRowCell(row.id, col.outputKey, "", "error", result.error);
       for (const [key, val] of Object.entries(metaData)) await updateRowCell(row.id, key, val, "done");
       results[row.id] = { status: "error", error: result.error, metaData };
+      const company = row.data["company_name"] ?? row.data[Object.keys(row.data).find(k => k.toLowerCase().includes("name")) ?? ""] ?? row.id.slice(0,8);
+      await appendLog(caseId, `❌ [${col.name}] ${company} — error: ${result.error}`);
       return;
     }
 
@@ -189,6 +193,12 @@ export async function POST(req: NextRequest) {
       costUsd: result.costUsd,
       metaData,
     };
+    // Row-level log
+    const company = row.data["company_name"] ?? row.data[Object.keys(row.data).find(k => k.toLowerCase().includes("name")) ?? ""] ?? row.id.slice(0,8);
+    const tokensInfo = result.tokens ? ` · ${result.tokens.total}tok` : "";
+    const costInfo = result.costUsd ? ` · $${result.costUsd.toFixed(5)}` : "";
+    const preview = typeof result.value === "string" ? result.value.slice(0, 80).replace(/\n/g, " ") : "";
+    await appendLog(caseId, `✓ [${col.name}] ${company}${tokensInfo}${costInfo} → ${preview}`);
   }
 
   // Run in batches of CONCURRENCY (1 = sequential, 5 = default parallel)

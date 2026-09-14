@@ -30,14 +30,31 @@ export interface AiColumn {
 
   // ── Deterministic tool columns (no LLM) ──────────────────────────────────
   /** "apollo_contacts": look up decision makers via Apollo.io (MCP/REST) */
-  tool?: "apollo_contacts";
+  tool?: "apollo_contacts" | "batch_enrich" | "batch_contacts";
   /** Optional Apollo title filter keywords */
   toolApolloTitles?: string[];
   /** Max contacts to fetch (default 10) */
   toolApolloLimit?: number;
 
+  // ── Batch enrichment (tool: "batch_enrich") ───────────────────────────────
+  /** Source field containing the domain/URL to scrape (default: "domain") */
+  batchSourceField?: string;
+  /** Which output fields to populate. Defaults to all known fields. */
+  batchOutputFields?: string[];
+  /** Also search LinkedIn/web for contact data (adds 1 search call) */
+  batchSearchContacts?: boolean;
+
+  // ── Batch contacts (tool: "batch_contacts") ─────────────────────────────
+  /** Max contacts to return (default 3) */
+  batchContactsMax?: number;
+  /** Also search LinkedIn (default true) */
+  batchContactsLinkedIn?: boolean;
+  /** Also scrape /impressum page (default true) */
+  batchContactsImpressum?: boolean;
+  /** Output field prefix for contact fields (default: "contact_") */
+  batchContactsPrefix?: string;
+
   // ── Table grouping (for layered view) ────────────────────────────────────
-  /** Which logical table this column belongs to. "company" = top level, "contact" = sub-row. Default: none (flat). */
   columnGroup?: "company" | "contact";
 }
 

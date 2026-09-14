@@ -280,9 +280,24 @@ export async function edenWebSearch(params: {
   apiKey: string;
   query: string;
   limit?: number;
+  depth?: "basic" | "deep";
+  provider?: "firecrawl" | "linkup";
+  includeDomains?: string[];   // restrict to specific domains (maps-replacement)
+  excludeDomains?: string[];
 }): Promise<{ results: EdenWebSearchResult[]; costUsd?: number }> {
-  const { apiKey, query, limit = 5 } = params;
+  const { apiKey, query, limit = 5, depth = "basic", provider = "firecrawl", includeDomains, excludeDomains } = params;
   const url = `${EDEN_BASE_URLS.us}/v3/universal-ai`;
+  const model = `web/search/${provider}`;
+  const input: Record<string, unknown> = { query, limit };
+  if (provider === "firecrawl" && depth === "deep") input.depth = "deep";
+  // Add German localization for better results
+  if (provider === "firecrawl") {
+    input.location = "Germany";
+    input.lang = "de";
+    input.country = "de";
+    if (includeDomains?.length) input.includeDomains = includeDomains;
+    if (excludeDomains?.length) input.excludeDomains = excludeDomains;
+  }
 
   const res = await withRetry(() =>
     edenFetch(
@@ -290,20 +305,16 @@ export async function edenWebSearch(params: {
       apiKey,
       {
         method: "POST",
-        body: JSON.stringify({
-          model: "web/search/firecrawl",
-          input: { query, limit },
-          show_original_response: false,
-        }),
+        body: JSON.stringify({ model, input, show_original_response: false }),
       },
-      45_000
+      60_000
     )
   );
 
   const json = await res.json();
   if (!res.ok) throw edenError(json, res.status);
   if (json?.status !== "success") {
-    throw new Error(`Firecrawl search failed: ${json?.error?.message ?? json?.status ?? "unknown"}`);
+    throw new Error(`${provider} search failed: ${json?.error?.message ?? json?.status ?? "unknown"}`);
   }
 
   const raw: any[] = json?.output?.results ?? [];

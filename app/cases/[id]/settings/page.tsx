@@ -2,7 +2,7 @@
 
 import { useEffect, useState, use, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Save, Key, Loader2, Trash2, Sparkles, GripVertical, Globe, RefreshCw, Search } from "lucide-react";
+import { ArrowLeft, Save, Key, Loader2, Trash2, Sparkles, GripVertical, Globe } from "lucide-react";
 import type { Case, AiColumn } from "@/lib/types";
 import { randomUUID } from "@/lib/utils";
 
@@ -117,7 +117,6 @@ export default function SettingsPage({ params }: { params: Promise<{ id: string 
         name: name.trim(),
         edenApiKey: edenApiKey.trim() || undefined,
         edenRegion,
-        modelAllowlist: Array.from(selectedModels),
       }),
     });
     const updated = await res.json();
@@ -280,101 +279,22 @@ export default function SettingsPage({ params }: { params: Promise<{ id: string 
             </div>
           )}
 
-          {/* Model curation */}
-          <div className="border border-gray-200 rounded-lg overflow-hidden">
-            <div className="flex items-center justify-between gap-2 px-3 py-2 bg-gray-50 border-b border-gray-200">
-              <div className="flex items-center gap-2 min-w-0">
-                <span className="text-sm font-medium text-gray-700 shrink-0">Verfügbare Modelle</span>
-                <span className="text-xs text-gray-400 shrink-0">{selectedModels.size} ausgewählt</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="relative">
-                  <Search className="w-3.5 h-3.5 text-gray-400 absolute left-2 top-1/2 -translate-y-1/2" />
-                  <input
-                    value={modelSearch}
-                    onChange={(e) => setModelSearch(e.target.value)}
-                    placeholder="Suchen…"
-                    className="pl-7 pr-2 py-1 text-xs border border-gray-300 rounded-md w-36 focus:outline-none focus:ring-2 focus:ring-violet-500"
-                  />
-                </div>
-                <div className="flex gap-1">
-                  <button
-                    onClick={() => setSelectedModels(new Set(modelGroups.flatMap((g) => g.models)))}
-                    className="text-xs text-gray-500 hover:text-violet-600 px-2 py-1 rounded hover:bg-gray-100"
-                  >
-                    Alle
-                  </button>
-                  <button
-                    onClick={() => setSelectedModels(new Set())}
-                    className="text-xs text-gray-500 hover:text-violet-600 px-2 py-1 rounded hover:bg-gray-100"
-                  >
-                    Keine
-                  </button>
-                  <button
-                    onClick={() => fetchModels(edenRegion)}
-                    disabled={modelsLoading}
-                    className="p-1.5 text-gray-500 hover:text-violet-600 rounded hover:bg-gray-100 disabled:opacity-50"
-                    title="Modelle neu laden"
-                  >
-                    <RefreshCw className={`w-3.5 h-3.5 ${modelsLoading ? "animate-spin" : ""}`} />
-                  </button>
-                </div>
+          {/* Model curation → global settings */}
+          <div className="border border-violet-200 bg-violet-50 rounded-lg px-4 py-3 flex items-center gap-3">
+            <span className="text-lg">🎛</span>
+            <div className="flex-1 min-w-0">
+              <div className="text-sm font-medium text-violet-900">Modell-Auswahl</div>
+              <div className="text-xs text-violet-600 mt-0.5">
+                Welche KI-Modelle in allen Cases verfügbar sind, wird in den <strong>globalen Einstellungen</strong> konfiguriert.
               </div>
             </div>
-
-            {modelsLoading && modelGroups.length === 0 ? (
-              <div className="flex items-center justify-center py-8 text-gray-400 text-sm">
-                <Loader2 className="w-4 h-4 animate-spin mr-2" /> Lade Modelle von Eden AI…
-              </div>
-            ) : modelGroups.length === 0 ? (
-              <div className="py-8 text-center text-sm text-gray-400">
-                {edenError ? `Fehler: ${edenError}` : "Keine Modelle geladen."}
-              </div>
-            ) : (
-              <div className="max-h-80 overflow-y-auto divide-y divide-gray-100">
-                {modelGroups
-                  .filter((g) => g.provider.toLowerCase().includes(modelSearch.toLowerCase()) || g.models.some((m) => m.toLowerCase().includes(modelSearch.toLowerCase())))
-                  .map((g) => {
-                    const allSelected = g.models.length > 0 && g.models.every((m) => selectedModels.has(m));
-                    return (
-                      <div key={g.provider} className="px-3 py-2">
-                        <label className="flex items-center gap-2 cursor-pointer select-none">
-                          <input
-                            type="checkbox"
-                            checked={allSelected}
-                            onChange={() => toggleGroup(g.provider, g.models)}
-                            className="rounded border-gray-300 text-violet-600 focus:ring-violet-500"
-                          />
-                          <span className="text-sm font-semibold text-gray-700">{g.provider}</span>
-                          <span className="text-xs text-gray-400">({g.models.length})</span>
-                        </label>
-                        <div className="mt-1 grid grid-cols-2 gap-x-4 gap-y-0.5 pl-6">
-                          {g.models
-                            .filter((m) => m.toLowerCase().includes(modelSearch.toLowerCase()))
-                            .map((m) => (
-                              <label key={m} className="flex items-center gap-1.5 cursor-pointer select-none py-0.5">
-                                <input
-                                  type="checkbox"
-                                  checked={selectedModels.has(m)}
-                                  onChange={() => toggleModel(m)}
-                                  className="rounded border-gray-300 text-violet-600 focus:ring-violet-500"
-                                />
-                                <span className="text-xs text-gray-600 font-mono truncate" title={m}>
-                                  {m.includes("/") ? m.split("/").slice(1).join("/") : m}
-                                </span>
-                              </label>
-                            ))}
-                        </div>
-                      </div>
-                    );
-                  })}
-              </div>
-            )}
+            <a
+              href="/settings/models"
+              className="shrink-0 text-xs font-medium text-violet-700 border border-violet-300 bg-white px-3 py-1.5 rounded-lg hover:bg-violet-100 transition-colors"
+            >
+              Zu Einstellungen →
+            </a>
           </div>
-
-          <p className="text-xs text-gray-400">
-            Ausgewählte Modelle stehen in den AI-Column-Auswahllisten zur Verfügung. Speichern, um die Auswahl zu übernehmen.
-          </p>
         </div>
 
         {/* AI Columns */}

@@ -16,6 +16,7 @@ export async function GET() {
     return NextResponse.json({
       edenApiKeyMasked: s.edenApiKeyMasked,
       edenRegion: s.edenRegion,
+      modelAllowlist: s.modelAllowlist,
       hasKey: Boolean(s.edenApiKey),
       envKeyPresent: Boolean(process.env.EDEN_API_KEY?.trim()),
       updatedAt: s.updatedAt,
@@ -30,20 +31,24 @@ export async function PATCH(req: NextRequest) {
     const body = (await req.json().catch(() => ({}))) as {
       edenApiKey?: string;
       edenRegion?: string;
+      modelAllowlist?: string[];
     };
-    const patch: { edenApiKey?: string; edenRegion?: "eu" | "us" } = {};
+    const patch: { edenApiKey?: string; edenRegion?: "eu" | "us"; modelAllowlist?: string[] } = {};
     if (typeof body.edenApiKey === "string") {
       const trimmed = body.edenApiKey.trim();
-      // empty string = explicitly clear, undefined = keep existing
       patch.edenApiKey = trimmed;
     }
     if (body.edenRegion === "eu" || body.edenRegion === "us") {
       patch.edenRegion = body.edenRegion;
     }
+    if (Array.isArray(body.modelAllowlist)) {
+      patch.modelAllowlist = body.modelAllowlist.filter((m): m is string => typeof m === "string" && m.trim().length > 0);
+    }
     const s = await saveGlobalSettings(patch);
     return NextResponse.json({
       edenApiKeyMasked: s.edenApiKeyMasked,
       edenRegion: s.edenRegion,
+      modelAllowlist: s.modelAllowlist,
       hasKey: Boolean(s.edenApiKey),
       updatedAt: s.updatedAt,
     });

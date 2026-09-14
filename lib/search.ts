@@ -15,7 +15,7 @@
  *   - All text sanitised before returning (no prompt-injection via title/snippet)
  */
 
-import { edenWebSearch } from "./edenai";
+import { edenWebSearch, type EdenWebSearchResult } from "./edenai";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -69,7 +69,7 @@ function sanitiseText(s: string, maxLen: number): string {
  * from their snippet rather than treating them as the answer.
  */
 const CATALOG_DOMAINS = new Set([
-  // German business directories
+  // ── German business directories ──────────────────────────────────────────
   "wlw.de", "gelbeseiten.de", "dasoertliche.de", "dastelefonbuch.de",
   "11880.com", "11880.de", "meinestadt.de", "stadtbranchenbuch.com",
   "branchenbuch.de", "firmen.de", "firmenwissen.de", "northdata.de",
@@ -79,34 +79,96 @@ const CATALOG_DOMAINS = new Set([
   "cylex.de", "cylex-branchenbuch.de", "werkenntwen.de",
   "marktplatz-mittelstand.de", "europages.de", "europages.com",
   "kompass.com", "kompass.de", "wer-liefert-was.de",
-  // Generic / international directories
+  // ── Firmenabc / Firmenverzeichnisse ──────────────────────────────────────
+  "firmenabc.com", "firmenabc.at", "firmenabc.ch",
+  "firmenverzeichnis.de", "firmendb.de", "firmen-wiki.de",
+  "regional.de", "regional.at",
+  "local.ch", "local.de",
+  "klicktel.de", "teleauskunft.de",
+  // ── Handwerker / Installateur Finder ─────────────────────────────────────
+  "installateur.de", "installateur-mv.de", "installateur-suche.de",
+  "dein-heizungsbauer.de", "deine-heizungsmeister.de",
+  "heizungsfinder.de", "heizung-finder.de",
+  "klempner.de", "sanitaer-heizung.de",
+  "aroundhome.de", "homeadvisor.de",
+  "klugo.de", "blaulichter.de",
+  "haendlerbund.de",
+  // ── Lokale Verzeichnisse & Branchenportale ────────────────────────────────
+  "trustlocal.de", "locanto.de", "quoka.de",
+  "kleinanzeigen.de", "ebay-kleinanzeigen.de",
+  "hls-portal.de", "hvh-portal.de",
+  "zvshk.de", "descript.de",
+  "pelletheizung-infos.de", "dezentralo.com",
+  "wasserwaermeluft.de", "heizsparer.de",
+  "baulinks.de", "baunetz.de",
+  "innung.de", "handwerkskammer.de",
+  "hwk.de", "zentralverband.de",
+  "fachverband.de", "berufsverband.de",
+  "innungssuche.de",
+  // ── Aggregatoren & Vergleichsportale ─────────────────────────────────────
+  "check24.de", "verivox.de", "billiger.de",
+  "preisvergleich.de", "idealo.de",
+  "heizungsonline.de", "heizkosten.de",
+  // ── Bewertungsportale ─────────────────────────────────────────────────────
+  "golocal.de", "proven-expert.com", "provenexpert.com",
+  "trustedshops.de", "ekomi.de",
   "yelp.com", "yelp.de", "foursquare.com", "trustpilot.com",
   "trustpilot.de", "kununu.com", "glassdoor.com", "glassdoor.de",
+  // ── International directories ─────────────────────────────────────────────
   "manta.com", "hotfrog.com", "yellowpages.com", "superpages.com",
   "thomasnet.com", "alibaba.com", "aliexpress.com",
-  "dnb.com", "bloomberg.com", "crunchbase.com",
-  // Social / professional
+  "bloomberg.com", "crunchbase.com",
+  "mapquest.com",
+  // ── Social / professional ─────────────────────────────────────────────────
   "linkedin.com", "xing.com", "facebook.com", "instagram.com",
   "twitter.com", "x.com", "youtube.com", "tiktok.com",
   "pinterest.com", "snapchat.com",
-  // Maps / review
+  // ── Maps / review ─────────────────────────────────────────────────────────
   "maps.google.com", "google.com/maps", "maps.apple.com",
-  "tripadvisor.com", "tripadvisor.de", "golocal.de",
-  // App stores / job boards
+  "tripadvisor.com", "tripadvisor.de",
+  // ── App stores / job boards ───────────────────────────────────────────────
   "play.google.com", "apps.apple.com", "indeed.com", "stepstone.de",
   "monster.de", "jobs.de",
-  // Wiki / encyclopaedic
+  // ── Wiki / encyclopaedic ──────────────────────────────────────────────────
   "wikipedia.org", "wikidata.org",
 ]);
 
-/** Returns true if the URL belongs to a catalog/directory domain */
+/** Returns true if the URL belongs to a catalog/directory domain or path pattern */
 function isCatalogUrl(url: string): boolean {
   try {
-    const hostname = new URL(url).hostname.replace(/^www\./, "").toLowerCase();
-    // exact match or subdomain match (e.g. de.trustpilot.com)
-    return Array.from(CATALOG_DOMAINS).some(
-      (d) => hostname === d || hostname.endsWith(`.${d}`)
-    );
+    const parsed = new URL(url);
+    const hostname = parsed.hostname.replace(/^www\./, "").toLowerCase();
+    const path = parsed.pathname.toLowerCase();
+
+    // 1. Exact domain / subdomain match
+    if (Array.from(CATALOG_DOMAINS).some(d => hostname === d || hostname.endsWith(`.${d}`))) {
+      return true;
+    }
+
+    // 2. Path-based catalog patterns (e.g. /fachbetriebe-finden/, /installateur-suche/)
+    const CATALOG_PATH_PATTERNS = [
+      /fachbetriebe[-_]finden/,
+      /installateur[-_](finden|suche)/,
+      /firmen[-_](suche|finder|verzeichnis)/,
+      /branchenverzeichnis/,
+      /unternehmens(suche|verzeichnis)/,
+      /handwerker[-_](finden|suche)/,
+      /betriebe[-_]finden/,
+      /\/suche\//,           // generic search result pages
+      /\/search\//,
+      /\/s-[a-z]+\//,        // kleinanzeigen.de pattern
+    ];
+    if (CATALOG_PATH_PATTERNS.some(p => p.test(path))) return true;
+
+    // 3. Hostname keyword patterns (catches new/unknown directories)
+    const CATALOG_HOST_KEYWORDS = [
+      "branchenverzeichnis", "firmenverzeichnis", "unternehmensverzeichnis",
+      "handwerkerverzeichnis", "installateursuche", "fachbetriebe",
+      "klempnersuche", "heizungssuche",
+    ];
+    if (CATALOG_HOST_KEYWORDS.some(k => hostname.includes(k))) return true;
+
+    return false;
   } catch {
     return false;
   }
@@ -129,18 +191,23 @@ export { CATALOG_DOMAINS, isCatalogUrl };
 
 // ── Layer 1: SerpAPI ─────────────────────────────────────────────────────────
 
-export async function searchViaSerpApi(
+const SERPAPI_MAX_PER_PAGE = 10;  // Google hard limit per request
+
+/**
+ * Fetch one page of SerpAPI results.
+ * `start` = 0-based offset (0, 10, 20, …)
+ */
+async function searchViaSerpApiPage(
   query: string,
   serpApiKey: string,
-  maxResults = 5
+  num: number,
+  start: number
 ): Promise<SearchResult[]> {
-  if (!query.trim()) throw new Error("empty query");
-  if (!serpApiKey.trim()) throw new Error("missing SerpAPI key");
-
   const params = new URLSearchParams({
     q: query,
     api_key: serpApiKey,
-    num: String(Math.min(maxResults, 10)),
+    num: String(num),
+    start: String(start),
     hl: "de",
     gl: "de",
     safe: "active",
@@ -157,20 +224,54 @@ export async function searchViaSerpApi(
     clear();
   }
 
-  if (!res.ok) {
-    await drainBody(res);
-    throw new Error(`SerpAPI HTTP ${res.status}`);
-  }
+  if (!res.ok) { await drainBody(res); throw new Error(`SerpAPI HTTP ${res.status}`); }
 
   const data = await res.json() as { organic_results?: Array<{ title?: string; link?: string; snippet?: string }> };
   const organic = data?.organic_results ?? [];
-  return deduplicate(
-    organic.slice(0, maxResults).map((r) => ({
-      title: sanitiseText(r.title ?? "", 200),
-      url: (r.link ?? "").trim(),
-      snippet: sanitiseText(r.snippet ?? "", 400),
-    })).filter((r) => r.url.startsWith("http"))
-  );
+  return organic.map((r) => ({
+    title: sanitiseText(r.title ?? "", 200),
+    url: (r.link ?? "").trim(),
+    snippet: sanitiseText(r.snippet ?? "", 400),
+  })).filter((r) => r.url.startsWith("http"));
+}
+
+/**
+ * SerpAPI search with automatic pagination.
+ * Fetches multiple pages until `maxResults` are collected or results run dry.
+ * Deduplicates by URL across pages.
+ */
+export async function searchViaSerpApi(
+  query: string,
+  serpApiKey: string,
+  maxResults = 5
+): Promise<SearchResult[]> {
+  if (!query.trim()) throw new Error("empty query");
+  if (!serpApiKey.trim()) throw new Error("missing SerpAPI key");
+
+  const allResults: SearchResult[] = [];
+  const seen = new Set<string>();
+
+  for (let start = 0; allResults.length < maxResults; start += SERPAPI_MAX_PER_PAGE) {
+    const pageSize = Math.min(SERPAPI_MAX_PER_PAGE, maxResults - allResults.length);
+    const page = await searchViaSerpApiPage(query, serpApiKey, pageSize, start);
+
+    if (page.length === 0) break;  // no more results
+
+    for (const r of page) {
+      if (!seen.has(r.url)) {
+        seen.add(r.url);
+        allResults.push(r);
+      }
+    }
+
+    // If we got fewer results than requested, Google has no more
+    if (page.length < pageSize) break;
+
+    // Safety: max 10 pages (100 results) per query
+    if (start >= 90) break;
+  }
+
+  return allResults;
 }
 
 // ── Layer 2: DuckDuckGo HTML scraping ────────────────────────────────────────
@@ -360,24 +461,59 @@ export async function searchViaScrapling(
   );
 }
 
-// ── Layer: Firecrawl via Eden AI (US endpoint) ──────────────────────────────
+// ── Layer: Firecrawl + Linkup via Eden AI (US endpoint) ─────────────────────
+
+const firecrawlLastCall = { ts: 0 };
 
 export async function searchViaFirecrawl(
   query: string,
   edenApiKey: string,
-  maxResults = 5
+  maxResults = 5,
+  depth: "basic" | "deep" = "basic",
+  includeDomains?: string[]
 ): Promise<SearchResult[]> {
   if (!query.trim()) throw new Error("empty query");
   if (!edenApiKey.trim()) throw new Error("missing Eden AI key for Firecrawl");
 
-  const { results } = await edenWebSearch({ apiKey: edenApiKey, query, limit: maxResults });
-  return deduplicate(
-    results.map((r) => ({
+  // Rate limit: min 1.2s between Firecrawl calls to avoid 429
+  const now = Date.now();
+  const wait = Math.max(0, 1200 - (now - firecrawlLastCall.ts));
+  if (wait > 0) await new Promise(r => setTimeout(r, wait));
+  firecrawlLastCall.ts = Date.now();
+
+  // Run Firecrawl + Linkup in parallel, merge and deduplicate
+  // Both are billed per result but give different result sets
+  const [firecrawlResults, linkupResults] = await Promise.allSettled([
+    edenWebSearch({ apiKey: edenApiKey, query, limit: maxResults, depth, provider: "firecrawl", includeDomains }),
+    // Only use linkup if no domain restriction (it doesn't support includeDomains)
+    includeDomains?.length
+      ? Promise.reject(new Error("skip-linkup"))
+      : edenWebSearch({ apiKey: edenApiKey, query, limit: Math.min(maxResults, 10), provider: "linkup" }),
+  ]);
+
+  const allResults: SearchResult[] = [];
+  const seen = new Set<string>();
+
+  const add = (r: EdenWebSearchResult) => {
+    const url = r.url.trim();
+    if (!url.startsWith("http") || seen.has(url)) return;
+    seen.add(url);
+    allResults.push({
       title: sanitiseText(r.title, 200),
-      url: r.url,
+      url,
       snippet: sanitiseText(r.snippet, 400),
-    })).filter((r) => r.url.startsWith("http"))
-  );
+    });
+  };
+
+  if (firecrawlResults.status === "fulfilled") firecrawlResults.value.results.forEach(add);
+  if (linkupResults.status === "fulfilled") linkupResults.value.results.forEach(add);
+
+  // Fallback: if both failed, throw the firecrawl error
+  if (firecrawlResults.status === "rejected" && linkupResults.status === "rejected") {
+    throw firecrawlResults.reason;
+  }
+
+  return allResults;
 }
 
 export async function searchViaPlaywright(
@@ -529,9 +665,11 @@ export async function webSearch(
     forceLayer?: SearchLayer;
     /** Upper bound for maxResults clamp (default 10; discovery passes higher) */
     limitCap?: number;
+    /** Firecrawl search depth: "basic" (fast, cheap) | "deep" (more results, costs more) */
+    firecrawlDepth?: "basic" | "deep";
   } = {}
 ): Promise<SearchResponse> {
-  const { serpApiKey, braveApiKey, scraplingUrl, scraplingToken, firecrawlApiKey, maxResults = 5, forceLayer, limitCap = 10 } = options;
+  const { serpApiKey, braveApiKey, scraplingUrl, scraplingToken, firecrawlApiKey, maxResults = 5, forceLayer, limitCap = 100, firecrawlDepth = "basic" } = options;
   const clampedMax = Math.max(1, Math.min(maxResults, limitCap));
   const layerErrors: Record<string, string> = {};
   const t0 = Date.now();
@@ -585,7 +723,7 @@ export async function webSearch(
       return respond(r, "scrapling");
     }    if (forceLayer === "firecrawl") {
       if (!firecrawlApiKey) throw new Error("forceLayer=firecrawl but no Eden AI key");
-      const r = await searchViaFirecrawl(query, firecrawlApiKey!, clampedMax);
+      const r = await searchViaFirecrawl(query, firecrawlApiKey!, clampedMax, firecrawlDepth);
       return respond(r, "firecrawl");
     }  }
 
@@ -608,7 +746,7 @@ export async function webSearch(
   // ─ Layer 2b: Firecrawl via Eden AI (structured, reliable; US endpoint) ─
   if (firecrawlApiKey) {
     const r = await tryLayer("firecrawl", () =>
-      searchViaFirecrawl(query, firecrawlApiKey!, clampedMax)
+      searchViaFirecrawl(query, firecrawlApiKey!, clampedMax, firecrawlDepth)
     );
     if (r && r.length > 0) return respond(r, "firecrawl");
   }
