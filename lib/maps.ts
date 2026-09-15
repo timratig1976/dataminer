@@ -52,7 +52,7 @@ export interface MapsSearchResponse {
   error?: string;
 }
 
-const MAX_MAPS_LIMIT = 100;
+const MAX_MAPS_LIMIT = 200;
 
 // ── Provider 1: SerpApi google_maps ─────────────────────────────────────────
 
@@ -89,7 +89,7 @@ export async function mapsSearchViaSerpApi(params: {
     type: "search",
     api_key: serpApiKey,
   });
-  const n = Math.max(1, Math.min(Math.floor(limit), 120));
+  const n = Math.max(1, Math.min(Math.floor(limit), 200));
   sp.set("num", String(n));
   if (ll) sp.set("ll", ll);
 
@@ -179,6 +179,7 @@ export async function mapsSearchViaScrapling(params: {
       body: JSON.stringify({
         query,
         max_results: Math.max(1, Math.min(Math.floor(limit), MAX_MAPS_LIMIT)),
+        // MAX_MAPS_LIMIT = 200 — always request the maximum
         ll: ll ?? null,
       }),
       signal: signal ? anySignal(signal, controller.signal) : controller.signal,
@@ -211,15 +212,18 @@ export async function mapsSearchViaScrapling(params: {
 
 export async function mapsSearchViaSerper(params: {
   query: string;
+  location?: string;  // city name, appended to query if provided
   limit: number;
   serperApiKey: string;
   signal?: AbortSignal;
 }): Promise<MapsPlace[]> {
-  const { query, limit, serperApiKey, signal } = params;
+  const { query, location, limit, serperApiKey, signal } = params;
+  // Serper uses the query string for geo — append location if provided
+  const fullQuery = location ? `${query} ${location}` : query;
   const res = await fetch("https://google.serper.dev/places", {
     method: "POST",
     headers: { "X-API-KEY": serperApiKey, "Content-Type": "application/json" },
-    body: JSON.stringify({ q: query, gl: "de", hl: "de" }),
+    body: JSON.stringify({ q: fullQuery, gl: "de", hl: "de", num: Math.min(limit, 100) }),
     signal,
   });
   if (!res.ok) throw new Error(`Serper Places HTTP ${res.status}`);
@@ -259,7 +263,7 @@ export async function mapsSearchViaApify(params: {
     headers,
     body: JSON.stringify({
       searchStringsArray: [query],
-      maxCrawledPlacesPerSearch: Math.min(limit, 200),
+      maxCrawledPlacesPerSearch: Math.min(limit, 400),
       language: "de",
       skipClosedPlaces: false,
     }),
@@ -329,7 +333,7 @@ export async function mapsSearch(params: MapsSearchParams): Promise<MapsSearchRe
   };
   const trySerper = async (): Promise<boolean> => {
     if (!serperApiKey) return false;
-    try { places = await mapsSearchViaSerper({ query, limit: clampedLimit, serperApiKey, signal }); effectiveProvider = "maps-serper"; return places.length > 0; }
+    try { places = await mapsSearchViaSerper({ query, location: ll, limit: clampedLimit, serperApiKey, signal }); effectiveProvider = "maps-serper"; return places.length > 0; }
     catch (e) { error = `${error ? error + "; " : ""}${(e as Error).message}`; return false; }
   };
   const tryApify = async (): Promise<boolean> => {
@@ -393,7 +397,7 @@ export function placesToHits(
       url: canonicalUrl,
       domain,
       snippet: snippetParts.join(" · "),
-      isCatalog: isCatalogUrl(canonicalUrl),
+      isCatalog: false, // Maps results are always real businesses, never directories
       isDuplicate: !!domain && excludeSet.has(domain),
       searchQuery: query,
       searchSource: provider,

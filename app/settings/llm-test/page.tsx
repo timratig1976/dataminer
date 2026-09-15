@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
-import { ArrowLeft, Play, Loader2, CheckCircle2, XCircle, Zap } from "lucide-react";
+import { Play, Loader2, CheckCircle2, XCircle, Zap } from "lucide-react";
+import AppShell from "@/components/AppShell";
 
 interface SmokeResult {
   model: string;
@@ -32,7 +32,6 @@ const DEFAULT_MODELS = [
 ];
 
 export default function LlmTestPage() {
-  const router = useRouter();
 
   // ── Smoke Test ────────────────────────────────────────────────────────────
   const [selectedModels, setSelectedModels] = useState<string[]>(DEFAULT_MODELS.slice(0, 4));
@@ -103,18 +102,8 @@ export default function LlmTestPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <div className="bg-white border-b border-gray-200 px-6 py-3 flex items-center gap-3">
-        <button onClick={() => router.push("/settings")} className="text-gray-400 hover:text-gray-600">
-          <ArrowLeft className="w-4 h-4" />
-        </button>
-        <span className="text-sm font-medium text-gray-700">Globale Einstellungen</span>
-        <span className="text-gray-300">/</span>
-        <span className="text-sm font-medium text-gray-900">LLM-Testing</span>
-      </div>
-
-      <div className="max-w-3xl mx-auto px-6 py-8 space-y-6">
+    <AppShell title="LLM-Testing" titleIcon={<Zap className="w-4 h-4 text-blue-500" />}>
+      <div className="max-w-3xl mx-auto space-y-6">
 
         {/* ── Smoke Test ── */}
         <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-4">
@@ -237,6 +226,6 @@ export default function LlmTestPage() {
         </div>
 
       </div>
-    </div>
+    </AppShell>
   );
 }

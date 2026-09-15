@@ -58,15 +58,17 @@ export function evaluateStopCondition(run: AgentRunState): AgentRunStatus | null
   // Safety iteration limit?
   if (run.goal.maxIterations != null && run.iteration >= run.goal.maxIterations) return "budget_exhausted";
 
-  // Diminishing returns check — last 2 iterations averaged < 5% yield over remaining delta
+  // Diminishing returns check — only stop if recent steps are genuinely returning near-zero
+  // results, meaning sources are exhausted. Do NOT stop just because progress is slow
+  // relative to a large target (e.g. multi-city search with many planned steps).
   if (run.stepResults.length >= 4) {
     const recent = run.stepResults.slice(-4);
     const recentInserted = recent.reduce((s, r) => s + r.uniqueInserted, 0);
-    const remaining = run.goal.targetCount - run.uniqueCount;
-    if (remaining > 0 && recentInserted / remaining < 0.05) {
-      // Very slow progress — stop with warning
-      run.log.push(`⚠️ Diminishing returns: only ${recentInserted} new leads in last iteration(s) for ${remaining} remaining. Stopping.`);
-      return "completed"; // partial success
+    const avgPerStep = recentInserted / recent.length;
+    // Stop only if average new leads per step drops below 3 — sources are truly exhausted
+    if (avgPerStep < 3) {
+      run.log.push(`⚠️ Diminishing returns: only ${recentInserted} new leads in last ${recent.length} steps (avg ${avgPerStep.toFixed(1)}/step). Sources exhausted, stopping.`);
+      return "completed";
     }
   }
 
@@ -79,7 +81,9 @@ export interface StartOptions {
   edenApiKey: string;
   model?: string;
   serpApiKey?: string;
+  serperApiKey?: string;
   braveApiKey?: string;
+  systemPromptOverride?: string | null;
 }
 
 export async function startAgentRun(
@@ -87,15 +91,18 @@ export async function startAgentRun(
   goal: AgentGoal,
   opts: StartOptions
 ): Promise<AgentRunState> {
-  const { edenApiKey, model, serpApiKey, braveApiKey } = opts;
+  const { edenApiKey, model, serpApiKey, serperApiKey, braveApiKey, systemPromptOverride } = opts;
 
   // Generate initial plan
   const plan = await createDiscoveryPlan(goal.description, {
     edenApiKey,
     model: model ?? "openai/gpt-4o-mini",
     serpApiKeyAvailable: !!serpApiKey,
+    serperApiKeyAvailable: !!serperApiKey,
     braveApiKeyAvailable: !!braveApiKey,
     edenKeyAvailable: true,
+    useMaps: goal.useMaps ?? true,
+    systemPromptOverride: systemPromptOverride ?? null,
   });
 
   const run: AgentRunState = {
@@ -279,14 +286,16 @@ async function executePlanStep(
 
     if (step.type === "google_maps") {
       // ── Maps step ──
-      const query = step.mapQuery || step.label;
+      const query = step.mapQuery
+        ? (step.location ? `${step.mapQuery} ${step.location}` : step.mapQuery)
+        : step.label;
       const serpApiKey = env.serpApiKey ?? process.env.SERP_API_KEY?.trim();
       const serperApiKey = env.serperApiKey ?? process.env.SERPER_API_KEY?.trim();
       const apifyApiToken = env.apifyApiToken ?? process.env.APIFY_API_TOKEN?.trim();
       const scraplingUrl = env.scraplingUrl ?? process.env.SCRAPLING_URL?.trim();
       const scraplingToken = env.scraplingToken ?? process.env.SCRAPLING_TOKEN?.trim();
 
-      if (!serpApiKey && !scraplingUrl) {
+      if (!serpApiKey && !serperApiKey && !apifyApiToken && !scraplingUrl) {
         // No Maps provider — fall back to a geo-qualified web search
         const fallbackQuery = step.mapQuery
           ? `${step.mapQuery}${step.location ? ` ${step.location}` : ""}`
@@ -294,7 +303,7 @@ async function executePlanStep(
         run.log.push(`⚠️ No Maps provider, falling back to web search: ${fallbackQuery}`);
         const resp = await discoverySearch(fallbackQuery, {
           source: "auto",
-          limit: 30,
+          limit: 200,  // always request maximum
           excludeDomains: existingDomains,
           serpApiKey: env.serpApiKey,
           serperApiKey: env.serperApiKey,
@@ -321,8 +330,7 @@ async function executePlanStep(
       const resp = await mapsSearch({
         query,
         provider: serpApiKey ? "maps-serpapi" : serperApiKey ? "maps-serper" : apifyApiToken ? "maps-apify" : "maps-scrapling",
-        limit: 30,
-        ll: step.location,
+        limit: 200,  // always request maximum
         serpApiKey: serpApiKey ?? undefined,
         serperApiKey: serperApiKey ?? undefined,
         apifyApiToken: apifyApiToken ?? undefined,
@@ -459,7 +467,7 @@ async function executePlanStep(
         run.log.push(`⚠️ Catalog scrape failed (${(scrapeErr as Error).message}), falling back to web search: ${fallbackQuery}`);
         const resp = await discoverySearch(fallbackQuery, {
           source: "auto",
-          limit: 30,
+          limit: 200,  // always request maximum
           excludeDomains: existingDomains,
           serpApiKey: env.serpApiKey,
           serperApiKey: env.serperApiKey,
@@ -584,7 +592,7 @@ Leeres Array [] wenn keine Einträge gefunden. website="" wenn keine externe Fir
 
         const resp = await discoverySearch(query, {
           source: (step.source as "auto" | "firecrawl" | "serpapi" | "brave" | "duckduckgo" | "scrapling") ?? "auto",
-          limit: 30,
+          limit: 200,  // always request maximum
           excludeDomains: await getExistingDomains(run.caseId), // re-fetch each time to exclude just-inserted
           serpApiKey: env.serpApiKey,
           serperApiKey: env.serperApiKey,

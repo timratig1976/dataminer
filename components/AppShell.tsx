@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter, usePathname } from "next/navigation";
-import { LayoutDashboard, Database, Bug, Settings, Sliders, Zap } from "lucide-react";
+import { LayoutDashboard, Database, Bug, Settings, Sliders, Zap, Sparkles } from "lucide-react";
 
 export default function AppShell({
   title,
@@ -20,6 +20,14 @@ export default function AppShell({
   const nav = [
     { href: "/dashboard", label: "Dashboard", icon: <LayoutDashboard className="w-4 h-4" /> },
     { href: "/cases", label: "Alle Cases", icon: <Database className="w-4 h-4" /> },
+  ];
+
+  const bottomNav = [
+    { href: "/settings",          title: "API & Region",   label: "Keys",    icon: <Settings className="w-4 h-4" />,  color: "violet" },
+    { href: "/settings/models",   title: "Modell-Auswahl", label: "Models",  icon: <Sliders className="w-4 h-4" />,   color: "violet" },
+    { href: "/settings/planner",  title: "Planner Prompt", label: "Planner", icon: <Sparkles className="w-4 h-4" />,  color: "violet" },
+    { href: "/settings/llm-test", title: "LLM-Testing",    label: "LLM",     icon: <Zap className="w-4 h-4" />,       color: "blue"   },
+    { href: "/scrapling-test",    title: "Scrapling Test", label: "Scrape",  icon: <Bug className="w-4 h-4" />,       color: "violet" },
   ];
 
   const isActive = (href: string) =>
@@ -55,43 +63,28 @@ export default function AppShell({
           ))}
         </nav>
 
-        <div className="px-3 py-3 border-t border-gray-100 flex items-center gap-1">
-          <button
-            onClick={() => router.push("/settings")}
-            title="API & Region"
-            className={`p-2 rounded-lg transition-colors ${
-              pathname === "/settings" ? "text-violet-700 bg-violet-50" : "text-gray-400 hover:text-violet-600 hover:bg-violet-50"
-            }`}
-          >
-            <Settings className="w-4 h-4" />
-          </button>
-          <button
-            onClick={() => router.push("/settings/models")}
-            title="Modell-Auswahl"
-            className={`p-2 rounded-lg transition-colors ${
-              pathname === "/settings/models" ? "text-violet-700 bg-violet-50" : "text-gray-400 hover:text-violet-600 hover:bg-violet-50"
-            }`}
-          >
-            <Sliders className="w-4 h-4" />
-          </button>
-          <button
-            onClick={() => router.push("/settings/llm-test")}
-            title="LLM-Testing"
-            className={`p-2 rounded-lg transition-colors ${
-              pathname === "/settings/llm-test" ? "text-blue-700 bg-blue-50" : "text-gray-400 hover:text-blue-600 hover:bg-blue-50"
-            }`}
-          >
-            <Zap className="w-4 h-4" />
-          </button>
-          <button
-            onClick={() => router.push("/scrapling-test")}
-            title="Scrapling Test"
-            className={`p-2 rounded-lg transition-colors ${
-              pathname === "/scrapling-test" ? "text-violet-700 bg-violet-50" : "text-gray-400 hover:text-violet-600 hover:bg-violet-50"
-            }`}
-          >
-            <Bug className="w-4 h-4" />
-          </button>
+        {/* Bottom icon row — always 5 icons, always visible */}
+        <div className="px-2 py-2 border-t border-gray-100 flex items-end justify-around">
+          {bottomNav.map((item) => {
+            const active = pathname === item.href || pathname.startsWith(item.href + "/");
+            const isBlue = item.color === "blue";
+            return (
+              <button
+                key={item.href}
+                onClick={() => router.push(item.href)}
+                title={item.title}
+                className={`flex flex-col items-center gap-0.5 px-1 py-1.5 rounded-lg transition-colors min-w-0 ${
+                  active
+                    ? isBlue ? "text-blue-700 bg-blue-50" : "text-violet-700 bg-violet-50"
+                    : isBlue ? "text-gray-400 hover:text-blue-600 hover:bg-blue-50"
+                             : "text-gray-400 hover:text-violet-600 hover:bg-violet-50"
+                }`}
+              >
+                {item.icon}
+                <span className="text-[9px] leading-none font-medium">{item.label}</span>
+              </button>
+            );
+          })}
         </div>
       </div>
 

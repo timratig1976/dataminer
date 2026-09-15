@@ -14,7 +14,6 @@
  */
 
 import { edenChatCompletion } from "./edenai";
-import { detectRegion, getCitiesForRegion, GERMAN_REGIONS } from "./regions";
 import type { AgentGoal, AgentStepResult } from "./agent-types";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -70,71 +69,93 @@ const CATALOG_DOMAINS: Record<string, string> = {
 
 // ── Planner system prompt ─────────────────────────────────────────────────────
 
+/** Exported so the settings UI can display the built-in default prompt. */
+export function buildDefaultSystemPrompt(availableKeys: Record<string, boolean>): string {
+  return buildSystemPrompt(availableKeys);
+}
+
 function buildSystemPrompt(availableKeys: Record<string, boolean>): string {
   const keysInfo = Object.entries(availableKeys)
-    .map(([k, v]) => `${k}: ${v ? "✓ verfügbar" : "✗ nicht verfügbar"}`)
+    .map(([k, v]) => `${k}: ${v ? "✓" : "✗"}`)
     .join(", ");
 
-  return `Du bist ein Web-Research-Planer für B2B-Datenrecherche.
-Erstelle einen optimalen Discovery-Plan als kompaktes JSON.
+  return `You are a B2B lead-research planner. You have world-wide geography knowledge.
+Given a research goal and a maxResults target, produce a minimal, precise JSON discovery plan.
 
-Verfügbare API-Keys: ${keysInfo}
+Available API keys: ${keysInfo}
+Known business directories (DE): ${Object.keys(CATALOG_DOMAINS).join(", ")}
 
-═══ PIPELINE-STRATEGIE (in dieser Reihenfolge!) ═══
+═══ STEP TYPES ═══
 
-STUFE 1 — DISCOVERY (parallel, so viele Quellen wie möglich):
-1a. google_maps  → PRIMARY für lokale Dienstleister (Handwerk, Bau, Energie, Gastronomie etc.)
-    - Präziseste Quelle für echte Firmendaten, direkt strukturiert
-    - IMMER planen wenn branchenspezifische lokale Suche
-    - estimatedHits: 20-80 pro Location-Query
-    priority: 1
+• google_maps   — PRIMARY source for any business with a physical presence.
+                  Returns clean structured data: name, address, phone, website.
+                  Fields: mapQuery (search term), location (specific city/area — be PRECISE)
+                  estimatedHits: 20–80 per step.
+                  Use this first. Cover as much of the target as possible with Maps steps.
 
-1b. catalog_scrape → ALS LINK-EXTRAKTOR (NICHT als Zieldomain scrapen!)
-    - Katalogseiten wie Gelbe Seiten, WLW, 11880 enthalten Links zu den echten Firmenwebsites
-    - Der Scraper extrahiert: Firmenname + verlinkte eigene Website → diese wird als Lead importiert
-    - Firmen ohne eigene Website → Katalogeintrag als Fallback, niedrigere Qualität
-    - Kataloge decken Coverage-Lücken (Firmen ohne Google-Präsenz)
-    - estimatedHits: 20-200 pro Katalog-Seite
-    priority: 1
+• google_search — SECONDARY source. Use when Maps coverage is thin (online-only businesses,
+                  rare niche, no fixed location) or to supplement Maps with additional cities.
+                  Fields: query (full search string incl. city/area, use local language)
+                  estimatedHits: 10–30 per step.
+                  Never duplicate a city+niche already covered by a google_maps step.
 
-1c. multi_search / google_search → ERGÄNZEND für Long-Tail-Treffer
-    - Für Firmen die weder Maps noch Kataloge erfassen
-    - multi_search mit {city}-Template wenn Region bekannt
-    - estimatedHits: 5-30 pro Query
-    priority: 3
+• catalog_scrape — LAST RESORT only. Use ONLY when:
+                   a) Maps + Search clearly cannot reach the maxResults target, AND
+                   b) A known structured directory exists for this country/niche.
+                   WARNING: Each directory has a unique HTML structure — scraping is fragile
+                   and slow. Every catalog site must be scraped individually. Results heavily
+                   overlap with Maps (expect 40–70% duplicates). Treat estimatedHits conservatively.
+                   Fields: url (directory search result page), extractionPrompt, maxPages
+                   estimatedHits: 20–60 per step (after dedup discount).
+                   Only use for known DE directories listed above. Skip for non-DE targets.
 
-═══ ENTSCHEIDUNGSREGELN ═══
-1. Region erkannt + lokale Branche → google_maps ZUERST (priority 1), dann Kataloge (priority 1), dann multi_search (priority 3)
-2. Kataloge: 2-3 relevante Kataloge einplanen (gelbeseiten.de, wlw.de, 11880.com sind Standard für DE)
-3. google_maps: Pro Region mindestens 1 Maps-Step, für große Regionen mehrere Städte als separate Steps
-4. google_search / multi_search: Nur als Ergänzung, nicht als primäre Quelle
-5. Maximal 15 Steps total
-6. estimatedHits realistisch (Maps: 20-80, Katalog: 30-150, Google: 5-25)
+═══ PLANNING RULES ═══
 
-Bekannte Kataloge: ${Object.keys(CATALOG_DOMAINS).join(", ")}
+1. PRIORITY ORDER: google_maps first → google_search to fill gaps → catalog_scrape only as
+   last resort when the gap to maxResults cannot be closed by Maps/Search alone.
 
-Antworte NUR mit JSON (kein Markdown, keine Erklärungen):
+2. AVOID OVERLAP. Never combine google_maps and catalog_scrape for the same city+niche —
+   the duplicates make catalog steps wasteful. If Maps already covers the area well,
+   skip catalogs entirely.
+
+3. GEOGRAPHY IS YOUR JOB. You know all cities, districts, and regions worldwide.
+   - Specific city → plan steps only for that city (1–3 Maps steps).
+   - Region/state/country → create one google_maps step for EVERY significant city in that
+     region. Do NOT cherry-pick 3–5 cities. A German state like MV has ~15–20 relevant cities;
+     NRW has 50+. Cover them all. Never invent cities that don't exist.
+
+4. RESPECT maxResults STRICTLY.
+   - Sum of all estimatedHits MUST be ≤ maxResults × 1.3.
+   - If maxResults ≤ 50 → 1–2 steps (Maps only).
+   - If maxResults ≤ 200 → 2–5 steps (Maps primary, Search if needed).
+   - Only add catalog_scrape if still far short after Maps + Search.
+
+5. HONEST ESTIMATES. If the target realistically cannot be reached (niche industry,
+   small city, no broad directory), set estimatedRows to what IS reachable and add a
+   warning explaining why, and suggest how to expand (broader region, related terms).
+
+6. Max 20 steps total. No multi_search steps.
+
+Respond ONLY with JSON (no markdown, no prose):
 {
-  "goal": "Kurze Zusammenfassung was gesucht wird",
+  "goal": "Short description of what is being searched",
   "steps": [
     {
-      "type": "google_maps|catalog_scrape|multi_search|google_search",
-      "label": "Menschenlesbarer Step-Name",
-      "query": "...",           // für google_search
-      "queryTemplate": "...",   // für multi_search (muss {city} enthalten)
-      "region": "mv|nrw|by|...",// für multi_search
-      "mapQuery": "...",        // für google_maps
-      "location": "...",        // für google_maps (Stadt oder Region)
-      "url": "...",             // für catalog_scrape (Katalog-Suchergebnis-URL mit Branche+Region)
-      "extractionPrompt": "Extrahiere: Firmenname, Website-URL (eigene Domain, NICHT die Katalog-Domain), Telefon, Adresse", // für catalog_scrape
-      "maxPages": 3,            // für catalog_scrape
+      "type": "google_maps|google_search|catalog_scrape",
+      "label": "Human-readable step name",
+      "mapQuery": "...",         // google_maps only
+      "location": "...",         // google_maps only — SPECIFIC city/district
+      "query": "...",            // google_search only — full query incl. location
+      "url": "...",              // catalog_scrape only
+      "extractionPrompt": "...", // catalog_scrape only
+      "maxPages": 3,             // catalog_scrape only
       "source": "auto",
-      "estimatedHits": 30,
+      "estimatedHits": 50,
       "priority": 1
     }
   ],
-  "estimatedRows": 150,
-  "warnings": []
+  "estimatedRows": 50,
+  "warnings": ["Explain if target cannot be reached and how to fix it"]
 }`;
 }
 
@@ -144,8 +165,15 @@ export interface PlannerOptions {
   edenApiKey: string;
   model?: string;
   serpApiKeyAvailable?: boolean;
+  serperApiKeyAvailable?: boolean;
   braveApiKeyAvailable?: boolean;
   edenKeyAvailable?: boolean;
+  /** Force include google_maps steps even if no Maps key detected */
+  useMaps?: boolean;
+  /** Hard upper limit on results — passed directly to the LLM planner */
+  maxResults?: number;
+  /** Custom system prompt from DB settings. Overrides built-in prompt when set. */
+  systemPromptOverride?: string | null;
 }
 
 export async function createDiscoveryPlan(
@@ -156,29 +184,43 @@ export async function createDiscoveryPlan(
     edenApiKey,
     model = "openai/gpt-4o-mini",
     serpApiKeyAvailable = false,
+    serperApiKeyAvailable = false,
     braveApiKeyAvailable = false,
     edenKeyAvailable = true,
+    useMaps = true,
+    maxResults,
+    systemPromptOverride,
   } = options;
 
-  // Pre-detect region to inject city list into prompt (saves LLM having to know)
-  const detectedRegion = detectRegion(prompt);
-  const regionContext = detectedRegion
-    ? `\nErkannte Region: "${GERMAN_REGIONS[detectedRegion]?.name}" (Key: "${detectedRegion}")\nStädte: ${getCitiesForRegion(detectedRegion).slice(0, 10).join(", ")} [u.a.]`
-    : "";
+  const mapsAvailable = useMaps && (serpApiKeyAvailable || serperApiKeyAvailable);
 
-  const systemPrompt = buildSystemPrompt({
+  const builtInSystemPrompt = buildSystemPrompt({
     serpapi: serpApiKeyAvailable,
+    serper: serperApiKeyAvailable,
+    google_maps: mapsAvailable,
     brave: braveApiKeyAvailable,
     firecrawl_via_eden: edenKeyAvailable,
   });
+  const systemPrompt = systemPromptOverride?.trim() || builtInSystemPrompt;
+
+  const mapsHint = !useMaps
+    ? "\nIMPORTANT: Do NOT use google_maps steps — use catalog_scrape and google_search only."
+    : !mapsAvailable
+    ? "\nIMPORTANT: No Google Maps API key available. Avoid google_maps steps; use catalog_scrape + google_search instead."
+    : "";
+
+  const unlimited = !maxResults || maxResults === 0;
+  const maxResultsHint = unlimited
+    ? `\nmaxResults: UNLIMITED — Cover the full geographic scope of the research goal exhaustively. If a region or state is mentioned, create one google_maps step per city in that region. Do NOT limit yourself to 3–5 cities.`
+    : `\nmaxResults: ${maxResults} — The sum of all estimatedHits MUST NOT exceed ${Math.ceil(maxResults * 1.3)}. Plan only as many steps as needed to reach this target.`;
 
   const resp = await edenChatCompletion({
     apiKey: edenApiKey,
-    region: "us",   // Planner always uses US — openai/gpt-4o-mini not on EU endpoint
+    region: "us",
     model,
     system: systemPrompt,
-    prompt: `Auftrag: ${prompt}${regionContext}`,
-    maxTokens: 1500,
+    prompt: `Research goal: ${prompt}${mapsHint}${maxResultsHint}`,
+    maxTokens: 3000,
     temperature: 0.1,
   });
 
@@ -228,45 +270,8 @@ export async function createDiscoveryPlan(
     };
   }
 
-  // Expand multi_search steps: one google_search step per city (visible, cancellable, loggable)
-  const expandedSteps: PlanStep[] = [];
-  let stepCounter = 0;
-
-  for (const step of plan.steps) {
-    if (step.type === "multi_search" && step.queryTemplate) {
-      const regionKey = step.region ?? detectedRegion ?? "";
-      const cities = getCitiesForRegion(regionKey);
-      if (cities.length > 0) {
-        // Split into individual google_search steps — one per city
-        for (const city of cities) {
-          stepCounter++;
-          expandedSteps.push({
-            id: `step_${stepCounter}`,
-            type: "google_search",
-            label: `${step.label} — ${city}`,
-            query: step.queryTemplate.replace(/\{city\}/g, city),
-            source: step.source ?? "auto",
-            estimatedHits: 15,
-            priority: step.priority,
-          });
-        }
-      } else {
-        // No cities for region — downgrade to single search
-        stepCounter++;
-        expandedSteps.push({
-          ...step,
-          id: `step_${stepCounter}`,
-          type: "google_search",
-          query: step.queryTemplate.replace(/\{city\}/g, "").trim(),
-        });
-      }
-    } else {
-      stepCounter++;
-      expandedSteps.push({ ...step, id: `step_${stepCounter}` });
-    }
-  }
-
-  plan.steps = expandedSteps;
+  // Re-number steps cleanly
+  plan.steps = plan.steps.map((step, i) => ({ ...step, id: `step_${i + 1}` }));
 
   // Recalculate total
   plan.estimatedRows = plan.steps.reduce((s, step) => s + step.estimatedHits, 0);
@@ -392,52 +397,28 @@ Erweitere den Plan um neue Steps, um die verbleibenden ${remaining} Unternehmen 
       priority: typeof s.priority === "number" ? s.priority : 3,
     }));
 
-    // Expand multi_search steps
-    const detectedRegion = goal.region ?? detectRegion(goal.description);
-    for (const step of newSteps) {
-      if (step.type === "multi_search" && step.queryTemplate) {
-        const regionKey = step.region ?? detectedRegion ?? "";
-        const cities = getCitiesForRegion(regionKey);
-        if (cities.length > 0) {
-          step.queries = cities.map((city) =>
-            step.queryTemplate!.replace(/\{city\}/g, city)
-          );
-          step.estimatedHits = cities.length * 15;
-        } else {
-          step.type = "google_search";
-          step.query = step.queryTemplate.replace(/\{city\}/g, "").trim();
-        }
-      }
-    }
-
     return {
       goal: goal.description,
-      steps: newSteps,
+      steps: newSteps.map((step, i) => ({ ...step, id: `step_${baseIdx + i + 1}` })),
       estimatedRows: newSteps.reduce((s, step) => s + step.estimatedHits, 0),
       warnings: Array.isArray(parsed.warnings) ? parsed.warnings.map(String) : [],
     };
   } catch {
-    // Fallback: widen the search with more multi_search variations
-    const detectedRegion = goal.region ?? detectRegion(goal.description);
-    const cities = getCitiesForRegion(detectedRegion ?? "");
-    if (cities.length === 0) return null;
-
+    // Fallback: simple google_search for the goal description
     const baseIdx = previousSteps.length;
     return {
       goal: goal.description,
       steps: [{
         id: `step_${baseIdx + 1}`,
-        type: "multi_search",
-        label: `Breite Suche: ${goal.description.slice(0, 50)}`,
-        queryTemplate: `{city} ${goal.description.replace(/in\s+\w+/i, "").trim()}`,
-        region: detectedRegion ?? "",
-        queries: cities.map((c) => `${c} ${goal.description.replace(/in\s+\w+/i, "").trim()}`),
+        type: "google_search",
+        label: `Erweiterte Suche: ${goal.description.slice(0, 50)}`,
+        query: goal.description,
         source: "auto",
-        estimatedHits: cities.length * 10,
+        estimatedHits: 20,
         priority: 3,
       }],
-      estimatedRows: cities.length * 10,
-      warnings: ["Replan fehlgeschlagen — generischer Fallback"],
+      estimatedRows: 20,
+      warnings: ["Replan fehlgeschlagen — einfacher Fallback"],
     };
   }
 }

@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
-import { ArrowLeft, Plus, X, ChevronUp, ChevronDown, RotateCcw, Check, Info, Search } from "lucide-react";
+import { Plus, X, ChevronUp, ChevronDown, RotateCcw, Check, Info, Search, Sliders } from "lucide-react";
+import AppShell from "@/components/AppShell";
 
 const DEFAULT_MODELS = [
   { id: "openai/gpt-4o-mini", label: "GPT-4o Mini", provider: "OpenAI", note: "Schnell · günstig · Standard", costPer1kPrompt: "$0.00015", costPer1kOutput: "$0.00060" },
@@ -33,7 +33,6 @@ const PROVIDER_COLORS: Record<string, string> = {
 };
 
 export default function ModelsSettingsPage() {
-  const router = useRouter();
   const [allowlist, setAllowlist] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -103,25 +102,17 @@ export default function ModelsSettingsPage() {
   }
 
   if (loading) return (
-    <div className="flex items-center justify-center h-screen text-gray-400 text-sm">Laden…</div>
+    <AppShell title="Modell-Auswahl" titleIcon={<Sliders className="w-4 h-4 text-violet-500" />}>
+      <div className="flex items-center justify-center h-64 text-gray-400 text-sm">Laden…</div>
+    </AppShell>
   );
 
   // Effective model list: allowlist if set, else all defaults
   const effectiveList = allowlist.length > 0 ? allowlist : DEFAULT_MODELS.map((m) => m.id);
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <div className="bg-white border-b border-gray-200 px-6 py-3 flex items-center gap-3">
-        <button onClick={() => router.push("/settings")} className="text-gray-400 hover:text-gray-600">
-          <ArrowLeft className="w-4 h-4" />
-        </button>
-        <span className="text-sm font-medium text-gray-700">Globale Einstellungen</span>
-        <span className="text-gray-300">/</span>
-        <span className="text-sm font-medium text-gray-900">Modell-Auswahl</span>
-      </div>
-
-      <div className="max-w-2xl mx-auto px-6 py-8 space-y-6">
+    <AppShell title="Modell-Auswahl" titleIcon={<Sliders className="w-4 h-4 text-violet-500" />}>
+      <div className="max-w-2xl mx-auto space-y-6">
 
         {/* Info card */}
         <div className="bg-white rounded-xl border border-gray-200 p-5 text-sm text-gray-600 space-y-2">
@@ -289,6 +280,6 @@ export default function ModelsSettingsPage() {
           </div>
         </div>
       </div>
-    </div>
+    </AppShell>
   );
 }

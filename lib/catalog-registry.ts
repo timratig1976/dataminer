@@ -113,7 +113,25 @@ export async function reflagCatalogRows(caseId: string): Promise<ReflagResult> {
 
   for (const row of allRows) {
     const data = row.data as Record<string, string | null>;
-    const url = data["source_url"] ?? data["domain"] ?? "";
+
+    // Rows discovered via Maps are always real companies — never catalogs
+    const searchSource = data["search_source"] ?? "";
+    if (searchSource.startsWith("maps-") || searchSource === "maps") {
+      // Clear any stale is_catalog flag if present
+      if (data["is_catalog"] === "true") {
+        await db.execute(sql`
+          UPDATE rows SET data = data - 'is_catalog', updated_at = NOW() WHERE id = ${row.id}
+        `);
+        promoted++;
+      }
+      continue;
+    }
+
+    // For non-Maps rows: check source_domain (company's own site) first,
+    // fall back to source_url only if it's not a Maps/Google URL
+    const rawSourceUrl = data["source_url"] ?? "";
+    const isMapsUrl = rawSourceUrl.includes("google.com/maps") || rawSourceUrl.includes("maps.google.com");
+    const url = data["source_domain"] ?? data["domain"] ?? (isMapsUrl ? "" : rawSourceUrl);
     const currentFlag = data["is_catalog"];
 
     const isCat = url ? await isCatalogUrlExtended(url, learned) : false;

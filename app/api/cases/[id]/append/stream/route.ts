@@ -151,7 +151,7 @@ export async function POST(
 
             const resp = await discoverySearch(query, {
               source: "firecrawl",
-              limit: 20,
+              limit: 200,  // always request maximum
               excludeDomains: [...existingSet],
               edenApiKey: edenApiKey ?? undefined,
             });
@@ -184,7 +184,7 @@ export async function POST(
 
               const resp = await discoverySearch(query, {
                 source: (step.source as never) ?? "auto",
-                limit: 30,   // 30 per query × pagination = up to 100 via SerpApi
+                limit: 200,  // always request maximum
                 excludeDomains: [...existingSet],
                 serpApiKey,
                 braveApiKey,

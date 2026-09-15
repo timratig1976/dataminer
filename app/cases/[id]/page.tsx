@@ -13,6 +13,7 @@ import { AddColumnModal } from "@/components/AddColumnModal";
 import { ImportModal } from "@/components/ImportModal";
 import { DiscoveryModal } from "@/components/DiscoveryModal";
 import { AgentGoalModal } from "@/components/AgentGoalModal";
+import { useAgentRun } from "@/hooks/useAgentRun";
 import AppendModal from "@/components/AppendModal";
 import { ColumnHeaderMenu } from "@/components/ColumnHeaderMenu";
 import GroupedTableView from "@/components/GroupedTableView";
@@ -32,6 +33,8 @@ const COL_LABELS: Record<string, string> = {
   domain: "Domain",
   phone: "Telefon",
   email: "E-Mail",
+  company_email: "E-Mail (Firma)",
+  contact_email: "E-Mail (Kontakt)",
   address: "Adresse",
   city: "Stadt",
   zip: "PLZ",
@@ -44,8 +47,8 @@ const COL_LABELS: Record<string, string> = {
   position: "Position",
   linkedin: "LinkedIn",
   // Batch AI columns
-  _batch_firmendaten: "Firmendaten",
-  _batch_kontakte: "Entscheider",
+  _batch_firmendaten: "🏢 Firmendaten",
+  _batch_kontakte: "👤 Entscheider",
   _batch_status: "Anreicherung",
 };
 
@@ -666,6 +669,57 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
   const [showRunOptions, setShowRunOptions] = useState(false);
   const [runConfirm, setRunConfirm] = useState<{mode: "all_force" | "empty_only"} | null>(null);
 
+  // ── Agent goal run — lifted to page so it survives modal close & page reload ──
+  const agentHook = useAgentRun(caseId);
+  const agentStepLoopRef = useRef(false);
+  const agentImportedRef = useRef(false);
+  const AGENT_TERMINAL = new Set(["completed", "budget_exhausted", "cancelled", "failed"]);
+
+  // Auto-resume: on mount, check DB for an active run and resume the step loop
+  useEffect(() => {
+    fetch(`/api/cases/${caseId}/agent`)
+      .then(r => r.ok ? r.json() : [])
+      .then((runs: Array<{ id: string; status: string }>) => {
+        if (!Array.isArray(runs)) return;
+        const active = runs.find(r => !AGENT_TERMINAL.has(r.status));
+        if (active) agentHook.reload(active.id);
+      })
+      .catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [caseId]);
+
+  // Step loop — runs at page level, independent of modal visibility
+  useEffect(() => {
+    const { run, running } = agentHook;
+    const paused = !showAgentGoal ? false : undefined; // when modal closed, never pause
+    if (!running || !run || AGENT_TERMINAL.has(run.status)) {
+      agentStepLoopRef.current = false;
+      return;
+    }
+    if (agentStepLoopRef.current) return;
+    agentStepLoopRef.current = true;
+    let active = true;
+    async function loop() {
+      while (active && agentStepLoopRef.current) {
+        const state = await agentHook.step();
+        if (!active) break;
+        if (!agentImportedRef.current && state && state.uniqueCount > 0) {
+          agentImportedRef.current = true;
+          refresh();
+        }
+        if (!state || AGENT_TERMINAL.has(state.status)) {
+          agentStepLoopRef.current = false;
+          if (state) refresh();
+          return;
+        }
+        await new Promise(r => setTimeout(r, 400));
+      }
+    }
+    loop();
+    return () => { active = false; agentStepLoopRef.current = false; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [agentHook.running]);
+
   // Auto-detect grouped view
   const hasColumnGroups = caseData?.aiColumns?.some(c => c.columnGroup);
   // Only show Firmen/Kontakte run-phase buttons for NON-batch columns with explicit groups
@@ -973,6 +1027,15 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
                 style={{display:"flex",alignItems:"center",gap:5,padding:"4px 9px",border:"1px solid #fda4af",borderRadius:5,background:"#fff1f2",cursor:"pointer",fontSize:12,color:"#be123c",fontWeight:500}}>
                 🎯 Ziel-Suche
               </button>
+              {/* Agent running badge — visible when modal is closed */}
+              {agentHook.running && !showAgentGoal && agentHook.run && !AGENT_TERMINAL.has(agentHook.run.status) && (
+                <button onClick={() => setShowAgentGoal(true)}
+                  title="Ziel-Suche läuft — klicken zum Öffnen"
+                  style={{display:"flex",alignItems:"center",gap:5,padding:"4px 10px",border:"1px solid #bfdbfe",borderRadius:5,background:"#eff6ff",cursor:"pointer",fontSize:12,color:"#1d4ed8",fontWeight:600,animation:"pulse 2s infinite"}}>
+                  <Loader2 style={{width:11,height:11}} className="animate-spin" />
+                  {agentHook.run.uniqueCount} Ergebnisse · läuft…
+                </button>
+              )}
               {/* Email extrapolation — shown when rows have names but no contact_email */}
               {rows.some(r => r.data["first_name"] && r.data["last_name"] && !r.data["contact_email"]) && (
                 <EmailExtrapolateButton caseId={caseId} onDone={refresh} />
@@ -2104,7 +2167,20 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
         availableFields={[...sourceColumns, ...caseData.aiColumns.map(c=>c.outputKey)]} />}
       {showImport && <ImportModal caseId={caseId} onClose={()=>setShowImport(false)} onImported={()=>{setShowImport(false);refresh();}} />}
       {showDiscovery && <DiscoveryModal caseId={caseId} rows={rows} sourceColumns={sourceColumns} onClose={()=>setShowDiscovery(false)} onImported={()=>{refresh();}} />}
-      {showAgentGoal && <AgentGoalModal caseId={caseId} rowsCount={rows.length} onClose={()=>setShowAgentGoal(false)} onImported={()=>{refresh();}} />}
+      <div style={showAgentGoal ? undefined : {display:"none"}}>
+        <AgentGoalModal
+          caseId={caseId}
+          rowsCount={rows.length}
+          onClose={()=>setShowAgentGoal(false)}
+          onImported={()=>{ agentImportedRef.current = true; refresh(); }}
+          externalRun={agentHook.run}
+          externalRunning={agentHook.running}
+          externalStart={agentHook.start}
+          externalStep={agentHook.step}
+          externalCancel={agentHook.cancel}
+          externalReload={agentHook.reload}
+        />
+      </div>
       {showAppend && <AppendModal caseId={caseId} onRowsAdded={(n)=>{if(n>0)refresh();}} onClose={()=>setShowAppend(false)} />}
       {(editingPromptCol || editingPromptCell) && caseData && (
         <EditPromptModal

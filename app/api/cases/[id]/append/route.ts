@@ -93,7 +93,7 @@ export async function POST(
       const resp = await mapsSearch({
         query,
         provider: serpApiKey ? "maps-serpapi" : serperApiKey ? "maps-serper" : apifyApiToken ? "maps-apify" : "maps-scrapling",
-        limit: body.limit ?? 20,
+        limit: body.limit ?? 200,  // default to maximum
         serpApiKey,
         serperApiKey,
         apifyApiToken,

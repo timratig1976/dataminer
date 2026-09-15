@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getCase, resolveEdenKey, listAgentRuns } from "@/lib/db";
+import { getCase, resolveEdenKey, listAgentRuns, resolveSearchKeys, getGlobalSettings } from "@/lib/db";
 import { startAgentRun } from "@/lib/agent-runner";
 
 export const runtime = "nodejs";
@@ -27,6 +27,9 @@ export async function POST(
   const edenApiKey = await resolveEdenKey(caseData);
   if (!edenApiKey) return NextResponse.json({ error: "No Eden API key configured" }, { status: 400 });
 
+  const searchKeys = await resolveSearchKeys();
+  const globalSettings = await getGlobalSettings();
+
   try {
     const run = await startAgentRun(caseId, {
       description: String(goal.description).trim(),
@@ -35,11 +38,14 @@ export async function POST(
       maxBudgetUsd: goal.maxBudgetUsd ?? undefined,
       maxDurationMin: goal.maxDurationMin ?? undefined,
       maxIterations: goal.maxIterations ?? undefined,
+      useMaps: goal.useMaps ?? true,
     }, {
       edenApiKey,
       model,
-      serpApiKey: process.env.SERP_API_KEY?.trim() || undefined,
-      braveApiKey: process.env.BRAVE_API_KEY?.trim() || undefined,
+      serpApiKey: searchKeys.serpApiKey || process.env.SERP_API_KEY?.trim() || undefined,
+      serperApiKey: searchKeys.serperApiKey || process.env.SERPER_API_KEY?.trim() || undefined,
+      braveApiKey: searchKeys.braveApiKey || process.env.BRAVE_API_KEY?.trim() || undefined,
+      systemPromptOverride: globalSettings.plannerSystemPrompt ?? null,
     });
     return NextResponse.json(run);
   } catch (e: unknown) {

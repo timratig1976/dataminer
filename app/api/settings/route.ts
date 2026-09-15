@@ -27,6 +27,7 @@ export async function GET() {
       serpEnvPresent: Boolean(process.env.SERP_API_KEY?.trim()),
       braveEnvPresent: Boolean(process.env.BRAVE_API_KEY?.trim()),
       apifyEnvPresent: Boolean(process.env.APIFY_API_TOKEN?.trim()),
+      plannerSystemPrompt: s.plannerSystemPrompt ?? null,
       updatedAt: s.updatedAt,
     });
   } catch (e) {
@@ -44,8 +45,9 @@ export async function PATCH(req: NextRequest) {
       serpApiKey?: string;
       braveApiKey?: string;
       apifyApiToken?: string;
+      plannerSystemPrompt?: string | null;
     };
-    const patch: { edenApiKey?: string; edenRegion?: "eu" | "us"; modelAllowlist?: string[]; serperApiKey?: string; serpApiKey?: string; braveApiKey?: string; apifyApiToken?: string } = {};
+    const patch: { edenApiKey?: string; edenRegion?: "eu" | "us"; modelAllowlist?: string[]; serperApiKey?: string; serpApiKey?: string; braveApiKey?: string; apifyApiToken?: string; plannerSystemPrompt?: string | null } = {};
     if (typeof body.edenApiKey === "string") patch.edenApiKey = body.edenApiKey.trim();
     if (body.edenRegion === "eu" || body.edenRegion === "us") patch.edenRegion = body.edenRegion;
     if (Array.isArray(body.modelAllowlist)) patch.modelAllowlist = body.modelAllowlist.filter((m): m is string => typeof m === "string" && m.trim().length > 0);
@@ -53,6 +55,7 @@ export async function PATCH(req: NextRequest) {
     if (typeof body.serpApiKey === "string") patch.serpApiKey = body.serpApiKey.trim();
     if (typeof body.braveApiKey === "string") patch.braveApiKey = body.braveApiKey.trim();
     if (typeof body.apifyApiToken === "string") patch.apifyApiToken = body.apifyApiToken.trim();
+    if ("plannerSystemPrompt" in body) patch.plannerSystemPrompt = body.plannerSystemPrompt === null ? null : (body.plannerSystemPrompt ?? "").trim() || null;
     const s = await saveGlobalSettings(patch);
     return NextResponse.json({
       edenApiKeyMasked: s.edenApiKeyMasked,

@@ -29,7 +29,7 @@ export type DiscoverySource =
   | "maps-apify"
   | "maps-scrapling";
 
-export const MAX_DISCOVERY_LIMIT = 100;
+export const MAX_DISCOVERY_LIMIT = 200;
 
 export interface DiscoveryOptions {
   source?: DiscoverySource;
@@ -164,7 +164,7 @@ export async function discoverySearch(
         firecrawlApiKey: edenApiKey,
         maxResults: clampedLimit,
         forceLayer: layer,
-        limitCap: MAX_DISCOVERY_LIMIT,
+        limitCap: MAX_DISCOVERY_LIMIT,  // 200 — always request maximum
         firecrawlDepth,  // pass through — "deep" by default for discovery
       });
 

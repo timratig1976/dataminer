@@ -32,6 +32,7 @@ export function useAgentRun(caseId: string): UseAgentRunReturn {
   const abortRef = useRef(false);
 
   const start = useCallback(async (goal: AgentGoal) => {
+    if (!caseId || caseId === "__disabled__") return;
     setError(null);
     setRunning(true);
     abortRef.current = false;

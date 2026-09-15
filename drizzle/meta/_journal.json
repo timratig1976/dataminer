@@ -36,6 +36,20 @@
       "when": 1757529600000,
       "tag": "0004_agent_runs",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1757616000000,
+      "tag": "0005_search_api_keys",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1757700000000,
+      "tag": "0006_planner_prompt",
+      "breakpoints": true
     }
   ]
 }

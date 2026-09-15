@@ -87,45 +87,30 @@ const CATALOG_DOMAINS = new Set([
   "regional.de", "regional.at",
   "local.ch", "local.de",
   "klicktel.de", "teleauskunft.de",
-  // ── Immobilien / Bau Portale ──────────────────────────────────────────────
+  // ── Immobilien Portale (pure listing/aggregator sites) ─────────────────────────────
   "immobilienscout24.de", "immowelt.de", "immonet.de", "immowelt.at",
   "houzz.de", "houzz.com",
-  "fertighaus.de", "fertighaus.net", "fertighausanbieter.de",
-  "fertighaus-welt.de", "fertighaus-aktuell.de",
-  "massivhaus.de", "massivhausanbieter.de",
-  "bauportal.de", "bau.de", "baulinks.de", "baunetz.de",
-  "bauen.de", "bauen-wohnen.de",
-  "hausbau-deutschland.de", "hausbaukatalog.de",
-  "mein-eigenheim.de", "eigenheim24.de",
-  // ── Handwerker-Vermittlung / Marktplätze ──────────────────────────────────
+  // NOTE: fertighaus.de, massivhaus.de, bau.de, bauen.de etc. are NOT catalogs —
+  // they are real company/industry sites and must NOT be flagged as catalogs.
+  // ── Handwerker-Vermittlung / Marktplätze (pure aggregators) ────────────────
   "my-hammer.de", "myhammer.de",
-  "homeday.de", "home24.de",
+  "homeday.de",
   "handwerker24.de", "handwerker-vermittlung.de",
   "auftragsboerse.de", "blauarbeit.de",
   "1-2-do.com", "1-2-do.de",
-  "installateur.de", "installateur-mv.de", "installateur-suche.de",
-  "dein-heizungsbauer.de", "deine-heizungsmeister.de",
-  "heizungsfinder.de", "heizung-finder.de",
-  "klempner.de", "sanitaer-heizung.de",
   "aroundhome.de", "homeadvisor.de",
-  "klugo.de", "blaulichter.de",
+  "klugo.de",
   "haendlerbund.de",
+  // NOTE: installateur.de, dein-heizungsbauer.de etc. can be real company sites — removed
   // ── Lokale Verzeichnisse & Branchenportale ────────────────────────────────
   "trustlocal.de", "locanto.de", "quoka.de",
   "kleinanzeigen.de", "ebay-kleinanzeigen.de",
-  "hls-portal.de", "hvh-portal.de",
-  "zvshk.de", "descript.de",
-  "pelletheizung-infos.de", "dezentralo.com",
-  "wasserwaermeluft.de", "heizsparer.de",
-  "baulinks.de", "baunetz.de",
-  "innung.de", "handwerkskammer.de",
-  "hwk.de", "zentralverband.de",
-  "fachverband.de", "berufsverband.de",
+  "zvshk.de",
   "innungssuche.de",
-  // ── Aggregatoren & Vergleichsportale ─────────────────────────────────────
-  "check24.de", "verivox.de", "billiger.de",
-  "preisvergleich.de", "idealo.de",
-  "heizungsonline.de", "heizkosten.de",
+  // NOTE: innung.de, handwerkskammer.de, hwk.de etc. are official bodies, not catalogs — removed
+  // ── Aggregatoren & Vergleichsportale ────────────────────────────────────
+  "check24.de", "verivox.de",
+  "idealo.de",
   // ── Bewertungsportale ─────────────────────────────────────────────────────
   "golocal.de", "proven-expert.com", "provenexpert.com",
   "trustedshops.de", "ekomi.de",
@@ -162,7 +147,7 @@ function isCatalogUrl(url: string): boolean {
       return true;
     }
 
-    // 2. Path-based catalog patterns (e.g. /fachbetriebe-finden/, /installateur-suche/)
+    // 2. Path-based catalog patterns — only match known directory URL structures
     const CATALOG_PATH_PATTERNS = [
       /fachbetriebe[-_]finden/,
       /installateur[-_](finden|suche)/,
@@ -171,9 +156,7 @@ function isCatalogUrl(url: string): boolean {
       /unternehmens(suche|verzeichnis)/,
       /handwerker[-_](finden|suche)/,
       /betriebe[-_]finden/,
-      /\/suche\//,           // generic search result pages
-      /\/search\//,
-      /\/s-[a-z]+\//,        // kleinanzeigen.de pattern
+      // NOTE: /\/suche\// and /\/search\// removed — too broad, matches real company sites
     ];
     if (CATALOG_PATH_PATTERNS.some(p => p.test(path))) return true;
 
@@ -226,7 +209,8 @@ export async function searchViaSerper(
     res = await fetch("https://google.serper.dev/search", {
       method: "POST",
       headers: { "X-API-KEY": serperApiKey, "Content-Type": "application/json" },
-      body: JSON.stringify({ q: query, gl: "de", hl: "de", num: Math.min(maxResults, 100) }),
+      body: JSON.stringify({ q: query, gl: "de", hl: "de", num: 100, page: 1 }),
+      // Serper supports up to 100 results per request; request max always
       signal: controller.signal,
     });
   } finally {
@@ -328,8 +312,8 @@ export async function searchViaSerpApi(
     // If we got fewer results than requested, Google has no more
     if (page.length < pageSize) break;
 
-    // Safety: max 10 pages (100 results) per query
-    if (start >= 90) break;
+    // Safety: max 20 pages (200 results) per query — Google supports up to start=190
+    if (start >= 190) break;
   }
 
   return allResults;
@@ -738,7 +722,7 @@ export async function webSearch(
     firecrawlDepth?: "basic" | "deep";
   } = {}
 ): Promise<SearchResponse> {
-  const { serpApiKey, serperApiKey, braveApiKey, scraplingUrl, scraplingToken, firecrawlApiKey, maxResults = 5, forceLayer, limitCap = 100, firecrawlDepth = "basic" } = options;
+  const { serpApiKey, serperApiKey, braveApiKey, scraplingUrl, scraplingToken, firecrawlApiKey, maxResults = 5, forceLayer, limitCap = 200, firecrawlDepth = "basic" } = options;
   const clampedMax = Math.max(1, Math.min(maxResults, limitCap));
   const layerErrors: Record<string, string> = {};
   const t0 = Date.now();

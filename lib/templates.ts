@@ -44,7 +44,7 @@ export const PROJECT_TEMPLATES: ProjectTemplate[] = [
       { name: "Firmenname", outputKey: "company_name" },
       { name: "Domain", outputKey: "domain" },
       { name: "Telefon", outputKey: "phone" },
-      { name: "E-Mail", outputKey: "company_email" },
+      { name: "E-Mail (Firma)", outputKey: "company_email" },
       { name: "Adresse", outputKey: "address" },
       { name: "Stadt", outputKey: "city" },
       { name: "PLZ", outputKey: "zip" },
@@ -52,6 +52,12 @@ export const PROJECT_TEMPLATES: ProjectTemplate[] = [
       { name: "Beschreibung", outputKey: "description" },
       { name: "Mitarbeiter", outputKey: "employees" },
       { name: "Gegründet", outputKey: "founded" },
+      // Contact columns written by batch_contacts
+      { name: "Vorname", outputKey: "first_name" },
+      { name: "Nachname", outputKey: "last_name" },
+      { name: "Position", outputKey: "position" },
+      { name: "E-Mail (Kontakt)", outputKey: "contact_email" },
+      { name: "LinkedIn", outputKey: "linkedin" },
     ],
     aiColumns: [
       {

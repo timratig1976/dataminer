@@ -22,6 +22,8 @@ export interface AgentGoal {
   maxDurationMin?: number;
   /** Safety iteration cap (default 10) */
   maxIterations?: number;
+  /** Whether to include Google Maps/Places steps in the plan (default true) */
+  useMaps?: boolean;
 }
 
 // ── Run state ────────────────────────────────────────────────────────────────

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getCase, resolveEdenKey } from "@/lib/db";
+import { getCase, resolveEdenKey, getGlobalSettings } from "@/lib/db";
 import { createDiscoveryPlan } from "@/lib/planner";
 
 export const runtime = "nodejs";
@@ -24,6 +24,8 @@ export async function POST(
   const edenApiKey = await resolveEdenKey(caseData);
   if (!edenApiKey) return NextResponse.json({ error: "No Eden API key configured" }, { status: 400 });
 
+  const globalSettings = await getGlobalSettings();
+
   try {
     const plan = await createDiscoveryPlan(prompt, {
       edenApiKey,
@@ -31,6 +33,7 @@ export async function POST(
       serpApiKeyAvailable: !!process.env.SERP_API_KEY,
       braveApiKeyAvailable: !!process.env.BRAVE_API_KEY,
       edenKeyAvailable: true,
+      systemPromptOverride: globalSettings.plannerSystemPrompt ?? null,
     });
     return NextResponse.json(plan);
   } catch (e: unknown) {

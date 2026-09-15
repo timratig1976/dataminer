@@ -215,6 +215,32 @@ export function detectRegion(text: string): string | null {
     if (lower.includes(alias)) return key;
   }
 
+  // City name match — resolve city back to its parent region
+  for (const key of Object.keys(GERMAN_REGIONS)) {
+    const info = GERMAN_REGIONS[key];
+    for (const city of info.cities) {
+      if (lower.includes(city.toLowerCase())) {
+        return key;
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Detect a specific city from free text.
+ * Returns the city name as it appears in the region list, or null.
+ */
+export function detectCity(text: string): string | null {
+  const lower = text.toLowerCase();
+  for (const info of Object.values(GERMAN_REGIONS)) {
+    for (const city of info.cities) {
+      if (lower.includes(city.toLowerCase())) {
+        return city;
+      }
+    }
+  }
   return null;
 }
 

@@ -1,15 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { resolveSearchKeys } from "@/lib/db";
-import { searchViaSerpApi } from "@/lib/search";
+import { searchViaSerpApi, searchViaSerper } from "@/lib/search";
 import { searchViaBrave } from "@/lib/search";
-import { mapsSearch } from "@/lib/maps";
+import { mapsSearch, mapsSearchViaSerper } from "@/lib/maps";
 
 export const runtime = "nodejs";
 
 /**
  * POST /api/settings/test-search
  * Tests a search API key with a simple query.
- * Body: { provider: "serper" | "serp" | "brave", apiKey?: string }
+ * Body: { provider: "serper" | "serper-places" | "serp" | "brave" | "apify", apiKey?: string }
  */
 export async function POST(req: NextRequest) {
   const { provider, apiKey: bodyKey } = await req.json().catch(() => ({}));
@@ -20,11 +20,29 @@ export async function POST(req: NextRequest) {
 
   try {
     if (provider === "serper") {
-      return NextResponse.json({ ok: false, error: "Serper nicht mehr unterstützt — SerpApi verwenden" });
+      const key = bodyKey?.trim() || dbKeys.serperApiKey;
+      if (!key) return NextResponse.json({ ok: false, error: "Kein Serper-Key konfiguriert" });
+      const results = await searchViaSerper(TEST_QUERY, key, 3);
+      return NextResponse.json({
+        ok: results.length > 0,
+        provider: "serper",
+        hits: results.length,
+        sample: results[0]?.title?.slice(0, 60) ?? "",
+        note: "Google Web-Suche via Serper.dev",
+      });
     }
 
     if (provider === "serper-places") {
-      return NextResponse.json({ ok: false, error: "Serper Places nicht mehr unterstützt — Maps via SerpApi verwenden" });
+      const key = bodyKey?.trim() || dbKeys.serperApiKey;
+      if (!key) return NextResponse.json({ ok: false, error: "Kein Serper-Key konfiguriert" });
+      const places = await mapsSearchViaSerper({ query: TEST_QUERY, limit: 3, serperApiKey: key });
+      return NextResponse.json({
+        ok: places.length > 0,
+        provider: "serper-places",
+        hits: places.length,
+        sample: places[0]?.name?.slice(0, 60) ?? "",
+        note: "Google Places via Serper.dev",
+      });
     }
 
     if (provider === "serp") {
@@ -54,7 +72,17 @@ export async function POST(req: NextRequest) {
     }
 
     if (provider === "apify") {
-      return NextResponse.json({ ok: false, error: "Apify nicht mehr unterstützt — Maps via SerpApi/Scrapling verwenden" });
+      const key = bodyKey?.trim() || dbKeys.apifyApiToken;
+      if (!key) return NextResponse.json({ ok: false, error: "Kein Apify-Token konfiguriert" });
+      const result = await mapsSearch({ query: TEST_QUERY, limit: 3, provider: "maps-apify", apifyApiToken: key });
+      const places = result.places;
+      return NextResponse.json({
+        ok: places.length > 0,
+        provider: "apify",
+        hits: places.length,
+        sample: places[0]?.name?.slice(0, 60) ?? "",
+        note: "Google Maps via Apify Actor",
+      });
     }
 
     return NextResponse.json({ ok: false, error: `Unbekannter Provider: ${provider}` }, { status: 400 });

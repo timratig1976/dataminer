@@ -241,6 +241,8 @@ export interface GlobalSettings {
   braveApiKeyMasked?: string;
   apifyApiToken?: string;
   apifyApiTokenMasked?: string;
+  /** Custom planner system prompt. null = use built-in default. */
+  plannerSystemPrompt?: string | null;
   updatedAt: string;
 }
 
@@ -272,6 +274,7 @@ export async function getGlobalSettings(): Promise<GlobalSettings> {
     braveApiKeyMasked: maskSecret(braveKey),
     apifyApiToken: apifyToken,
     apifyApiTokenMasked: maskSecret(apifyToken),
+    plannerSystemPrompt: (row as Record<string, unknown>)?.plannerSystemPrompt as string | null ?? null,
     updatedAt: row ? toIso(row.updatedAt) : new Date().toISOString(),
   };
 }
@@ -285,6 +288,8 @@ export async function saveGlobalSettings(patch: {
   serpApiKey?: string;
   braveApiKey?: string;
   apifyApiToken?: string;
+  /** Pass null to reset to built-in default, string to override */
+  plannerSystemPrompt?: string | null;
 }): Promise<GlobalSettings> {
   await initDb();
   const now = new Date();
@@ -294,32 +299,35 @@ export async function saveGlobalSettings(patch: {
   const encSerp = patch.serpApiKey !== undefined ? encryptSecret(patch.serpApiKey) : null;
   const encBrave = patch.braveApiKey !== undefined ? encryptSecret(patch.braveApiKey) : null;
   const encApify = patch.apifyApiToken !== undefined ? encryptSecret(patch.apifyApiToken) : null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const insertValues: any = {
+    id: GLOBAL_SETTINGS_ID,
+    edenApiKey: encrypted,
+    edenRegion: region,
+    modelAllowlist: patch.modelAllowlist ?? [],
+    serperApiKey: encSerper,
+    serpApiKey: encSerp,
+    braveApiKey: encBrave,
+    apifyApiToken: encApify,
+    plannerSystemPrompt: patch.plannerSystemPrompt !== undefined ? patch.plannerSystemPrompt : null,
+    updatedAt: now,
+  };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const updateSet: any = {
+    edenApiKey: patch.edenApiKey !== undefined ? encrypted : sql`${settings.edenApiKey}`,
+    edenRegion: region,
+    modelAllowlist: patch.modelAllowlist !== undefined ? patch.modelAllowlist : sql`${settings.modelAllowlist}`,
+    serperApiKey: patch.serperApiKey !== undefined ? encSerper : sql`${settings.serperApiKey}`,
+    serpApiKey: patch.serpApiKey !== undefined ? encSerp : sql`${settings.serpApiKey}`,
+    braveApiKey: patch.braveApiKey !== undefined ? encBrave : sql`${settings.braveApiKey}`,
+    apifyApiToken: patch.apifyApiToken !== undefined ? encApify : sql`${settings.apifyApiToken}`,
+    plannerSystemPrompt: patch.plannerSystemPrompt !== undefined ? patch.plannerSystemPrompt : sql`${settings.plannerSystemPrompt}`,
+    updatedAt: now,
+  };
   await getDb()
     .insert(settings)
-    .values({
-      id: GLOBAL_SETTINGS_ID,
-      edenApiKey: encrypted,
-      edenRegion: region,
-      modelAllowlist: patch.modelAllowlist ?? [],
-      serperApiKey: encSerper,
-      serpApiKey: encSerp,
-      braveApiKey: encBrave,
-      apifyApiToken: encApify,
-      updatedAt: now,
-    })
-    .onConflictDoUpdate({
-      target: settings.id,
-      set: {
-        edenApiKey: patch.edenApiKey !== undefined ? encrypted : sql`${settings.edenApiKey}`,
-        edenRegion: region,
-        modelAllowlist: patch.modelAllowlist !== undefined ? patch.modelAllowlist : sql`${settings.modelAllowlist}`,
-        serperApiKey: patch.serperApiKey !== undefined ? encSerper : sql`${settings.serperApiKey}`,
-        serpApiKey: patch.serpApiKey !== undefined ? encSerp : sql`${settings.serpApiKey}`,
-        braveApiKey: patch.braveApiKey !== undefined ? encBrave : sql`${settings.braveApiKey}`,
-        apifyApiToken: patch.apifyApiToken !== undefined ? encApify : sql`${settings.apifyApiToken}`,
-        updatedAt: now,
-      },
-    });
+    .values(insertValues)
+    .onConflictDoUpdate({ target: settings.id, set: updateSet });
   return getGlobalSettings();
 }
 

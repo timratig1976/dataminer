@@ -35,17 +35,18 @@ export async function POST(req: NextRequest) {
         const tpl = getTemplate(templateId);
         if (tpl) {
           aiColumns = tpl.aiColumns;
-          // Order: input columns → batch action → output columns → next action
-          const inputKeys = (tpl.baseColumns ?? []).slice(0, 2).map((c) => c.outputKey);  // company_name, domain
-          const outputKeys = (tpl.baseColumns ?? []).slice(2).map((c) => c.outputKey);   // rest
+          // Order: [Eingabe] → [🏢 Aktion] → [Firmen-Ergebnis] → [👤 Aktion] → [Kontakt-Ergebnis]
+          const companyInputKeys = ["company_name", "domain"];
+          const companyOutputKeys = ["phone", "company_email", "address", "city", "zip", "industry", "description", "employees", "founded"];
+          const contactOutputKeys = ["first_name", "last_name", "position", "contact_email", "linkedin"];
           const batchCompany = aiColumns.find((c) => c.tool === "batch_enrich");
           const batchContacts = aiColumns.find((c) => c.tool === "batch_contacts");
-          // batch_enrich column first (derives company_name), then input, then output
           colOrder = [
+            ...companyInputKeys,
             ...(batchCompany ? [batchCompany.outputKey] : []),
-            ...inputKeys,
-            ...outputKeys,
+            ...companyOutputKeys,
             ...(batchContacts ? [batchContacts.outputKey] : []),
+            ...contactOutputKeys,
           ];
         }
       }
