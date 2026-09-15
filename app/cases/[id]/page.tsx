@@ -10,11 +10,10 @@ import {
 } from "lucide-react";
 import type { Case, RowData, AiColumn, CellStatus } from "@/lib/types";
 import { AddColumnModal } from "@/components/AddColumnModal";
-import { ImportModal } from "@/components/ImportModal";
-import { DiscoveryModal } from "@/components/DiscoveryModal";
 import { AgentGoalModal } from "@/components/AgentGoalModal";
 import { useAgentRun } from "@/hooks/useAgentRun";
 import AppendModal from "@/components/AppendModal";
+import ImportModal from "@/components/ImportModal";
 import { ColumnHeaderMenu } from "@/components/ColumnHeaderMenu";
 import GroupedTableView from "@/components/GroupedTableView";
 import { DEFAULT_MODEL_OPTIONS, mergeModelOptions } from "@/lib/model-options";
@@ -644,10 +643,9 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
   const [sortBy, setSortBy] = useState<"company_name" | "domain" | null>(null);
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [showAddCol, setShowAddCol] = useState(false);
-  const [showImport, setShowImport] = useState(false);
-  const [showDiscovery, setShowDiscovery] = useState(false);
   const [showAgentGoal, setShowAgentGoal] = useState(false);
   const [showAppend, setShowAppend] = useState(false);
+  const [showImport, setShowImport] = useState(false);
   const [editingCell, setEditingCell] = useState<{ rowId: string; key: string } | null>(null);
   const [editValue, setEditValue] = useState("");
   const [page, setPage] = useState(0);
@@ -2165,8 +2163,6 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
         setShowAddCol(false);
       }}
         availableFields={[...sourceColumns, ...caseData.aiColumns.map(c=>c.outputKey)]} />}
-      {showImport && <ImportModal caseId={caseId} onClose={()=>setShowImport(false)} onImported={()=>{setShowImport(false);refresh();}} />}
-      {showDiscovery && <DiscoveryModal caseId={caseId} rows={rows} sourceColumns={sourceColumns} onClose={()=>setShowDiscovery(false)} onImported={()=>{refresh();}} />}
       <div style={showAgentGoal ? undefined : {display:"none"}}>
         <AgentGoalModal
           caseId={caseId}
@@ -2182,6 +2178,7 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
         />
       </div>
       {showAppend && <AppendModal caseId={caseId} onRowsAdded={(n)=>{if(n>0)refresh();}} onClose={()=>setShowAppend(false)} />}
+      {showImport && <ImportModal caseId={caseId} onImported={()=>{setShowImport(false);refresh();}} onClose={()=>setShowImport(false)} />}
       {(editingPromptCol || editingPromptCell) && caseData && (
         <EditPromptModal
           col={editingPromptCell?.col ?? editingPromptCol!}

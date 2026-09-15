@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useState, useRef } from "react";
-import ImportWizard from "./ImportWizard";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -55,13 +54,12 @@ interface AppendModalProps {
   onClose: () => void;
 }
 
-type TabId = "ai" | "search" | "catalog" | "import";
+type TabId = "ai" | "search" | "catalog";
 
 const TABS: { id: TabId; label: string; icon: string }[] = [
   { id: "ai", label: "KI-Plan", icon: "🧠" },
   { id: "search", label: "Suche", icon: "🔍" },
   { id: "catalog", label: "Katalog", icon: "📋" },
-  { id: "import", label: "Import", icon: "📂" },
 ];
 
 // ── Main Component ────────────────────────────────────────────────────────────
@@ -106,9 +104,6 @@ export default function AppendModal({ caseId, onRowsAdded, onClose }: AppendModa
           )}
           {activeTab === "catalog" && (
             <CatalogTab caseId={caseId} onRowsAdded={onRowsAdded} />
-          )}
-          {activeTab === "import" && (
-            <ImportWizard caseId={caseId} onImported={onRowsAdded} onClose={onClose} />
           )}
         </div>
       </div>
