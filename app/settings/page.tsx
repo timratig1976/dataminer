@@ -9,6 +9,14 @@ interface SettingsState {
   edenRegion: "eu" | "us";
   hasKey: boolean;
   envKeyPresent: boolean;
+  serperApiKeyMasked?: string;
+  serpApiKeyMasked?: string;
+  braveApiKeyMasked?: string;
+  apifyApiTokenMasked?: string;
+  serperEnvPresent?: boolean;
+  serpEnvPresent?: boolean;
+  braveEnvPresent?: boolean;
+  apifyEnvPresent?: boolean;
   updatedAt?: string;
 }
 
@@ -24,6 +32,30 @@ export default function SettingsPage() {
   const [state, setState] = useState<SettingsState | null>(null);
   const [edenApiKey, setEdenApiKey] = useState("");
   const [edenRegion, setEdenRegion] = useState<"eu" | "us">("eu");
+  const [serperApiKey, setSerperApiKey] = useState("");
+  const [serpApiKey, setSerpApiKey] = useState("");
+  const [braveApiKey, setBraveApiKey] = useState("");
+  const [apifyApiToken, setApifyApiToken] = useState("");
+  const [searchTestResults, setSearchTestResults] = useState<Record<string, { ok: boolean; hits?: number; sample?: string; error?: string; note?: string } | null>>({});
+  const [searchTesting, setSearchTesting] = useState<Record<string, boolean>>({});
+
+  async function testSearchKey(provider: string, key: string) {
+    setSearchTesting(prev => ({ ...prev, [provider]: true }));
+    setSearchTestResults(prev => ({ ...prev, [provider]: null }));
+    try {
+      const res = await fetch("/api/settings/test-search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ provider, apiKey: key.trim() || undefined }),
+      });
+      const data = await res.json();
+      setSearchTestResults(prev => ({ ...prev, [provider]: data }));
+    } catch (e) {
+      setSearchTestResults(prev => ({ ...prev, [provider]: { ok: false, error: (e as Error).message } }));
+    } finally {
+      setSearchTesting(prev => ({ ...prev, [provider]: false }));
+    }
+  }
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [savedMsg, setSavedMsg] = useState(false);
@@ -65,6 +97,10 @@ export default function SettingsPage() {
         body: JSON.stringify({
           ...(edenApiKey.trim() ? { edenApiKey: edenApiKey.trim() } : {}),
           edenRegion,
+          ...(serperApiKey.trim() ? { serperApiKey: serperApiKey.trim() } : {}),
+          ...(serpApiKey.trim() ? { serpApiKey: serpApiKey.trim() } : {}),
+          ...(braveApiKey.trim() ? { braveApiKey: braveApiKey.trim() } : {}),
+          ...(apifyApiToken.trim() ? { apifyApiToken: apifyApiToken.trim() } : {}),
         }),
       });
       const data = await res.json();
@@ -268,6 +304,74 @@ export default function SettingsPage() {
           <div>1. Case-eigener Eden-Key (falls im Case gesetzt)</div>
           <div>2. Dieser globale Key (verschlüsselt in der DB)</div>
           <div>3. ENV <code className="font-mono">EDEN_API_KEY</code></div>
+        </div>
+
+        {/* Search API Keys */}
+        <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
+          <div className="font-semibold text-gray-700 text-sm flex items-center gap-2">
+            <Globe className="w-4 h-4 text-blue-500" /> Such-APIs (Web + Maps)
+          </div>
+          <div className="text-xs text-gray-500">
+            Keys werden verschlüsselt in der DB gespeichert. Cascade: DB-Key → ENV-Variable.
+          </div>
+          {[
+            { id: "serper", label: "Serper.dev", val: serperApiKey, set: setSerperApiKey, masked: state?.serperApiKeyMasked, env: state?.serperEnvPresent, placeholder: "sk-…", url: "https://serper.dev", badge: "Empfohlen · 2.500 free/Monat", desc: "Google-Suche + Google Places", testProviders: ["serper", "serper-places"] },
+            { id: "serp", label: "SerpApi", val: serpApiKey, set: setSerpApiKey, masked: state?.serpApiKeyMasked, env: state?.serpEnvPresent, placeholder: "…", url: "https://serpapi.com", badge: "100 free/Monat", desc: "Google Maps structured (engine=google_maps)", testProviders: ["serp"] },
+            { id: "brave", label: "Brave Search", val: braveApiKey, set: setBraveApiKey, masked: state?.braveApiKeyMasked, env: state?.braveEnvPresent, placeholder: "BSA…", url: "https://brave.com/search/api", badge: "2.000 free/Monat", desc: "Alternativer Web-Search Layer", testProviders: ["brave"] },
+            { id: "apify", label: "Apify", val: apifyApiToken, set: setApifyApiToken, masked: state?.apifyApiTokenMasked, env: state?.apifyEnvPresent, placeholder: "apify_api_…", url: "https://console.apify.com/settings/integrations", badge: "$1.50/1000 Places", desc: "Google Maps Scraper Actor — kein Rate-Limit, >120 Ergebnisse", testProviders: ["apify"] },
+          ].map(({ id, label, val, set, masked, env, placeholder, url, badge, desc, testProviders }) => (
+            <div key={id} className="space-y-1.5">
+              <div className="flex items-center gap-2">
+                <label className="text-xs font-semibold text-gray-700">{label}</label>
+                <span className="text-[10px] bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded-full">{badge}</span>
+                <span className="text-[10px] text-gray-400">{desc}</span>
+                <a href={url} target="_blank" rel="noopener noreferrer" className="text-[10px] text-blue-500 hover:underline ml-auto">→ Key holen</a>
+              </div>
+              <div className="flex gap-2 items-center">
+                <input
+                  type="password"
+                  value={val}
+                  onChange={(e) => set(e.target.value)}
+                  placeholder={masked ? `Gespeichert: ${masked}` : env ? "In ENV gesetzt" : placeholder}
+                  className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-400"
+                />
+                {(masked || env) && (
+                  <span className={`text-[10px] px-2 py-1 rounded-full font-medium ${masked ? "bg-green-50 text-green-700" : "bg-gray-100 text-gray-500"}`}>
+                    {masked ? "✓ DB" : "ENV"}
+                  </span>
+                )}
+                {testProviders.map(tp => (
+                  <button key={tp} onClick={() => testSearchKey(tp, val)}
+                    disabled={searchTesting[tp] || (!val.trim() && !masked && !env)}
+                    className="px-3 py-1.5 text-xs border border-gray-200 rounded-lg bg-gray-50 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1.5 whitespace-nowrap">
+                    {searchTesting[tp] ? <Loader2 className="w-3 h-3 animate-spin" /> : "▶"}
+                    {tp === "serper-places" ? "Places testen" : "Testen"}
+                  </button>
+                ))}
+              </div>
+              {/* Test results */}
+              {testProviders.map(tp => searchTestResults[tp] && (
+                <div key={tp} className={`text-xs rounded-lg px-3 py-2 flex items-center gap-2 ${searchTestResults[tp]!.ok ? "bg-green-50 border border-green-200 text-green-800" : "bg-red-50 border border-red-200 text-red-700"}`}>
+                  <span>{searchTestResults[tp]!.ok ? "✓" : "✗"}</span>
+                  {searchTestResults[tp]!.ok
+                    ? <span>{searchTestResults[tp]!.hits} Treffer · <em>{searchTestResults[tp]!.sample}</em> · <span className="text-gray-400">{searchTestResults[tp]!.note}</span></span>
+                    : <span>{searchTestResults[tp]!.error}</span>
+                  }
+                </div>
+              ))}
+            </div>
+          ))}
+          <p className="text-[10px] text-gray-400">
+            Leer lassen = Wert wird nicht geändert. Leerstellen eingeben + Speichern = Key löschen.
+          </p>
+          <button
+            onClick={save}
+            disabled={saving}
+            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-50 transition-colors"
+          >
+            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+            {savedMsg ? "Gespeichert ✓" : "Such-Keys speichern"}
+          </button>
         </div>
 
         {/* Navigation to sub-pages */}

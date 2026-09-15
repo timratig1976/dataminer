@@ -20,6 +20,23 @@ function sanitizeForLlm(text: string): string {
   return text.replace(/[\uD800-\uDFFF]/g, "\uFFFD").replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, " ");
 }
 
+/** Remove cookie banners, nav noise, image lines from scraped Impressum content. */
+function filterImpressum(markdown: string): string {
+  return markdown.split("\n").filter(line => {
+    const l = line.trim().toLowerCase();
+    if (l.length === 0) return true;
+    if (l.includes("einwilligungsoptionen") || l.includes("einstellung zum datenschutz")) return false;
+    if (l.includes("cookie") && (l.includes("akzeptier") || l.includes("zustimm") || l.includes("banner") || l.includes("einwillig"))) return false;
+    if (l.includes("datenschutz") && (l.includes("hinweis") || l.includes("erkl") || l.includes("einwillig"))) return false;
+    if (l.includes("dsgvo") || l.includes("gdpr")) return false;
+    if (l.includes("zum inhalt springen") || l.includes("skip to content")) return false;
+    if (/^!\[.*?\]\(https?:\/\//.test(line.trim())) return false;
+    if (l.includes("wp-content/uploads")) return false;
+    if (/^\[.{1,40}\]\(https?:\/\//.test(line.trim()) && line.trim().length < 80) return false;
+    return true;
+  }).join("\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export interface Contact {
@@ -45,6 +62,12 @@ export interface ContactSearchOptions {
 
 export interface ContactSearchResult {
   contacts: Contact[];
+  /** Generic company email (info@, kontakt@ etc.) extracted from impressum — separate from personal emails */
+  companyEmail?: string | null;
+  impressumContent?: string;
+  googleSnippets?: string;
+  linkedinSnippets?: string;
+  systemPrompt?: string;
   tokensUsed?: number;
   costUsd?: number;
   sourcesUsed: string[];
@@ -96,17 +119,18 @@ Antworte NUR mit JSON:
       "phone": "...",
       "linkedin": "..."
     }
-  ]
+  ],
+  "company_email": "..."  // generische Firmen-Email (info@, kontakt@ etc.) falls im Impressum gefunden, sonst null
 }
 
 Regeln:
 - Maximal die Top-3 Entscheider
 - Fehlende Felder: null
 - email: nur direkte Personenemail (nicht info@, nicht kontakt@) — wenn keine persönliche Email, null
+- company_email: falls eine generische Firmen-Email im Impressum steht (info@, kontakt@, mail@, office@) — diese HIER eintragen
 - linkedin: vollständige URL wenn vorhanden, sonst null
 - position: auf Deutsch, kurz (z.B. "Geschäftsführer", "Inhaber", "Vertriebsleiter")
-- Kein Raten — nur was eindeutig aus den Quellen hervorgeht
-- Generische Emails (info@, kontakt@, mail@, office@) → null für die Person, diese gehören zur Firma`;
+- Kein Raten — nur was eindeutig aus den Quellen hervorgeht`;
 
 // ── Main function ─────────────────────────────────────────────────────────────
 
@@ -136,6 +160,9 @@ export async function searchContacts(
   const contextParts: string[] = [];
   const sourcesUsed: string[] = [];
   const sourceUrls: string[] = [];
+  let impressumContent: string | undefined;
+  let googleSnippets: string | undefined;
+  let linkedinSnippets: string | undefined;
 
   // 1. Scrape Impressum / Kontakt page
   if (scrapeImpressum && domain) {
@@ -147,15 +174,17 @@ export async function searchContacts(
         try {
           const result = await edenScrapeUrl({ apiKey: edenApiKey, url: `${base}${path}` });
           if (result.markdown && result.markdown.length > 200) {
-            impressumText = result.markdown.slice(0, 4000);
+            // filter cookie/nav noise same as batch-enrich
+            impressumText = filterImpressum(result.markdown.slice(0, 4000));
             impressumUrl = `${base}${path}`;
             break;
           }
         } catch { continue; }
       }
       if (impressumText) {
+        impressumContent = impressumText;
         contextParts.push(`## Impressum / Kontaktseite (${domain})\n${impressumText}`);
-        sourcesUsed.push("impressum");
+        sourcesUsed.push(`impressum:${impressumUrl.replace(/^https?:\/\/[^/]+/,"")||`/impressum`}`);
         sourceUrls.push(impressumUrl || `${base}/impressum`);
       }
     } catch { /* ignore */ }
@@ -172,11 +201,11 @@ export async function searchContacts(
         maxResults: 5,
       });
       if (resp.results.length > 0) {
-        const snippets = resp.results
+        googleSnippets = resp.results
           .map((r, i) => `[${i + 1}] ${r.title}\n${r.snippet}`)
           .join("\n\n");
-        contextParts.push(`## Google-Suche: Entscheider\n${snippets}`);
-        sourcesUsed.push("google_management");
+        contextParts.push(`## Google-Suche: Entscheider\n${googleSnippets}`);
+        sourcesUsed.push("google");
         resp.results.slice(0, 3).forEach(r => sourceUrls.push(r.url));
       }
     } catch { /* ignore */ }
@@ -193,14 +222,14 @@ export async function searchContacts(
         maxResults: 5,
       });
       if (resp.results.length > 0) {
-        const snippets = resp.results
-          .filter(r => r.url.includes("linkedin.com"))
-          .map((r, i) => `[${i + 1}] ${r.title}\nURL: ${r.url}\n${r.snippet}`)
-          .join("\n\n");
-        if (snippets) {
-          contextParts.push(`## LinkedIn-Profile\n${snippets}`);
+        const filtered = resp.results.filter(r => r.url.includes("linkedin.com"));
+        if (filtered.length > 0) {
+          linkedinSnippets = filtered
+            .map((r, i) => `[${i + 1}] ${r.title}\nURL: ${r.url}\n${r.snippet}`)
+            .join("\n\n");
+          contextParts.push(`## LinkedIn-Profile\n${linkedinSnippets}`);
           sourcesUsed.push("linkedin");
-          resp.results.filter(r => r.url.includes("linkedin.com")).slice(0, 3).forEach(r => sourceUrls.push(r.url));
+          filtered.slice(0, 3).forEach(r => sourceUrls.push(r.url));
         }
       }
     } catch { /* ignore */ }
@@ -261,8 +290,16 @@ export async function searchContacts(
         source: sourcesUsed.join("+"),
       }));
 
+    // Extract generic company email as separate fallback
+    const companyEmail: string | null = (parsed as { company_email?: string | null }).company_email ?? null;
+
     return {
       contacts,
+      companyEmail,
+      impressumContent,
+      googleSnippets,
+      linkedinSnippets,
+      systemPrompt: CONTACT_SYSTEM_PROMPT,
       tokensUsed: resp.tokens?.total,
       costUsd: resp.costUsd,
       sourcesUsed,

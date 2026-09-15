@@ -6,6 +6,7 @@ import {
   resolveEdenKey,
   resolveEdenRegion,
   getExistingDomains,
+  resolveSearchKeys,
 } from "@/lib/db";
 import { discoverySearch, hitToSeedRow, normalizeDomain, type DiscoverySource } from "@/lib/discovery";
 import { expandQueryForRegion, detectRegion, getCitiesForRegion } from "@/lib/regions";
@@ -64,7 +65,10 @@ export async function POST(
     const mapQuery = body.mapQuery ?? "";
     if (!mapQuery.trim()) return NextResponse.json({ error: "mapQuery required for maps mode" }, { status: 400 });
 
-    const serpApiKey = process.env.SERP_API_KEY;
+    const searchKeys = await resolveSearchKeys();
+    const serpApiKey = searchKeys.serpApiKey;
+    const serperApiKey = searchKeys.serperApiKey;
+    const apifyApiToken = searchKeys.apifyApiToken;
     const scraplingUrl = process.env.SCRAPLING_URL ?? "http://127.0.0.1:8001";
     const scraplingToken = process.env.SCRAPLING_TOKEN ?? "";
 
@@ -88,9 +92,11 @@ export async function POST(
       const t0 = Date.now();
       const resp = await mapsSearch({
         query,
-        provider: serpApiKey ? "maps-serpapi" : "maps-scrapling",
+        provider: serpApiKey ? "maps-serpapi" : serperApiKey ? "maps-serper" : apifyApiToken ? "maps-apify" : "maps-scrapling",
         limit: body.limit ?? 20,
         serpApiKey,
+        serperApiKey,
+        apifyApiToken,
         scraplingUrl,
         scraplingToken,
         excludeDomains: [...existingSet],
@@ -154,8 +160,10 @@ export async function POST(
   // ── Resolve API keys ──────────────────────────────────────────────────────
 
   const edenKey = await resolveEdenKey(caseData);
-  const serpApiKey = process.env.SERP_API_KEY;
-  const braveApiKey = process.env.BRAVE_API_KEY;
+  const sk2 = await resolveSearchKeys();
+  const serpApiKey = sk2.serpApiKey;
+  const serperApiKey2 = sk2.serperApiKey;
+  const braveApiKey = sk2.braveApiKey;
   const scraplingUrl = process.env.SCRAPLING_URL ?? "http://127.0.0.1:8001";
 
   // ── Load existing domains for dedupe ─────────────────────────────────────
@@ -179,6 +187,7 @@ export async function POST(
       excludeDomains: [...existingSet],
       serpApiKey,
       braveApiKey,
+      serperApiKey: serperApiKey2,
       edenApiKey: edenKey ?? undefined,
       scraplingUrl,
     });

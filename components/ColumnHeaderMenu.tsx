@@ -39,49 +39,49 @@ export function ColumnHeaderMenu({ column, onRunAll, onRunEmptyOnly, onDelete, o
       </button>
 
       {open && (
-        <div className="absolute top-full left-0 mt-1 w-44 bg-white border border-gray-200 rounded-lg shadow-lg z-50 py-1 text-sm">
+        <div className="absolute top-full left-0 mt-1 min-w-[220px] bg-white border border-gray-200 rounded-lg shadow-lg z-50 py-1 text-sm">
           {isRunning && onStop && (
             <button
               onMouseDown={(e) => e.stopPropagation()}
               onClick={(e) => { e.stopPropagation(); onStop(); setOpen(false); }}
-              className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-red-50 text-red-600"
+              className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-red-50 text-red-600 whitespace-nowrap"
             >
-              <XCircle className="w-3.5 h-3.5" />
-              Stop column run
+              <XCircle className="w-3.5 h-3.5 shrink-0" />
+              Spalte stoppen
             </button>
           )}
           <button
             onMouseDown={(e) => e.stopPropagation()}
             onClick={(e) => { e.stopPropagation(); onRunAll(); setOpen(false); }}
-            className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-gray-50 text-gray-700"
+            className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-gray-50 text-gray-700 whitespace-nowrap"
           >
-            <Play className="w-3.5 h-3.5 text-violet-500" />
-            Run column (all forced)
+            <Play className="w-3.5 h-3.5 text-violet-500 shrink-0" />
+            Alle ausführen (überschreiben)
           </button>
           <button
             onMouseDown={(e) => e.stopPropagation()}
             onClick={(e) => { e.stopPropagation(); onRunEmptyOnly(); setOpen(false); }}
-            className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-gray-50 text-gray-700"
+            className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-gray-50 text-gray-700 whitespace-nowrap"
           >
-            <Play className="w-3.5 h-3.5 text-violet-500" />
-            Run only empty/notFound
+            <Play className="w-3.5 h-3.5 text-violet-500 shrink-0" />
+            Nur leere Zellen füllen
           </button>
           <button
             onMouseDown={(e) => e.stopPropagation()}
             onClick={(e) => { e.stopPropagation(); onEdit(); setOpen(false); }}
-            className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-gray-50 text-gray-700"
+            className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-gray-50 text-gray-700 whitespace-nowrap"
           >
-            <Pencil className="w-3.5 h-3.5 text-gray-400" />
-            Edit prompt
+            <Pencil className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+            Prompt bearbeiten
           </button>
           <div className="border-t border-gray-100 my-1" />
           <button
             onMouseDown={(e) => e.stopPropagation()}
-            onClick={(e) => { e.stopPropagation(); if (confirm(`Delete column "${column.name}"?`)) { onDelete(); } setOpen(false); }}
-            className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-red-50 text-red-500"
+            onClick={(e) => { e.stopPropagation(); if (confirm(`Spalte "${column.name}" löschen?`)) { onDelete(); } setOpen(false); }}
+            className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-red-50 text-red-500 whitespace-nowrap"
           >
-            <Trash2 className="w-3.5 h-3.5" />
-            Delete column
+            <Trash2 className="w-3.5 h-3.5 shrink-0" />
+            Spalte löschen
           </button>
         </div>
       )}

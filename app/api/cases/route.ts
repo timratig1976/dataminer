@@ -27,7 +27,7 @@ export async function POST(req: NextRequest) {
 
     // Resolve template if specified; default to "standard" unless explicitly
     // opted out via template: null or template: "none" (Leerer Case)
-    let aiColumns = body.aiColumns || [];
+    let aiColumns: import("@/lib/types").AiColumn[] = body.aiColumns || [];
     let colOrder: string[] = [];
     if (!body.aiColumns) {
       const templateId = body.template === undefined ? "standard" : body.template;
@@ -40,9 +40,10 @@ export async function POST(req: NextRequest) {
           const outputKeys = (tpl.baseColumns ?? []).slice(2).map((c) => c.outputKey);   // rest
           const batchCompany = aiColumns.find((c) => c.tool === "batch_enrich");
           const batchContacts = aiColumns.find((c) => c.tool === "batch_contacts");
+          // batch_enrich column first (derives company_name), then input, then output
           colOrder = [
-            ...inputKeys,
             ...(batchCompany ? [batchCompany.outputKey] : []),
+            ...inputKeys,
             ...outputKeys,
             ...(batchContacts ? [batchContacts.outputKey] : []),
           ];

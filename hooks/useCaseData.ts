@@ -65,9 +65,21 @@ export function useCaseData(caseId: string): UseCaseDataReturn {
       const allMultiKeys = c.aiColumns.flatMap((col: AiColumn) =>
         (col.multiKeys ?? []).map((mk: { outputKey: string }) => mk.outputKey)
       );
+
+      // Hidden field patterns — stored for export/detail but not shown as table columns
+      const HIDDEN_PATTERNS = [
+        /^contact_\d+_/,          // contact_1_first_name, contact_2_email, etc.
+        /^email_extrapolated$/,    // shown inside contacts cell, not as own column
+        /^email_fallback$/,
+        /^company_email$/,
+        /^data_quality$/,
+      ];
+      const isHidden = (k: string) => k.startsWith("_") || HIDDEN_PATTERNS.some(p => p.test(k));
+
       const allDataKeys = Object.keys(r[0].data).filter((k: string) => !k.startsWith("_"));
-      const srcKeys = allDataKeys.filter((k: string) => !aiKeys.includes(k) && !allMultiKeys.includes(k));
-      const orphanKeys = allDataKeys.filter((k: string) => !srcKeys.includes(k) && !aiKeys.includes(k));
+      const allVisibleKeys = Object.keys(r[0].data).filter((k: string) => !isHidden(k));
+      const srcKeys = allVisibleKeys.filter((k: string) => !aiKeys.includes(k) && !allMultiKeys.includes(k));
+      const orphanKeys = allVisibleKeys.filter((k: string) => !srcKeys.includes(k) && !aiKeys.includes(k));
 
       // Discovery meta-columns: always pinned at the start of source columns
       const DISCOVERY_META = ["search_source", "source_url", "source_domain", "search_query", "source_snippet", "source_title"];
@@ -83,7 +95,7 @@ export function useCaseData(caseId: string): UseCaseDataReturn {
         const base = savedOrder.length > 0 ? savedOrder : [...otherSrcKeys, ...aiKeys, ...orphanKeys, ...metaCols];
         const activeBase = prev.length > 0 ? prev : base;
         const existing = new Set(activeBase);
-        const toAdd = allDataKeys.filter((k: string) => !existing.has(k));
+        const toAdd = allVisibleKeys.filter((k: string) => !existing.has(k));
         return toAdd.length > 0 ? [...activeBase, ...toAdd] : activeBase;
       });
     } else if (c.colOrder?.length) {
@@ -114,18 +126,25 @@ export function useCaseData(caseId: string): UseCaseDataReturn {
   const totals: CaseTotals = (() => {
     let totalTokens = 0;
     let totalCostUsd = 0;
+    let hasEstimatedCosts = false;
     rows.forEach((row) => {
       Object.entries(row.data).forEach(([key, value]) => {
         if (key.startsWith("_llm_tokens_") && typeof value === "string") {
-          try { const t = JSON.parse(value); if (t.total) totalTokens += t.total; } catch { /* skip */ }
+          try {
+            const t = JSON.parse(value);
+            if (t.total) totalTokens += t.total;
+          } catch { /* skip */ }
         }
         if (key.startsWith("_llm_cost_") && typeof value === "string") {
           const c = parseFloat(value);
-          if (!isNaN(c)) totalCostUsd += c;
+          if (!isNaN(c)) {
+            totalCostUsd += c;
+          }
         }
       });
     });
-    return { totalTokens, totalCostUsd, totalCostEur: totalCostUsd * 0.92 };
+    // EUR using current approximate rate (ECB ~0.91)
+    return { totalTokens, totalCostUsd, totalCostEur: totalCostUsd * 0.91 };
   })();
 
   return {

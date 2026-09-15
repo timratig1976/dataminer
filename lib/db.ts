@@ -233,6 +233,14 @@ export interface GlobalSettings {
   edenApiKeyMasked?: string;
   edenRegion: "eu" | "us";
   modelAllowlist: string[];
+  serperApiKey?: string;
+  serperApiKeyMasked?: string;
+  serpApiKey?: string;
+  serpApiKeyMasked?: string;
+  braveApiKey?: string;
+  braveApiKeyMasked?: string;
+  apifyApiToken?: string;
+  apifyApiTokenMasked?: string;
   updatedAt: string;
 }
 
@@ -247,21 +255,45 @@ export async function getGlobalSettings(): Promise<GlobalSettings> {
     .limit(1);
   const row = result[0];
   const key = row ? decryptSecret(row.edenApiKey ?? undefined) : undefined;
+  const serperKey = row ? decryptSecret((row as Record<string,unknown>).serperApiKey as string ?? undefined) : undefined;
+  const serpKey = row ? decryptSecret((row as Record<string,unknown>).serpApiKey as string ?? undefined) : undefined;
+  const braveKey = row ? decryptSecret((row as Record<string,unknown>).braveApiKey as string ?? undefined) : undefined;
+  const apifyToken = row ? decryptSecret((row as Record<string,unknown>).apifyApiToken as string ?? undefined) : undefined;
   return {
     edenApiKey: key,
     edenApiKeyMasked: maskSecret(key),
     edenRegion: row?.edenRegion === "eu" ? "eu" : "us",
     modelAllowlist: (row?.modelAllowlist as string[] | null) ?? [],
+    serperApiKey: serperKey,
+    serperApiKeyMasked: maskSecret(serperKey),
+    serpApiKey: serpKey,
+    serpApiKeyMasked: maskSecret(serpKey),
+    braveApiKey: braveKey,
+    braveApiKeyMasked: maskSecret(braveKey),
+    apifyApiToken: apifyToken,
+    apifyApiTokenMasked: maskSecret(apifyToken),
     updatedAt: row ? toIso(row.updatedAt) : new Date().toISOString(),
   };
 }
 
 /** Save global settings. An undefined/empty key clears the stored key. */
-export async function saveGlobalSettings(patch: { edenApiKey?: string; edenRegion?: "eu" | "us"; modelAllowlist?: string[] }): Promise<GlobalSettings> {
+export async function saveGlobalSettings(patch: {
+  edenApiKey?: string;
+  edenRegion?: "eu" | "us";
+  modelAllowlist?: string[];
+  serperApiKey?: string;
+  serpApiKey?: string;
+  braveApiKey?: string;
+  apifyApiToken?: string;
+}): Promise<GlobalSettings> {
   await initDb();
   const now = new Date();
   const region = patch.edenRegion === "eu" ? "eu" : "us";
   const encrypted = patch.edenApiKey !== undefined ? encryptSecret(patch.edenApiKey) : null;
+  const encSerper = patch.serperApiKey !== undefined ? encryptSecret(patch.serperApiKey) : null;
+  const encSerp = patch.serpApiKey !== undefined ? encryptSecret(patch.serpApiKey) : null;
+  const encBrave = patch.braveApiKey !== undefined ? encryptSecret(patch.braveApiKey) : null;
+  const encApify = patch.apifyApiToken !== undefined ? encryptSecret(patch.apifyApiToken) : null;
   await getDb()
     .insert(settings)
     .values({
@@ -269,6 +301,10 @@ export async function saveGlobalSettings(patch: { edenApiKey?: string; edenRegio
       edenApiKey: encrypted,
       edenRegion: region,
       modelAllowlist: patch.modelAllowlist ?? [],
+      serperApiKey: encSerper,
+      serpApiKey: encSerp,
+      braveApiKey: encBrave,
+      apifyApiToken: encApify,
       updatedAt: now,
     })
     .onConflictDoUpdate({
@@ -277,10 +313,30 @@ export async function saveGlobalSettings(patch: { edenApiKey?: string; edenRegio
         edenApiKey: patch.edenApiKey !== undefined ? encrypted : sql`${settings.edenApiKey}`,
         edenRegion: region,
         modelAllowlist: patch.modelAllowlist !== undefined ? patch.modelAllowlist : sql`${settings.modelAllowlist}`,
+        serperApiKey: patch.serperApiKey !== undefined ? encSerper : sql`${settings.serperApiKey}`,
+        serpApiKey: patch.serpApiKey !== undefined ? encSerp : sql`${settings.serpApiKey}`,
+        braveApiKey: patch.braveApiKey !== undefined ? encBrave : sql`${settings.braveApiKey}`,
+        apifyApiToken: patch.apifyApiToken !== undefined ? encApify : sql`${settings.apifyApiToken}`,
         updatedAt: now,
       },
     });
   return getGlobalSettings();
+}
+
+/** Resolve search API keys: DB → env fallback */
+export async function resolveSearchKeys(): Promise<{
+  serperApiKey?: string;
+  serpApiKey?: string;
+  braveApiKey?: string;
+  apifyApiToken?: string;
+}> {
+  const global = await getGlobalSettings();
+  return {
+    serperApiKey: global.serperApiKey || process.env.SERPER_API_KEY?.trim() || undefined,
+    serpApiKey: global.serpApiKey || process.env.SERP_API_KEY?.trim() || undefined,
+    braveApiKey: global.braveApiKey || process.env.BRAVE_API_KEY?.trim() || undefined,
+    apifyApiToken: global.apifyApiToken || process.env.APIFY_API_TOKEN?.trim() || undefined,
+  };
 }
 
 /**

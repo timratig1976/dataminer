@@ -20,10 +20,13 @@ export type DiscoverySource =
   | "auto"
   | "firecrawl"
   | "serpapi"
+  | "serper"
   | "brave"
   | "duckduckgo"
   | "scrapling"
   | "maps-serpapi"
+  | "maps-serper"
+  | "maps-apify"
   | "maps-scrapling";
 
 export const MAX_DISCOVERY_LIMIT = 100;
@@ -34,6 +37,7 @@ export interface DiscoveryOptions {
   /** URLs/domains already present in the case — hits are flagged as duplicates */
   excludeDomains?: string[];
   serpApiKey?: string;
+  serperApiKey?: string;
   braveApiKey?: string;
   scraplingUrl?: string;
   scraplingToken?: string;
@@ -63,6 +67,8 @@ export interface DiscoverySearchResponse {
   query: string;
   latencyMs: number;
   error?: string;
+  /** Eden/Firecrawl cost when applicable (0 for free layers) */
+  costUsd?: number;
 }
 
 // ── Domain helpers ───────────────────────────────────────────────────────────
@@ -124,11 +130,12 @@ export async function discoverySearch(
     limit = 30,
     excludeDomains = [],
     serpApiKey,
+    serperApiKey,
     braveApiKey,
     scraplingUrl,
     scraplingToken,
     edenApiKey,
-    firecrawlDepth = "deep",  // default: deep for discovery — more results per query
+    firecrawlDepth = "deep",
   } = options;
 
   if (!query.trim()) throw new Error("empty query");
@@ -150,6 +157,7 @@ export async function discoverySearch(
     try {
       const resp = await webSearch(query, {
         serpApiKey,
+        serperApiKey,
         braveApiKey,
         scraplingUrl,
         scraplingToken,
@@ -166,6 +174,7 @@ export async function discoverySearch(
           source: resp.source,
           query: resp.query,
           latencyMs: Date.now() - t0,
+          costUsd: resp.costUsd,
         };
       }
       lastError = resp.error ?? "no results";

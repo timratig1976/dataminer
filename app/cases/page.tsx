@@ -147,10 +147,13 @@ export default function CasesPage() {
                   autoFocus
                   value={newName}
                   onChange={(e) => setNewName(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && createCase()}
+                  onKeyDown={(e) => e.key === "Enter" && newName.trim() && createCase()}
                   placeholder="z.B. Heizung Firmen Q1"
-                  className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500"
+                  className={`mt-1 w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 ${newName.length > 0 && !newName.trim() ? "border-red-400 bg-red-50" : "border-gray-300"}`}
                 />
+                {newName.length > 0 && !newName.trim() && (
+                  <p className="text-xs text-red-500 mt-1">Name darf nicht nur aus Leerzeichen bestehen</p>
+                )}
               </div>
 
               {/* Template picker */}
@@ -210,8 +213,8 @@ export default function CasesPage() {
 
             </div>
             <div className="flex gap-2 mt-5">
-              <button onClick={createCase} className="flex-1 bg-violet-600 text-white py-2.5 rounded-lg text-sm font-medium hover:bg-violet-700">
-                Erstellen
+              <button onClick={createCase} disabled={!newName.trim()} className="flex-1 bg-violet-600 text-white py-2.5 rounded-lg text-sm font-medium hover:bg-violet-700 disabled:opacity-40 disabled:cursor-not-allowed">
+                {newName.trim() ? "Erstellen" : "Name eingeben…"}
               </button>
               <button onClick={() => { setCreating(false); setNewName(""); setSelectedTemplateId("standard"); }} className="flex-1 border border-gray-300 text-gray-700 py-2.5 rounded-lg text-sm font-medium hover:bg-gray-50">
                 Abbrechen

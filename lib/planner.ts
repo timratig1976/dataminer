@@ -23,8 +23,9 @@ export type PlanStepType =
   | "google_search"       // single query
   | "multi_search"        // query × N cities (region expansion)
   | "google_maps"         // maps search in a location
-  | "catalog_scrape"      // paginated catalog page
-  | "directory_search";   // firecrawl restricted to German business directories
+  | "catalog_scrape"      // paginated catalog page (link extractor)
+  | "catalog_deep_crawl" // auto-injected: deep crawl a discovered catalog row
+  | "directory_search";  // firecrawl restricted to German business directories
 
 export interface PlanStep {
   id: string;
@@ -75,41 +76,58 @@ function buildSystemPrompt(availableKeys: Record<string, boolean>): string {
     .join(", ");
 
   return `Du bist ein Web-Research-Planer für B2B-Datenrecherche.
-Erstelle einen optimalen Crawling-Plan als kompaktes JSON.
+Erstelle einen optimalen Discovery-Plan als kompaktes JSON.
 
 Verfügbare API-Keys: ${keysInfo}
 
-Verfügbare Strategien:
-- google_search: Einzelne Google-Suchanfrage (bis 30 Treffer)
-- multi_search: Template mit {city}-Platzhalter → wird für jede Stadt einer Region expandiert
-- google_maps: Lokale Firmensuche via Google Maps (besonders gut für Handwerksbetriebe)
-- catalog_scrape: Katalogseite mit Pagination scrapen (gelbeseiten, wlw, 11880, branchenverzeichnis)
+═══ PIPELINE-STRATEGIE (in dieser Reihenfolge!) ═══
+
+STUFE 1 — DISCOVERY (parallel, so viele Quellen wie möglich):
+1a. google_maps  → PRIMARY für lokale Dienstleister (Handwerk, Bau, Energie, Gastronomie etc.)
+    - Präziseste Quelle für echte Firmendaten, direkt strukturiert
+    - IMMER planen wenn branchenspezifische lokale Suche
+    - estimatedHits: 20-80 pro Location-Query
+    priority: 1
+
+1b. catalog_scrape → ALS LINK-EXTRAKTOR (NICHT als Zieldomain scrapen!)
+    - Katalogseiten wie Gelbe Seiten, WLW, 11880 enthalten Links zu den echten Firmenwebsites
+    - Der Scraper extrahiert: Firmenname + verlinkte eigene Website → diese wird als Lead importiert
+    - Firmen ohne eigene Website → Katalogeintrag als Fallback, niedrigere Qualität
+    - Kataloge decken Coverage-Lücken (Firmen ohne Google-Präsenz)
+    - estimatedHits: 20-200 pro Katalog-Seite
+    priority: 1
+
+1c. multi_search / google_search → ERGÄNZEND für Long-Tail-Treffer
+    - Für Firmen die weder Maps noch Kataloge erfassen
+    - multi_search mit {city}-Template wenn Region bekannt
+    - estimatedHits: 5-30 pro Query
+    priority: 3
+
+═══ ENTSCHEIDUNGSREGELN ═══
+1. Region erkannt + lokale Branche → google_maps ZUERST (priority 1), dann Kataloge (priority 1), dann multi_search (priority 3)
+2. Kataloge: 2-3 relevante Kataloge einplanen (gelbeseiten.de, wlw.de, 11880.com sind Standard für DE)
+3. google_maps: Pro Region mindestens 1 Maps-Step, für große Regionen mehrere Städte als separate Steps
+4. google_search / multi_search: Nur als Ergänzung, nicht als primäre Quelle
+5. Maximal 15 Steps total
+6. estimatedHits realistisch (Maps: 20-80, Katalog: 30-150, Google: 5-25)
 
 Bekannte Kataloge: ${Object.keys(CATALOG_DOMAINS).join(", ")}
-
-Regeln:
-1. Wenn Region erkannt → multi_search mit {city}-Template bevorzugen (effizienter als viele Einzel-Queries)
-2. Katalog-Scraping vor Google-Search wenn Katalog passend → mehr strukturierte Daten, weniger Queries
-3. google_maps immer für lokale Dienstleister (Handwerk, Bau, Energie, etc.) zusätzlich einplanen
-4. Maximal 15 Steps im Plan
-5. estimatedHits: realistische Schätzung (Google: 5-30, Maps: 10-50, Katalog: 20-200 pro Seite)
-6. priority: 1=zuerst (Kataloge), 2=Maps, 3=Google Search (als Ergänzung)
 
 Antworte NUR mit JSON (kein Markdown, keine Erklärungen):
 {
   "goal": "Kurze Zusammenfassung was gesucht wird",
   "steps": [
     {
-      "type": "multi_search|google_search|google_maps|catalog_scrape",
+      "type": "google_maps|catalog_scrape|multi_search|google_search",
       "label": "Menschenlesbarer Step-Name",
       "query": "...",           // für google_search
       "queryTemplate": "...",   // für multi_search (muss {city} enthalten)
       "region": "mv|nrw|by|...",// für multi_search
       "mapQuery": "...",        // für google_maps
-      "location": "...",        // für google_maps
-      "url": "...",             // für catalog_scrape
-      "extractionPrompt": "...",// für catalog_scrape
-      "maxPages": 5,            // für catalog_scrape
+      "location": "...",        // für google_maps (Stadt oder Region)
+      "url": "...",             // für catalog_scrape (Katalog-Suchergebnis-URL mit Branche+Region)
+      "extractionPrompt": "Extrahiere: Firmenname, Website-URL (eigene Domain, NICHT die Katalog-Domain), Telefon, Adresse", // für catalog_scrape
+      "maxPages": 3,            // für catalog_scrape
       "source": "auto",
       "estimatedHits": 30,
       "priority": 1
@@ -210,23 +228,45 @@ export async function createDiscoveryPlan(
     };
   }
 
-  // Expand multi_search steps with city queries
+  // Expand multi_search steps: one google_search step per city (visible, cancellable, loggable)
+  const expandedSteps: PlanStep[] = [];
+  let stepCounter = 0;
+
   for (const step of plan.steps) {
     if (step.type === "multi_search" && step.queryTemplate) {
       const regionKey = step.region ?? detectedRegion ?? "";
       const cities = getCitiesForRegion(regionKey);
       if (cities.length > 0) {
-        step.queries = cities.map((city) =>
-          step.queryTemplate!.replace(/\{city\}/g, city)
-        );
-        step.estimatedHits = cities.length * 15;
+        // Split into individual google_search steps — one per city
+        for (const city of cities) {
+          stepCounter++;
+          expandedSteps.push({
+            id: `step_${stepCounter}`,
+            type: "google_search",
+            label: `${step.label} — ${city}`,
+            query: step.queryTemplate.replace(/\{city\}/g, city),
+            source: step.source ?? "auto",
+            estimatedHits: 15,
+            priority: step.priority,
+          });
+        }
       } else {
-        // Downgrade to single search
-        step.type = "google_search";
-        step.query = step.queryTemplate.replace(/\{city\}/g, "").trim();
+        // No cities for region — downgrade to single search
+        stepCounter++;
+        expandedSteps.push({
+          ...step,
+          id: `step_${stepCounter}`,
+          type: "google_search",
+          query: step.queryTemplate.replace(/\{city\}/g, "").trim(),
+        });
       }
+    } else {
+      stepCounter++;
+      expandedSteps.push({ ...step, id: `step_${stepCounter}` });
     }
   }
+
+  plan.steps = expandedSteps;
 
   // Recalculate total
   plan.estimatedRows = plan.steps.reduce((s, step) => s + step.estimatedHits, 0);
@@ -258,17 +298,22 @@ Verfügbare API-Keys: ${keysInfo}
 
 Bekannte Kataloge: ${Object.keys(CATALOG_DOMAINS).join(", ")}
 
-Entscheidungsregeln:
-1. Steps mit hohem Ertrag (unique/estimated > 0.3) → mehr davon (mehr Städte, weitere Kataloge)
-2. Steps mit keinem/niedrigem Ertrag → verwerfen, NICHT wiederholen
-3. google_maps besonders für lokale Dienstleister (Handwerk, Bau, Energie)
-4. Bei breiten Suchen: multi_search mit {city} expandieren
-5. Maximal 10 neue Steps vorschlagen
-6. estimatedHits realistisch (5-200 je nach Typ)
+═══ PIPELINE-STRATEGIE für Erweiterungsrunden ═══
+WICHTIG: Katalogseiten sind LINK-EXTRAKTOREN — wir scrapen die Katalogseite und extrahieren
+die verlinkten Firmenwebsites daraus. Nicht die Katalog-URL selbst importieren.
+
+Erweiterungsregeln:
+1. google_maps zuerst (priority 1): Wenn noch nicht alle Städte/Stadtteile abgedeckt, weitere Maps-Steps
+2. catalog_scrape (priority 1): Weitere Katalog-Seiten (andere Kataloge oder nächste Seiten)
+   - extractionPrompt: "Extrahiere Firmenname + eigene Website-URL (NICHT Katalog-Domain), Telefon, Adresse"
+3. Steps mit hohem Ertrag (>30%) → mehr davon (mehr Städte, weitere Kataloge)
+4. Steps mit null/niedrigem Ertrag (<5%) → NICHT wiederholen, anderen Typ versuchen
+5. multi_search / google_search nur als letzte Ergänzung (priority 3)
+6. Maximal 10 neue Steps vorschlagen
 
 Antworte NUR mit JSON:
 {
-  "steps": [ ... wie üblich ... ],
+  "steps": [ ... wie üblich, mit allen Feldern (type/label/mapQuery/url/query etc.) ... ],
   "estimatedRows": 150,
   "warnings": []
 }`;

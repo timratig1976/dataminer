@@ -2,19 +2,26 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Plus, X, ChevronUp, ChevronDown, RotateCcw, Check } from "lucide-react";
+import { ArrowLeft, Plus, X, ChevronUp, ChevronDown, RotateCcw, Check, Info, Search } from "lucide-react";
 
 const DEFAULT_MODELS = [
-  { id: "openai/gpt-4o-mini", label: "GPT-4o Mini", provider: "OpenAI", note: "Schnell · günstig · Standard" },
-  { id: "openai/gpt-4o", label: "GPT-4o", provider: "OpenAI", note: "Leistungsstark · teurer" },
-  { id: "anthropic/claude-3-5-haiku-latest", label: "Claude 3.5 Haiku", provider: "Anthropic", note: "Schnell · EU-fähig" },
-  { id: "anthropic/claude-sonnet-4-5", label: "Claude Sonnet 4.5", provider: "Anthropic", note: "Stark · EU-fähig" },
-  { id: "mistral/mistral-small-latest", label: "Mistral Small", provider: "Mistral", note: "EU-fähig · günstig" },
-  { id: "mistral/mistral-large-latest", label: "Mistral Large", provider: "Mistral", note: "EU-fähig · leistungsstark" },
-  { id: "google/gemini-flash-latest", label: "Gemini Flash", provider: "Google", note: "Sehr schnell · EU-fähig" },
-  { id: "google/gemini-pro-latest", label: "Gemini Pro", provider: "Google", note: "Leistungsstark · EU-fähig" },
-  { id: "meta/llama3.3-70b", label: "Llama 3.3 70B", provider: "Meta", note: "Open-Source · günstig" },
-  { id: "meta/gpt-oss-120b", label: "GPT OSS 120B", provider: "Meta", note: "Groß · Open-Source" },
+  { id: "openai/gpt-4o-mini", label: "GPT-4o Mini", provider: "OpenAI", note: "Schnell · günstig · Standard", costPer1kPrompt: "$0.00015", costPer1kOutput: "$0.00060" },
+  { id: "openai/gpt-4o", label: "GPT-4o", provider: "OpenAI", note: "Leistungsstark · teurer", costPer1kPrompt: "$0.0025", costPer1kOutput: "$0.010" },
+  { id: "anthropic/claude-3-5-haiku-latest", label: "Claude 3.5 Haiku", provider: "Anthropic", note: "Schnell · EU-fähig", costPer1kPrompt: "$0.0010", costPer1kOutput: "$0.0050" },
+  { id: "anthropic/claude-sonnet-4-5", label: "Claude Sonnet 4.5", provider: "Anthropic", note: "Stark · EU-fähig", costPer1kPrompt: "$0.0030", costPer1kOutput: "$0.015" },
+  { id: "mistral/mistral-small-latest", label: "Mistral Small", provider: "Mistral", note: "EU-fähig · günstig", costPer1kPrompt: "$0.0002", costPer1kOutput: "$0.0006" },
+  { id: "mistral/mistral-large-latest", label: "Mistral Large", provider: "Mistral", note: "EU-fähig · leistungsstark", costPer1kPrompt: "$0.0020", costPer1kOutput: "$0.0060" },
+  { id: "google/gemini-flash-latest", label: "Gemini Flash", provider: "Google", note: "Sehr schnell · EU-fähig", costPer1kPrompt: "$0.000075", costPer1kOutput: "$0.0003" },
+  { id: "google/gemini-pro-latest", label: "Gemini Pro", provider: "Google", note: "Leistungsstark · EU-fähig", costPer1kPrompt: "$0.00125", costPer1kOutput: "$0.0050" },
+  { id: "meta/llama3.3-70b", label: "Llama 3.3 70B", provider: "Meta", note: "Open-Source · günstig", costPer1kPrompt: "$0.0003", costPer1kOutput: "$0.0006" },
+  { id: "meta/gpt-oss-120b", label: "GPT OSS 120B", provider: "Meta", note: "Groß · Open-Source", costPer1kPrompt: "$0.0005", costPer1kOutput: "$0.0010" },
+];
+
+const FIRECRAWL_COSTS = [
+  { name: "Web-Suche (basic)", desc: "1–10 Ergebnisse", costPerCall: "$0.001/Ergebnis" },
+  { name: "Web-Suche (deep)", desc: "Mehr Ergebnisse, Seiten scrapen", costPerCall: "$0.003/Ergebnis" },
+  { name: "Seite scrapen", desc: "Einzelne URL → Markdown", costPerCall: "$0.001–0.003/Seite" },
+  { name: "Katalog scrapen", desc: "Paginierte Katalogseite", costPerCall: "$0.002–0.005/Seite" },
 ];
 
 const PROVIDER_COLORS: Record<string, string> = {
@@ -162,7 +169,11 @@ export default function ModelsSettingsPage() {
                       </span>
                     </div>
                     <div className="text-xs text-gray-400 font-mono mt-0.5">{m.id}</div>
-                    <div className="text-xs text-gray-500">{m.note}</div>
+                    <div className="text-xs text-gray-500 flex items-center gap-3 flex-wrap">
+                      <span>{m.note}</span>
+                      <span className="text-violet-600 font-medium" title="pro 1K Input-Tokens">{m.costPer1kPrompt} / 1K in</span>
+                      <span className="text-indigo-600 font-medium" title="pro 1K Output-Tokens">{m.costPer1kOutput} / 1K out</span>
+                    </div>
                   </div>
                 </label>
               );
@@ -223,6 +234,27 @@ export default function ModelsSettingsPage() {
         )}
 
         {error && <p className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{error}</p>}
+
+        {/* ── Firecrawl / Scraping-Kosten ── */}
+        <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-3">
+          <div className="flex items-center gap-2">
+            <Search className="w-4 h-4 text-amber-500" />
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Scraping & Discovery (Firecrawl via Eden AI)</p>
+          </div>
+          <p className="text-xs text-gray-400">
+            Diese Kosten fallen bei Web-Suche, Seiten-Scraping und Katalog-Crawling an — unabhängig vom gewählten LLM-Modell.
+            Firecrawl ist nur auf dem <b>US-Endpunkt</b> verfügbar.
+          </p>
+          <div className="grid grid-cols-2 gap-2">
+            {FIRECRAWL_COSTS.map((fc) => (
+              <div key={fc.name} className="p-3 bg-amber-50 rounded-lg border border-amber-100">
+                <div className="text-sm font-medium text-gray-800">{fc.name}</div>
+                <div className="text-xs text-gray-500">{fc.desc}</div>
+                <div className="text-xs font-semibold text-amber-700 mt-1">{fc.costPerCall}</div>
+              </div>
+            ))}
+          </div>
+        </div>
 
         {/* Actions */}
         <div className="flex items-center gap-3">

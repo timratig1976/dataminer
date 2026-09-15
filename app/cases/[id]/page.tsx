@@ -43,14 +43,23 @@ const COL_LABELS: Record<string, string> = {
   last_name: "Nachname",
   position: "Position",
   linkedin: "LinkedIn",
+  // Batch AI columns
+  _batch_firmendaten: "Firmendaten",
+  _batch_kontakte: "Entscheider",
+  _batch_status: "Anreicherung",
 };
 
-function colLabel(key: string): string {
-  return COL_LABELS[key] ?? key;
+/** Strip leading emoji + trim for compact display in column header */
+function shortColName(name: string): string {
+  return name.replace(/^[\p{Emoji}\s]+/u, "").trim();
 }
 
 
 // ── Inline Settings Panel ─────────────────────────────────────────────────────
+function colLabel(key: string): string {
+  return COL_LABELS[key] ?? key;
+}
+
 function SettingsPanel({ caseId, onCaseUpdated }: { caseId: string; onCaseUpdated: (c: Case) => void }) {
   // Use shared context — avoids re-fetching case data that CasePage already has
   const ctx = useContext(CaseContext);
@@ -439,6 +448,44 @@ function EmailExtrapolateButton({ caseId, onDone }: { caseId: string; onDone: ()
   );
 }
 
+function ReflagCatalogsButton({ caseId, onDone }: { caseId: string; onDone: () => void }) {
+  const [state, setState] = useState<"idle" | "running" | "done">("idle");
+  const [result, setResult] = useState<{ flagged: number; promoted: number; learnedDomains: string[] } | null>(null);
+
+  async function run() {
+    setState("running");
+    try {
+      const res = await fetch(`/api/cases/${caseId}/reflag-catalogs`, { method: "POST" });
+      const data = await res.json();
+      setResult(data);
+      setState("done");
+      onDone();
+    } catch { setState("idle"); }
+  }
+
+  if (state === "running") return (
+    <div style={{display:"flex",alignItems:"center",gap:5,padding:"4px 9px",border:"1px solid #d1d5db",borderRadius:5,background:"#f9fafb",fontSize:12,color:"#6b7280"}}>
+      <Loader2 style={{width:10,height:10}} className="animate-spin"/> Prüfe Rows…
+    </div>
+  );
+
+  if (state === "done" && result) return (
+    <button onClick={() => setState("idle")}
+      title={result.learnedDomains.length > 0 ? `Gelernt: ${result.learnedDomains.join(", ")}` : ""}
+      style={{display:"flex",alignItems:"center",gap:5,padding:"4px 9px",border:"1px solid #bbf7d0",borderRadius:5,background:"#f0fdf4",cursor:"pointer",fontSize:12,color:"#166534"}}>
+      ✓ {result.flagged} geflaggt{result.learnedDomains.length > 0 ? ` · ${result.learnedDomains.length} gelernt` : ""}
+    </button>
+  );
+
+  return (
+    <button onClick={run}
+      title="Alle Rows prüfen — bekannte Katalogseiten als solche markieren und in den Quellen-Tab verschieben"
+      style={{display:"flex",alignItems:"center",gap:5,padding:"4px 9px",border:"1px solid #d1d5db",borderRadius:5,background:"#f9fafb",cursor:"pointer",fontSize:12,color:"#374151",fontWeight:500}}>
+      🔍 Kataloge erkennen
+    </button>
+  );
+}
+
 function CatalogDeepCrawlButton({ caseId, onDone, catalogCount }: { caseId: string; onDone: () => void; catalogCount: number }) {
   const [state, setState] = useState<"idle" | "running" | "done">("idle");
   const [stats, setStats] = useState({ done: 0, total: 0, added: 0 });
@@ -591,6 +638,8 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
 
   // ── UI state ──────────────────────────────────────────────────────────────
   const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
+  const [sortBy, setSortBy] = useState<"company_name" | "domain" | null>(null);
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [showAddCol, setShowAddCol] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [showDiscovery, setShowDiscovery] = useState(false);
@@ -621,9 +670,6 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
   const hasColumnGroups = caseData?.aiColumns?.some(c => c.columnGroup);
   // Only show Firmen/Kontakte run-phase buttons for NON-batch columns with explicit groups
   const hasPhaseColumns = caseData?.aiColumns?.some(c => c.columnGroup && !c.tool);
-  useEffect(() => {
-    if (hasColumnGroups && viewMode === "flat") setViewMode("grouped");
-  }, [hasColumnGroups]);
 
   // ── Run logic (via hook) ──────────────────────────────────────────────────
   const {
@@ -732,7 +778,17 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
 
   // Split catalog rows (raw source material) from real data rows
   const catalogRows = rows.filter(r => r.data["is_catalog"] === "true");
-  const dataRows = rows.filter(r => r.data["is_catalog"] !== "true");
+  const baseDataRows = rows.filter(r => r.data["is_catalog"] !== "true");
+  const dataRows = sortBy
+    ? [...baseDataRows].sort((a, b) => {
+        const av = ((a.data[sortBy] ?? "") as string).toLowerCase();
+        const bv = ((b.data[sortBy] ?? "") as string).toLowerCase();
+        // Numeric sort when both values look like numbers
+        const an = parseFloat(av), bn = parseFloat(bv);
+        const cmp = !isNaN(an) && !isNaN(bn) ? an - bn : av.localeCompare(bv, "de");
+        return sortDir === "asc" ? cmp : -cmp;
+      })
+    : baseDataRows;
 
   const totalPages = Math.max(1, Math.ceil(dataRows.length / pageSize));
   const pageRows = dataRows.slice(page * pageSize, (page + 1) * pageSize);
@@ -1008,6 +1064,13 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
 
               {/* Stats pills */}
               <span style={{fontSize:11,color:"#6b7280"}}>{rows.length} Zeilen</span>
+              {selectedRows.size > 0 && (
+                <button onClick={() => setSelectedRows(new Set())}
+                  title="Auswahl aufheben"
+                  style={{fontSize:11,fontWeight:600,color:"#7c3aed",background:"#ede9fe",padding:"1px 7px",borderRadius:8,border:"none",cursor:"pointer"}}>
+                  ✕ {selectedRows.size} abwählen
+                </button>
+              )}
               {doneCount > 0 && <span style={{fontSize:11,fontWeight:600,color:"#15803d",background:"#dcfce7",padding:"1px 7px",borderRadius:8}}>✓ {doneCount}</span>}
               {errorCount > 0 && <span style={{fontSize:11,fontWeight:600,color:"#dc2626",background:"#fee2e2",padding:"1px 7px",borderRadius:8}}>✗ {errorCount}</span>}
               {runningRowIds.size > 0 && <span style={{fontSize:11,color:"#d97706",background:"#fef3c7",padding:"1px 7px",borderRadius:8,display:"flex",alignItems:"center",gap:3}}><Loader2 style={{width:9,height:9}} className="animate-spin"/> {runningRowIds.size}</span>}
@@ -1145,7 +1208,14 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
                 <tr style={{background:"#f9fafb",borderBottom:"1px solid #e5e7eb"}}>
                   <th style={{width:32,padding:"6px 8px",borderRight:"1px solid #e5e7eb"}}>
                     <input type="checkbox" checked={allSelected}
-                      onChange={e => setSelectedRows(e.target.checked ? new Set(rows.map(r=>r.id)) : new Set())}
+                      ref={el => { if (el) el.indeterminate = selectedRows.size > 0 && !allSelected; }}
+                      onChange={() => {
+                        if (selectedRows.size > 0) {
+                          setSelectedRows(new Set()); // any selection → clear all
+                        } else {
+                          setSelectedRows(new Set(dataRows.map(r => r.id))); // none selected → select all
+                        }
+                      }}
                       style={{width:13,height:13,cursor:"pointer"}} />
                   </th>
                   <th style={{width:36,padding:"6px 6px",borderRight:"1px solid #e5e7eb",color:"#9ca3af",fontWeight:400,fontSize:12,textAlign:"center"}}>▼ #</th>
@@ -1186,7 +1256,7 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
                           <GripVertical style={{width:10,height:10,color:"#9ca3af",flexShrink:0}} />
                           {aiCol ? (
                             <ColumnHeaderMenu
-                              column={aiCol}
+                              column={{...aiCol, name: COL_LABELS[aiCol.outputKey] ?? shortColName(aiCol.name)}}
                               onRunAll={() => runColumn(aiCol, "all_force")}
                               onRunEmptyOnly={() => runColumn(aiCol, "empty_only")}
                               onDelete={() => deleteColumn(aiCol.id)}
@@ -1199,6 +1269,14 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
                           ) : (
                             <div className="group/hdr" style={{display:"flex",alignItems:"center",gap:4,width:"100%"}}>
                               <span style={{flex:1}}>{colLabel(key)}</span>
+                              {(key === "company_name" || key === "domain") && (
+                                <button
+                                  onClick={e=>{e.stopPropagation(); if(sortBy===key){setSortDir(d=>d==="asc"?"desc":"asc");}else{setSortBy(key as "company_name"|"domain");setSortDir("asc");}}}
+                                  title={`Nach ${colLabel(key)} sortieren`}
+                                  style={{border:"none",background:"none",cursor:"pointer",padding:"1px 3px",color:sortBy===key?"#7c3aed":"#9ca3af",flexShrink:0,fontSize:10,fontWeight:700}}>
+                                  {sortBy===key ? (sortDir==="asc" ? "↑" : "↓") : "⇅"}
+                                </button>
+                              )}
                               <button
                                 onClick={e=>{e.stopPropagation();deleteSourceColumn(key);}}
                                 className="opacity-0 group-hover/hdr:opacity-100"
@@ -1310,24 +1388,7 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
                             </span>
                           );
                         })()}
-                        {/* Demote: move row to catalog tab */}
-                        <button
-                          onClick={async (e) => {
-                            e.stopPropagation();
-                            await fetch(`/api/rows/${row.id}`, {
-                              method: "PATCH",
-                              headers: { "Content-Type": "application/json" },
-                              body: JSON.stringify({ data: { ...row.data, is_catalog: "true" } }),
-                            });
-                            refresh();
-                          }}
-                          title="Als Katalogseite markieren — in Quellen verschieben"
-                          style={{border:"none",background:"none",cursor:"pointer",padding:"1px 4px",fontSize:9,color:"#d1d5db",display:"block",marginTop:1}}
-                          onMouseEnter={e => (e.currentTarget.style.color = "#6b7280")}
-                          onMouseLeave={e => (e.currentTarget.style.color = "#d1d5db")}
-                        >
-                          📚 Als Katalog
-                        </button>
+                        {/* Demote: move row to catalog tab — now shown in domain cell */}
                       </td>
                       {(colOrder.length > 0 ? colOrder : [...sourceColumns,...caseData.aiColumns.map(c=>c.outputKey)]).map(key => {
                         const aiCol = caseData.aiColumns.find(c=>c.outputKey===key);
@@ -1374,16 +1435,64 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
                                   </>}
 
                                   {/* ── IDLE — click to run ── */}
-                                  {status==="idle" && (
-                                    <span style={{fontSize:11,color:"#c4b5fd",flex:1,display:"flex",alignItems:"center",gap:3}}>
-                                      <Play style={{width:9,height:9}}/> Run
-                                    </span>
-                                  )}
+                                  {status==="idle" && (() => {
+                                    const isBatch = col.tool === "batch_enrich" || col.tool === "batch_contacts";
+                                    const hasInput = !!(row.data["domain"] || row.data["company_name"]);
+                                    const label = col.tool==="batch_enrich"
+                                      ? (row.data["domain"] ? "Anreichern" : "Domain fehlt")
+                                      : col.tool==="batch_contacts"
+                                      ? (hasInput ? "Kontakte suchen" : "Name/Domain fehlt")
+                                      : "Run";
+                                    const noInput = isBatch && !hasInput;
+                                    return (
+                                      <span style={{fontSize:10,flex:1,display:"flex",alignItems:"center",gap:3,overflow:"hidden",
+                                        color: noInput ? "#f59e0b" : isBatch ? "#7c3aed" : "#c4b5fd"}}>
+                                        {isBatch
+                                          ? <span style={{background: noInput?"#fef3c7":"#ede9fe",padding:"1px 6px",borderRadius:4,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                                              {noInput ? "⚠ " : "▶ "}{label}
+                                            </span>
+                                          : <><Play style={{width:9,height:9,flexShrink:0}}/><span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{label}</span></>
+                                        }
+                                      </span>
+                                    );
+                                  })()}
 
                                   {/* ── SKIPPED ── */}
-                                  {status==="skipped" && (
-                                    <span style={{fontSize:11,color:"#d1d5db",flex:1}}>—</span>
-                                  )}
+                                  {status==="skipped" && (() => {
+                                    const isBatch = col.tool === "batch_enrich" || col.tool === "batch_contacts";
+                                    if (!val || val === "") {
+                                      // batch tools: only show run button if truly no data yet
+                                      if (isBatch) {
+                                        const d = row.data as Record<string, string|null>;
+                                        const hasData = col.tool === "batch_enrich"
+                                          ? (col.batchOutputFields ?? ["company_name","domain","phone","company_email","city","industry"]).some(f => d[f] && d[f] !== "")
+                                          : !!(d[`_contacts_json_${col.outputKey}`] || d[`${col.batchContactsPrefix ?? "contact_"}1_first_name`]);
+                                        if (hasData) {
+                                          // data exists in sibling fields — show summary instead
+                                          if (col.tool === "batch_enrich") {
+                                            const filled = (col.batchOutputFields ?? ["company_name","domain","phone","company_email","city","zip","industry","description"]).filter(f => d[f] && d[f] !== "");
+                                            return <span style={{fontSize:10,color:"#7c3aed",background:"#ede9fe",padding:"1px 5px",borderRadius:4,fontWeight:600}}>{filled.length} Felder ✓</span>;
+                                          }
+                                          return <span style={{fontSize:11,color:"#9ca3af",flex:1}}>✓</span>;
+                                        }
+                                        const hasInput = !!(row.data["domain"] || row.data["company_name"]);
+                                        const label = col.tool==="batch_enrich" ? "Anreichern" : "Kontakte suchen";
+                                        return (
+                                          <span style={{fontSize:10,flex:1,display:"flex",alignItems:"center",gap:3,color:"#7c3aed"}}>
+                                            <span style={{background:"#ede9fe",padding:"1px 6px",borderRadius:4,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",opacity:hasInput?1:0.5}}>
+                                              ▶ {label}
+                                            </span>
+                                          </span>
+                                        );
+                                      }
+                                      return <span style={{fontSize:11,color:"#d1d5db",flex:1}} title="Übersprungen — Bedingung nicht erfüllt">—</span>;
+                                    }
+                                    return (
+                                      <span style={{fontSize:11,color:"#9ca3af",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={`Übersprungen (Bedingung) · Wert: ${val}`}>
+                                        {val.split("\n")[0].slice(0,40)}{val.includes("\n") ? " …" : ""}
+                                      </span>
+                                    );
+                                  })()}
 
                                   {/* ── ERROR ── */}
                                   {status==="error" && (
@@ -1394,36 +1503,87 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
 
                                   {/* ── DONE ── */}
                                   {status==="done" && <>
-                                    {notFound && (
-                                      <span style={{fontSize:11,color:"#9ca3af",fontStyle:"italic",flex:1}}>—</span>
-                                    )}
-                                    {isValid && (
-                                      <span style={{fontSize:12,fontWeight:600,color:"#6d28d9",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={val}>{val.slice(2)}</span>
-                                    )}
-                                    {isInvalid && (
-                                      <span style={{fontSize:12,fontWeight:600,color:"#dc2626",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={val}>{val.slice(2)}</span>
-                                    )}
-                                    {val && !isValid && !isInvalid && (() => {
-                                      // Special rendering for batch_contacts column
+                                    {/* batch_contacts: always try to render contact cards first */}
+                                    {aiCol.tool==="batch_contacts" && (() => {
                                       const contactsJsonKey = `_contacts_json_${aiCol.outputKey}`;
                                       const contactsRaw = row.data[contactsJsonKey];
-                                      if (aiCol.tool === "batch_contacts" && contactsRaw) {
-                                        try {
-                                          const contacts: Array<{first_name:string|null; last_name:string|null; position:string|null; email:string|null; phone:string|null}> = JSON.parse(contactsRaw);
-                                          if (contacts.length > 0) return (
-                                            <div style={{flex:1,display:"flex",flexDirection:"column",gap:3,minWidth:0}}>
-                                              {contacts.slice(0,3).map((c, i) => (
-                                                <div key={i} style={{fontSize:11,lineHeight:1.4,borderBottom: i < contacts.length-1 && i < 2 ? "1px solid #f3f4f6" : "none",paddingBottom: i < contacts.length-1 && i < 2 ? 2 : 0}}>
-                                                  <span style={{fontWeight:600,color:"#1e293b"}}>{[c.first_name,c.last_name].filter(Boolean).join(" ")}</span>
-                                                  {c.position && <span style={{color:"#9ca3af",marginLeft:4}}>· {c.position}</span>}
-                                                  {c.email && <div style={{fontSize:10,color:"#2563eb",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.email}</div>}
-                                                </div>
-                                              ))}
-                                              {contacts.length > 3 && <span style={{fontSize:10,color:"#9ca3af"}}>+{contacts.length-3} weitere</span>}
-                                            </div>
-                                          );
-                                        } catch { /* fall through */ }
+                                      const d = row.data as Record<string, string|null>;
+                                      const prefix = aiCol.batchContactsPrefix ?? "contact_";
+                                      type FC = {first_name:string|null;last_name:string|null;position:string|null;email:string|null;phone:string|null;linkedin:string|null};
+                                      let contacts: FC[] = [];
+                                      // parse from JSON summary
+                                      if (contactsRaw) {
+                                        try { contacts = JSON.parse(contactsRaw); } catch { /* ignore */ }
                                       }
+                                      // fallback: reconstruct from flat fields contact_1_*, contact_2_*, ...
+                                      if (contacts.length === 0) {
+                                        for (let n = 1; n <= 5; n++) {
+                                          const fn = d[`${prefix}${n}_first_name`];
+                                          const ln = d[`${prefix}${n}_last_name`];
+                                          if (!fn && !ln) break;
+                                          contacts.push({ first_name: fn??null, last_name: ln??null, position: d[`${prefix}${n}_position`]??null, email: d[`${prefix}${n}_email`]??null, phone: d[`${prefix}${n}_phone`]??null, linkedin: d[`${prefix}${n}_linkedin`]??null });
+                                        }
+                                        // also check legacy flat fields
+                                        if (contacts.length === 0 && (d["first_name"] || d["last_name"])) {
+                                          contacts.push({ first_name: d["first_name"]??null, last_name: d["last_name"]??null, position: d["position"]??null, email: d["contact_email"]??d["email"]??null, phone: d["contact_phone"]??d["phone"]??null, linkedin: d["linkedin"]??null });
+                                        }
+                                      }
+                                      const companyEmail = d["company_email"] ?? d["email_fallback"] ?? "";
+                                      if (contacts.length === 0 && !companyEmail) {
+                                        return <span style={{fontSize:11,color:"#9ca3af",fontStyle:"italic",flex:1}}>—</span>;
+                                      }
+                                      return (
+                                        <div style={{flex:1,display:"flex",flexDirection:"column",gap:3,minWidth:0}}>
+                                          {contacts.slice(0,3).map((c, i) => (
+                                            <div key={i} style={{fontSize:11,lineHeight:1.4,borderBottom: i < Math.min(contacts.length,3)-1 ? "1px solid #f3f4f6" : "none",paddingBottom: i < Math.min(contacts.length,3)-1 ? 2 : 0}}>
+                                              <span style={{fontWeight:600,color:"#1e293b"}}>{[c.first_name,c.last_name].filter(Boolean).join(" ")||"—"}</span>
+                                              {c.position && <span style={{color:"#9ca3af",marginLeft:4,fontSize:10}}>· {c.position}</span>}
+                                              {c.email
+                                                ? <div style={{fontSize:10,color:"#2563eb",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.email}</div>
+                                                : (d[`${prefix}${i+1}_email_extrapolated`] || (i===0 && d["email_extrapolated"]))
+                                                ? <div style={{fontSize:10,color:"#a855f7",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>⚡ {d[`${prefix}${i+1}_email_extrapolated`] || d["email_extrapolated"]}</div>
+                                                : null}
+                                              {c.phone && <div style={{fontSize:10,color:"#6b7280"}}>📞 {c.phone}</div>}
+                                            </div>
+                                          ))}
+                                          {contacts.length > 3 && <span style={{fontSize:10,color:"#9ca3af"}}>+{contacts.length-3} weitere</span>}
+                                          {companyEmail && <div style={{fontSize:10,color:"#6b7280",marginTop:contacts.length?3:0,paddingTop:contacts.length?3:0,borderTop:contacts.length?"1px solid #f3f4f6":undefined}}>🏢 <a href={`mailto:${companyEmail}`} style={{color:"#6b7280",textDecoration:"none"}} onClick={e=>e.stopPropagation()}>{companyEmail}</a></div>}
+                                        </div>
+                                      );
+                                    })()}
+                                    {aiCol.tool!=="batch_contacts" && notFound && (
+                                      <span style={{fontSize:11,color:"#9ca3af",fontStyle:"italic",flex:1}}>—</span>
+                                    )}
+                                    {aiCol.tool!=="batch_contacts" && isValid && (
+                                      <span style={{fontSize:12,fontWeight:600,color:"#6d28d9",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={val}>{val.slice(2)}</span>
+                                    )}
+                                    {aiCol.tool!=="batch_contacts" && isInvalid && (
+                                      <span style={{fontSize:12,fontWeight:600,color:"#dc2626",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={val}>{val.slice(2)}</span>
+                                    )}
+                                    {aiCol.tool!=="batch_contacts" && val && !isValid && !isInvalid && (() => {
+                                      const isBatchEnrich = aiCol.tool === "batch_enrich";
+                                      const isBatchContacts = false; // handled above
+
+                                      // ── batch_enrich: show filled field count + key values ──
+                                      if (isBatchEnrich) {
+                                        const d = row.data as Record<string, string | null>;
+                                        const enrichedFields = (aiCol.batchOutputFields ?? ["company_name","domain","phone","company_email","city","industry","description"])
+                                          .filter(f => d[f] && d[f] !== "");
+                                        const keyVals = [d["phone"], d["company_email"] || d["city"]].filter(Boolean) as string[];
+                                        return (
+                                          <div style={{flex:1,minWidth:0}}>
+                                            <div style={{display:"flex",alignItems:"center",gap:4}}>
+                                              <span style={{fontSize:10,fontWeight:600,color:"#7c3aed",background:"#ede9fe",padding:"1px 5px",borderRadius:4,flexShrink:0}}>
+                                                {enrichedFields.length} Felder
+                                              </span>
+                                              {keyVals[0] && <span style={{fontSize:10,color:"#6b7280",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{keyVals[0]}</span>}
+                                            </div>
+                                            {d["industry"] && <div style={{fontSize:10,color:"#9ca3af",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",marginTop:1}}>{d["industry"]}</div>}
+                                          </div>
+                                        );
+                                      }
+
+                                      // ── normal AI col ──
                                       return <span style={{fontSize:12,color:"#1f2937",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={val}>{val}</span>;
                                     })()}
                                     {/* Re-run icon — only visible on hover */}
@@ -1447,21 +1607,25 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
                         const isReasoning = key.startsWith("_reasoning_");
 
                         // ── Contacts aggregation cell ─────────────────────
-                        if (key === "contacts" && isSrc) {
+                        // Matches both the "contacts" source col and batch_contacts AI cols (e.g. _batch_kontakte)
+                        const isContactsCell = (key === "contacts" && isSrc) ||
+                          (aiCol?.tool === "batch_contacts");
+                        if (isContactsCell) {
                           const d = row.data as Record<string, string|null>;
-                          // Build contacts from _contacts_json or flat fields
-                          type ContactEntry = {name:string; position:string; email:string; phone:string; extrapolated?:string};
+                          type ContactEntry = {name:string; position:string; email:string; phone:string; linkedin:string; extrapolated?:string};
                           const contacts: ContactEntry[] = [];
                           const jsonKey = Object.keys(d).find(k => k.startsWith("_contacts_json_"));
                           if (jsonKey && d[jsonKey]) {
                             try {
                               const parsed = JSON.parse(d[jsonKey]!);
                               if (Array.isArray(parsed)) {
-                                parsed.slice(0,3).forEach((c: Record<string,string|null>) => contacts.push({
+                                parsed.slice(0,3).forEach((c: Record<string,string|null>, i: number) => contacts.push({
                                   name: [c.first_name,c.last_name].filter(Boolean).join(" "),
                                   position: c.position ?? "",
                                   email: c.email ?? "",
                                   phone: c.phone ?? "",
+                                  linkedin: c.linkedin ?? "",
+                                  extrapolated: d[`contact_${i+1}_email_extrapolated`] ?? "",
                                 }));
                               }
                             } catch { /* ignore */ }
@@ -1472,22 +1636,46 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
                               position: d["position"] ?? "",
                               email: d["contact_email"] ?? d["email"] ?? "",
                               phone: d["contact_phone"] ?? d["phone"] ?? "",
+                              linkedin: d["linkedin"] ?? "",
                               extrapolated: d["email_extrapolated"] ?? "",
                             });
                           }
-                          if (contacts.length === 0) return <td key={key} style={{padding:"6px 12px",borderRight:"1px solid #f3f4f6",color:"#d1d5db",fontSize:11}}>—</td>;
+                          const companyEmail = d["company_email"] ?? "";
+                          const emailFallback = d["email_fallback"] ?? "";
+                          if (contacts.length === 0 && !companyEmail && !emailFallback) return <td key={key} style={{padding:"6px 12px",borderRight:"1px solid #f3f4f6",color:"#d1d5db",fontSize:11}}>—</td>;
                           return (
-                            <td key={key} style={{padding:"4px 10px",borderRight:"1px solid #f3f4f6",verticalAlign:"top",minWidth:220,maxWidth:300}}>
+                            <td key={key} style={{padding:"4px 10px",borderRight:"1px solid #f3f4f6",verticalAlign:"top",minWidth:240,maxWidth:340}}>
                               {contacts.map((c, i) => (
-                                <div key={i} style={{fontSize:11,lineHeight:1.5,borderBottom:i<contacts.length-1?"1px solid #f3f4f6":undefined,paddingBottom:i<contacts.length-1?3:0,marginBottom:i<contacts.length-1?3:0}}>
-                                  <div style={{fontWeight:600,color:"#1e293b"}}>{c.name || "—"}{c.position && <span style={{fontWeight:400,color:"#94a3b8",marginLeft:4}}>· {c.position}</span>}</div>
-                                  <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-                                    {c.email && <a href={`mailto:${c.email}`} style={{color:"#2563eb",textDecoration:"none",fontSize:10}}>{c.email}</a>}
-                                    {!c.email && c.extrapolated && <span style={{color:"#a855f7",fontSize:10}}>⚡ {c.extrapolated}</span>}
+                                <div key={i} style={{fontSize:11,lineHeight:1.6,borderBottom:i<contacts.length-1?"1px solid #f3f4f6":undefined,paddingBottom:i<contacts.length-1?4:0,marginBottom:i<contacts.length-1?4:0}}>
+                                  {/* Name + Position */}
+                                  <div style={{fontWeight:600,color:"#1e293b"}}>
+                                    {c.name || "—"}
+                                    {c.position && <span style={{fontWeight:400,color:"#6b7280",marginLeft:4,fontSize:10}}>· {c.position}</span>}
+                                  </div>
+                                  {/* Email row */}
+                                  <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
+                                    {c.email
+                                      ? <a href={`mailto:${c.email}`} style={{color:"#2563eb",textDecoration:"none",fontSize:10,fontFamily:"monospace"}}>{c.email}</a>
+                                      : c.extrapolated
+                                      ? <span style={{color:"#a855f7",fontSize:10,fontFamily:"monospace"}} title="Extrapoliert — nicht SMTP-verifiziert">⚡ {c.extrapolated}</span>
+                                      : null}
                                     {c.phone && <span style={{color:"#6b7280",fontSize:10}}>📞 {c.phone}</span>}
+                                    {c.linkedin && (
+                                      <a href={c.linkedin} target="_blank" rel="noopener noreferrer"
+                                        style={{color:"#0a66c2",fontSize:10,textDecoration:"none"}} title={c.linkedin}>
+                                        💼 LinkedIn
+                                      </a>
+                                    )}
                                   </div>
                                 </div>
                               ))}
+                              {/* Generic company email */}
+                              {(companyEmail || emailFallback) && (
+                                <div style={{fontSize:10,color:"#9ca3af",marginTop:contacts.length?4:0,borderTop:contacts.length?"1px solid #f3f4f6":undefined,paddingTop:contacts.length?3:0}}>
+                                  <span style={{color:"#6b7280"}}>🏢 Firma: </span>
+                                  <a href={`mailto:${companyEmail||emailFallback}`} style={{color:"#6b7280",fontSize:10,fontFamily:"monospace"}}>{companyEmail||emailFallback}</a>
+                                </div>
+                              )}
                             </td>
                           );
                         }
@@ -1502,11 +1690,18 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
                           }}>
                             {isEd ? <EditInput rowId={row.id} k={key} /> :
                               (() => {
+                                // E-Mail column: show company_email/email_fallback as grey fallback if email is empty
+                                const isEmailCol = key === "email";
+                                const fallbackEmail = isEmailCol && !val
+                                  ? ((row.data as Record<string,string|null>)["company_email"] ?? (row.data as Record<string,string|null>)["email_fallback"] ?? "")
+                                  : "";
+                                const displayVal = val || fallbackEmail;
                                 // Domain/URL columns → clickable link
                                 const isDomainCol = key === "domain" || key === "source_domain" || key === "source_url" || key === "website";
-                                const isUrl = val && (val.startsWith("http") || (isDomainCol && val.includes(".")));
-                                const href = isUrl ? (val.startsWith("http") ? val : `https://${val}`) : null;
-                                const content = isReasoning ? `🧠 ${val}` : val;
+                                const isUrl = displayVal && (displayVal.startsWith("http") || (isDomainCol && displayVal.includes(".")));
+                                const href = isUrl ? (displayVal.startsWith("http") ? displayVal : `https://${displayVal}`) : null;
+                                const content = isReasoning ? `🧠 ${displayVal}` : displayVal;
+                                const isFallback = isEmailCol && !val && !!fallbackEmail;
                                 const textStyle: React.CSSProperties = {
                                   fontSize:12,display:"block",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",
                                   color: isDomainCol && href ? "#2563eb" : isValidated ? (val.startsWith("✗")?"#dc2626":val.startsWith("✓")?"#6d28d9":"#4b5563") : isReasoning?"#7c3aed":key==="company_name"?"#1f2937":"#4b5563",
@@ -1514,8 +1709,26 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
                                   textDecoration: isDomainCol && href ? "none" : undefined,
                                 };
                                 return href
-                                  ? <a href={href} target="_blank" rel="noopener noreferrer" style={textStyle} title={val} onClick={e => e.stopPropagation()}>{content}</a>
-                                  : <span style={textStyle} title={val}>{content}</span>;
+                                  ? <div style={{display:"flex",alignItems:"center",gap:4}}>
+                                      {isDomainCol && key === "domain" && (
+                                        <button
+                                          onClick={async (e) => {
+                                            e.stopPropagation();
+                                            e.preventDefault();
+                                            await fetch(`/api/cases/${caseId}/flag-catalog`, {
+                                              method: "POST",
+                                              headers: { "Content-Type": "application/json" },
+                                              body: JSON.stringify({ rowId: row.id, flag: true }),
+                                            });
+                                            refresh();
+                                          }}
+                                          title="Als Katalogseite markieren — Domain wird gelernt & in Quellen-Tab verschoben"
+                                          style={{border:"1px solid #fde68a",background:"#fffbeb",cursor:"pointer",padding:"1px 4px",fontSize:9,color:"#92400e",borderRadius:3,flexShrink:0,lineHeight:1}}
+                                        >📚</button>
+                                      )}
+                                      <a href={href} target="_blank" rel="noopener noreferrer" style={{...textStyle,flex:1}} title={isFallback?`Firmen-E-Mail (Fallback): ${displayVal}`:displayVal} onClick={e => e.stopPropagation()}>{content}</a>
+                                    </div>
+                                  : <span style={textStyle} title={isFallback?`Firmen-E-Mail (Fallback): ${displayVal}`:displayVal}>{content}{isFallback && <span style={{fontSize:9,marginLeft:3,color:"#d1d5db"}}>🏢</span>}</span>;
                               })()}
                           </td>
                         );
@@ -1561,7 +1774,10 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
                       <div style={{fontSize:11,color:"#a16207"}}>Keine echten Leads — Rohmaterial zum Scrapen und Extrahieren</div>
                     </div>
                   </div>
-                  <CatalogDeepCrawlButton caseId={caseId} onDone={refresh} catalogCount={catalogRows.length} />
+                  <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                    <ReflagCatalogsButton caseId={caseId} onDone={refresh} />
+                    <CatalogDeepCrawlButton caseId={caseId} onDone={refresh} catalogCount={catalogRows.length} />
+                  </div>
                 </div>
                 <div style={{padding:"8px 12px",maxHeight:300,overflowY:"auto"}}>
                   <div style={{display:"grid",gap:4}}>
@@ -1617,10 +1833,13 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
                   <div style={{fontSize:48,marginBottom:12}}>🔍</div>
                   <div style={{fontSize:15,fontWeight:600,color:"#1e293b",marginBottom:6}}>Noch keine Quellen vorhanden</div>
                   <div style={{fontSize:13,color:"#64748b",marginBottom:20}}>Starte eine Discovery-Suche um Queries und Katalogseiten zu sammeln.</div>
-                  <button onClick={() => setShowAppend(true)}
-                    style={{padding:"8px 20px",border:"1px solid #86efac",borderRadius:7,background:"#f0fdf4",cursor:"pointer",color:"#166534",fontWeight:600,fontSize:13}}>
-                    🔍 Suche starten
-                  </button>
+                  <div style={{display:"flex",gap:8,justifyContent:"center",flexWrap:"wrap"}}>
+                    <button onClick={() => setShowAppend(true)}
+                      style={{padding:"8px 20px",border:"1px solid #86efac",borderRadius:7,background:"#f0fdf4",cursor:"pointer",color:"#166534",fontWeight:600,fontSize:13}}>
+                      🔍 Suche starten
+                    </button>
+                    <ReflagCatalogsButton caseId={caseId} onDone={refresh} />
+                  </div>
                 </div>
               );
 
@@ -1816,6 +2035,22 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
                 </div>
                 <div style={{fontSize:12,color:"#6b7280",marginTop:2}}>
                   {selectedRows.size > 0 ? `${selectedRows.size} ausgewählte Zeilen` : `${rows.length} Zeilen`}
+                  {selectedRows.size > 0 && (
+                    <button
+                      onClick={() => setSelectedRows(new Set())}
+                      style={{marginLeft:8,padding:"1px 7px",fontSize:11,border:"1px solid #d1d5db",borderRadius:4,background:"#f9fafb",cursor:"pointer",color:"#6b7280"}}>
+                      ✕ Auswahl aufheben
+                    </button>
+                  )}
+                  {sortBy && (
+                    <span style={{marginLeft:8,fontSize:11,color:"#7c3aed"}}>
+                      {sortDir === "asc" ? "↑" : "↓"} {sortBy === "company_name" ? "Firma" : "Domain"}
+                      <button onClick={() => setSortBy(null)}
+                        style={{marginLeft:4,border:"none",background:"none",cursor:"pointer",color:"#9ca3af",padding:0,fontSize:11}}>
+                        ✕
+                      </button>
+                    </span>
+                  )}
                   {" · "}{caseData?.aiColumns.length ?? 0} KI-Spalten
                 </div>
               </div>

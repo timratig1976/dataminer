@@ -120,6 +120,7 @@ export default function GroupedTableView({ caseId, groupKey = "company_name" }: 
             caseId={caseId}
             expanded={expandedCompanies.has(group.companyRow.id)}
             onToggle={() => toggleCompany(group.companyRow.id)}
+            onRefresh={() => fetchPage(page)}
           />
         ))}
       </div>
@@ -236,11 +237,12 @@ function ExtrapolatedEmailBadge({ email, confidence, caseId, rowId }: {
 
 // ── Single Company Row ────────────────────────────────────────────────────────
 
-function CompanyRow({ group, expanded, onToggle, caseId }: {
+function CompanyRow({ group, expanded, onToggle, caseId, onRefresh }: {
   group: CompanyGroup;
   expanded: boolean;
   onToggle: () => void;
   caseId: string;
+  onRefresh?: () => void;
 }) {
   const companyData = group.companyRow.data;
   const contactCount = group.contacts.length;
@@ -298,6 +300,26 @@ function CompanyRow({ group, expanded, onToggle, caseId }: {
           </span>
         )}
         <div style={{ flex: 1 }} />
+        {/* Flag as catalog button */}
+        <button
+          onClick={async (e) => {
+            e.stopPropagation();
+            await fetch(`/api/cases/${caseId}/flag-catalog`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ rowId: group.companyRow.id, flag: true }),
+            });
+            onRefresh?.();
+          }}
+          title="Als Katalogseite markieren \u2014 Domain wird gelernt & in Quellen-Tab verschoben"
+          style={{
+            border: "1px solid #fde68a", background: "#fffbeb", cursor: "pointer",
+            padding: "2px 8px", fontSize: 10, color: "#92400e", borderRadius: 5,
+            flexShrink: 0,
+          }}
+        >
+          📚 Katalog
+        </button>
         {/* Quick info pills — company columns + domain link */}
         <div style={{ display: "flex", gap: 6, overflow: "hidden", alignItems: "center" }}>
           {/* Domain as clickable link */}
@@ -352,19 +374,20 @@ function CompanyRow({ group, expanded, onToggle, caseId }: {
         // Build contact cards from _contacts_json_* or from first_name/last_name fields
         const d = companyData as Record<string, string>;
         const contactsJsonKey = Object.keys(d).find(k => k.startsWith("_contacts_json_"));
-        let inlineContacts: Array<{name: string; position: string; email: string; phone: string; linkedin: string}> = [];
+        let inlineContacts: Array<{name: string; position: string; email: string; phone: string; linkedin: string; extrapolated: string}> = [];
 
         if (contactsJsonKey && d[contactsJsonKey]) {
           try {
             const parsed = JSON.parse(d[contactsJsonKey]);
             if (Array.isArray(parsed)) {
-              inlineContacts = parsed.map((c: Record<string, string | null>) => ({
+              inlineContacts = parsed.map((c: Record<string, string | null>, i: number) => ({
                 name: [c.first_name, c.last_name].filter(Boolean).join(" ") || "",
                 position: c.position ?? "",
                 email: c.email ?? "",
                 phone: c.phone ?? "",
                 linkedin: c.linkedin ?? "",
-              })).filter(c => c.name || c.email);
+                extrapolated: d[`contact_${i+1}_email_extrapolated`] ?? "",
+              })).filter(c => c.name || c.email || c.extrapolated);
             }
           } catch { /* ignore */ }
         } else if (d["first_name"] || d["last_name"]) {
@@ -375,6 +398,7 @@ function CompanyRow({ group, expanded, onToggle, caseId }: {
             email: d["contact_email"] ?? d["email"] ?? "",
             phone: d["contact_phone"] ?? d["phone"] ?? "",
             linkedin: d["linkedin"] ?? "",
+            extrapolated: d["email_extrapolated"] ?? "",
           }];
         }
 
@@ -386,24 +410,41 @@ function CompanyRow({ group, expanded, onToggle, caseId }: {
         return (
           <div style={{ marginLeft: 24, marginTop: 4, borderLeft: "2px solid #e5e7eb" }}>
             {inlineContacts.map((c, ci) => (
-              <div key={ci} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 14px", background: "#fafafa", borderBottom: ci < inlineContacts.length - 1 ? "1px solid #f3f4f6" : undefined }}>
-                <User style={{ width: 12, height: 12, color: "#9ca3af", flexShrink: 0, marginLeft: 12 }} />
-                <span style={{ fontSize: 13, color: "#374151", fontWeight: 500 }}>{c.name || "(unbenannt)"}</span>
-                {c.position && <span style={{ fontSize: 11, color: "#6b7280" }}>· {c.position}</span>}
-                {c.email && <a href={`mailto:${c.email}`} style={{ fontSize: 11, color: "#7c3aed", fontFamily: "monospace", textDecoration: "none" }}>{c.email}</a>}
-                {c.phone && !c.email && <span style={{ fontSize: 11, color: "#6b7280" }}>📞 {c.phone}</span>}
-                {c.linkedin && <a href={c.linkedin} target="_blank" rel="noopener noreferrer" style={{ fontSize: 10, color: "#0a66c2", textDecoration: "none", marginLeft: "auto" }}>💼 LinkedIn</a>}
-                {/* Show extrapolated email if no real email */}
-                {!c.email && d["email_extrapolated"] && ci === 0 && (
-                  <ExtrapolatedEmailBadge
-                    email={d["email_extrapolated"]}
-                    confidence={d["email_confidence"] ?? "medium"}
-                    caseId={caseId}
-                    rowId={group.companyRow.id}
-                  />
-                )}
+              <div key={ci} style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "8px 14px", background: "#fafafa", borderBottom: ci < inlineContacts.length - 1 ? "1px solid #f3f4f6" : undefined }}>
+                <User style={{ width: 13, height: 13, color: "#9ca3af", flexShrink: 0, marginLeft: 12, marginTop: 2 }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                    <span style={{ fontSize: 13, color: "#374151", fontWeight: 600 }}>{c.name || "(unbenannt)"}</span>
+                    {c.position && <span style={{ fontSize: 11, color: "#6b7280" }}>· {c.position}</span>}
+                  </div>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 2, alignItems: "center" }}>
+                    {c.email
+                      ? <a href={`mailto:${c.email}`} style={{ fontSize: 11, color: "#2563eb", fontFamily: "monospace", textDecoration: "none" }}>{c.email}</a>
+                      : c.extrapolated
+                      ? <span style={{ fontSize: 11, color: "#a855f7", fontFamily: "monospace" }} title="Extrapoliert — nicht SMTP-verifiziert">⚡ {c.extrapolated}</span>
+                      : null}
+                    {c.phone && <span style={{ fontSize: 11, color: "#6b7280" }}>📞 {c.phone}</span>}
+                    {c.linkedin && (
+                      <a href={c.linkedin} target="_blank" rel="noopener noreferrer"
+                        style={{ fontSize: 10, color: "#0a66c2", textDecoration: "none" }}>
+                        💼 LinkedIn
+                      </a>
+                    )}
+                  </div>
+                </div>
               </div>
             ))}
+            {/* Generic company email */}
+            {(d["company_email"] || d["email_fallback"]) && (
+              <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 14px", background: "#f8fafc", borderTop: "1px solid #f3f4f6" }}>
+                <span style={{ width: 13, marginLeft: 12, flexShrink: 0 }} />
+                <span style={{ fontSize: 10, color: "#9ca3af" }}>🏢 Firma:</span>
+                <a href={`mailto:${d["company_email"] || d["email_fallback"]}`}
+                  style={{ fontSize: 11, color: "#6b7280", fontFamily: "monospace", textDecoration: "none" }}>
+                  {d["company_email"] || d["email_fallback"]}
+                </a>
+              </div>
+            )}
           </div>
         );
       })()}

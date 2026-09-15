@@ -34,6 +34,13 @@ export const settings = pgTable("settings", {
   edenApiKey: text("eden_api_key"),
   edenRegion: text("eden_region").notNull().default("us"),
   modelAllowlist: jsonb("model_allowlist").$type<string[]>().default([]),
+  /** Learned catalog domains accumulated across all runs */
+  catalogDomains: jsonb("catalog_domains").$type<string[]>().default([]),
+  /** Search API keys (encrypted at rest) */
+  serperApiKey: text("serper_api_key"),
+  serpApiKey: text("serp_api_key"),
+  braveApiKey: text("brave_api_key"),
+  apifyApiToken: text("apify_api_token"),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
 });
 

@@ -23,6 +23,9 @@ import { createDiscoveryPlan, refinePlan } from "./planner";
 import { discoverySearch, hitToSeedRow } from "./discovery";
 import { mapsSearch, placeToSeedExtras } from "./maps";
 import { edenScrapeUrl } from "./edenai";
+import { scrapeCatalog } from "./catalog-scraper";
+import { listRows } from "./db";
+import { learnCatalogDomains } from "./catalog-registry";
 import { isOperationCancelled } from "./operations";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -120,6 +123,8 @@ export async function startAgentRun(
 export interface StepEnv {
   edenApiKey: string;
   serpApiKey?: string;
+  serperApiKey?: string;
+  apifyApiToken?: string;
   braveApiKey?: string;
   scraplingUrl?: string;
   scraplingToken?: string;
@@ -170,6 +175,10 @@ export async function executeNextStep(
   run.costUsd += result.costUsd;
   stamp(run);
 
+  // Auto-inject catalog deep-crawl steps for any newly found catalog rows
+  // (rows with is_catalog="true" that don't already have a deep-crawl step)
+  await injectCatalogDeepCrawlSteps(run);
+
   // Log
   const logLine = result.error
     ? `⚠️ ${nextStep.label}: ${result.error}`
@@ -190,6 +199,64 @@ export async function executeNextStep(
   run.status = "running";
   await updateAgentRunState(run);
   return run;
+}
+
+// ── Auto-inject catalog deep-crawl steps ────────────────────────────────────
+
+/**
+ * After each discovery step, check for newly found catalog rows (is_catalog=true).
+ * For each catalog URL that doesn't yet have a deep-crawl step in the plan,
+ * inject a new catalog_deep_crawl step at priority 1.5 (after current step, before next search).
+ */
+async function injectCatalogDeepCrawlSteps(run: AgentRunState): Promise<void> {
+  try {
+    const allRows = await listRows(run.caseId);
+    const catalogUrls = allRows
+      .map(r => (r.data as Record<string, string | null>)["source_url"] ?? "")
+      .filter(url => {
+        const row = allRows.find(r => (r.data as Record<string, string | null>)["source_url"] === url);
+        return row && (row.data as Record<string, string | null>)["is_catalog"] === "true";
+      });
+
+    // Find URLs already covered by existing deep-crawl steps
+    const existingUrls = new Set(
+      run.plan.steps
+        .filter(s => s.type === "catalog_deep_crawl")
+        .map(s => s.url ?? "")
+    );
+
+    const newUrls = catalogUrls.filter(url => url && !existingUrls.has(url));
+    if (newUrls.length === 0) return;
+
+    // Learn new catalog domains into the persistent registry
+    const newDomains = newUrls.map(url => {
+      try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return ""; }
+    }).filter(Boolean);
+    if (newDomains.length > 0) {
+      await learnCatalogDomains(newDomains).catch(() => {}); // non-fatal
+    }
+
+    const existingCount = run.plan.steps.length;
+    for (let i = 0; i < newUrls.length; i++) {
+      const url = newUrls[i];
+      let hostname = url;
+      try { hostname = new URL(url).hostname.replace(/^www\./, ""); } catch { /* ignore */ }
+      run.plan.steps.push({
+        id: `step_crawl_${existingCount + i + 1}`,
+        type: "catalog_deep_crawl" as import("./planner").PlanStepType,
+        label: `📋 Katalog crawlen: ${hostname}`,
+        url,
+        maxPages: 5,
+        source: "firecrawl",
+        estimatedHits: 50,
+        priority: 1, // high priority — run before more searches
+      });
+    }
+
+    if (newUrls.length > 0) {
+      run.log.push(`📋 ${newUrls.length} Katalogseite(n) erkannt → Deep-Crawl-Steps eingefügt`);
+    }
+  } catch { /* non-fatal */ }
 }
 
 // ── Execute one PlanStep (maps, search, or catalog scrape) ──────────────────
@@ -214,23 +281,51 @@ async function executePlanStep(
       // ── Maps step ──
       const query = step.mapQuery || step.label;
       const serpApiKey = env.serpApiKey ?? process.env.SERP_API_KEY?.trim();
+      const serperApiKey = env.serperApiKey ?? process.env.SERPER_API_KEY?.trim();
+      const apifyApiToken = env.apifyApiToken ?? process.env.APIFY_API_TOKEN?.trim();
       const scraplingUrl = env.scraplingUrl ?? process.env.SCRAPLING_URL?.trim();
       const scraplingToken = env.scraplingToken ?? process.env.SCRAPLING_TOKEN?.trim();
 
       if (!serpApiKey && !scraplingUrl) {
-        return {
-          stepId: step.id, attemptedAt: t0, hitsFound: 0, uniqueInserted: 0,
-          costUsd: 0, source: "none",
-          error: "No Maps provider available (missing SERP_API_KEY & SCRAPLING_URL)",
-        };
+        // No Maps provider — fall back to a geo-qualified web search
+        const fallbackQuery = step.mapQuery
+          ? `${step.mapQuery}${step.location ? ` ${step.location}` : ""}`
+          : step.label;
+        run.log.push(`⚠️ No Maps provider, falling back to web search: ${fallbackQuery}`);
+        const resp = await discoverySearch(fallbackQuery, {
+          source: "auto",
+          limit: 30,
+          excludeDomains: existingDomains,
+          serpApiKey: env.serpApiKey,
+          serperApiKey: env.serperApiKey,
+          braveApiKey: env.braveApiKey,
+          scraplingUrl: env.scraplingUrl,
+          scraplingToken: env.scraplingToken,
+          edenApiKey: env.edenApiKey,
+        });
+        hitsFound = resp.hits.length;
+        source = `maps-fallback-search (${resp.source})`;
+        if (typeof resp.costUsd === "number") costUsd += resp.costUsd;
+        if (resp.hits.length > 0) {
+          const seeds = resp.hits.map(hitToSeedRow).map((data) => ({
+            id: randomUUID(), caseId: run.caseId, rowIndex: 0,
+            data: data as Record<string, string>,
+            cellStatuses: {}, cellErrors: {}, createdAt: now(), updatedAt: now(),
+          }));
+          const { inserted } = await appendDiscoveryRows(run.caseId, seeds);
+          uniqueInserted = inserted;
+        }
+        return { stepId: step.id, attemptedAt: t0, hitsFound, uniqueInserted, costUsd, source };
       }
 
       const resp = await mapsSearch({
         query,
-        provider: serpApiKey ? "maps-serpapi" : "maps-scrapling",
+        provider: serpApiKey ? "maps-serpapi" : serperApiKey ? "maps-serper" : apifyApiToken ? "maps-apify" : "maps-scrapling",
         limit: 30,
         ll: step.location,
         serpApiKey: serpApiKey ?? undefined,
+        serperApiKey: serperApiKey ?? undefined,
+        apifyApiToken: apifyApiToken ?? undefined,
         scraplingUrl: scraplingUrl ?? undefined,
         scraplingToken: scraplingToken ?? undefined,
         excludeDomains: existingDomains,
@@ -275,8 +370,72 @@ async function executePlanStep(
         );
         uniqueInserted = inserted;
       }
+    } else if (step.type === "catalog_deep_crawl" as string) {
+      // ── Catalog deep crawl (auto-injected for discovered catalog rows) ──
+      // Uses the full catalog-scraper with pagination — same logic as the
+      // manual "Deep Crawl Catalogs" button in the Quellen-Tab.
+      const url = step.url ?? "";
+      if (!url) {
+        return { stepId: step.id, attemptedAt: t0, hitsFound: 0, uniqueInserted: 0, costUsd: 0, source: "none", error: "No catalog URL" };
+      }
+      if (!env.edenApiKey) {
+        return { stepId: step.id, attemptedAt: t0, hitsFound: 0, uniqueInserted: 0, costUsd: 0, source: "none", error: "No Eden API key" };
+      }
+
+      const existingDomainSet = new Set((await getExistingDomains(run.caseId)).map(d => d.toLowerCase()));
+
+      const result = await scrapeCatalog({
+        url,
+        extractionPrompt: `Firmen, Unternehmen, Betriebe — Name, Website, Telefon, Adresse`,
+        followPagination: true,
+        maxPages: step.maxPages ?? 5,
+        edenApiKey: env.edenApiKey,
+      });
+
+      hitsFound = result.entries.length;
+      source = "catalog-deep-crawl";
+
+      if (result.entries.length > 0) {
+        const rows = result.entries
+          .filter(e => {
+            if (!e.domain) return true; // keep domainless entries
+            if (existingDomainSet.has(e.domain.toLowerCase())) return false;
+            existingDomainSet.add(e.domain.toLowerCase());
+            return true;
+          })
+          .map(e => ({
+            id: randomUUID(), caseId: run.caseId, rowIndex: 0,
+            data: {
+              company_name: e.company_name ?? "",
+              domain: e.domain ?? "",
+              source_url: e.source_url ?? url,
+              source_domain: e.domain ?? new URL(url).hostname,
+              source_title: e.company_name ?? "",
+              source_snippet: e.description ?? "",
+              search_query: `catalog:${new URL(url).hostname}`,
+              search_source: "catalog-deep-crawl",
+              is_catalog: "",
+              phone: e.phone ?? "",
+              email: e.email ?? "",
+              address: e.address ?? "",
+              city: e.city ?? "",
+              zip: e.zip ?? "",
+            } as Record<string, string>,
+            cellStatuses: {}, cellErrors: {}, createdAt: now(), updatedAt: now(),
+          }));
+
+        const { inserted } = await appendDiscoveryRows(run.caseId, rows);
+        uniqueInserted = inserted;
+      }
+
+      if (result.errors.length > 0) {
+        error = result.errors[0];
+      }
     } else if (step.type === "catalog_scrape" || step.type === "directory_search") {
       // ── Catalog / directory scrape ──
+      // Strategy: catalogs are LINK EXTRACTORS, not target domains.
+      // We scrape the catalog search result page and extract links to the actual
+      // company websites. The catalog URL itself is never imported as a lead.
       const url = step.url ?? "";
       if (!url) {
         return { stepId: step.id, attemptedAt: t0, hitsFound: 0, uniqueInserted: 0, costUsd: 0, source: "none", error: "No URL for catalog scrape" };
@@ -286,42 +445,124 @@ async function executePlanStep(
         return { stepId: step.id, attemptedAt: t0, hitsFound: 0, uniqueInserted: 0, costUsd: 0, source: "none", error: "No Eden API key for scraping" };
       }
 
-      // edenScrapeUrl costs ~$0.002 per page (Firecrawl)
-      const { markdown, title } = await edenScrapeUrl({ apiKey: env.edenApiKey, url });
-      costUsd += 0.002;
+      // Scrape the catalog page (get markdown/links)
+      let markdown = "";
+      let title: string | undefined;
+      try {
+        const scrapeResult = await edenScrapeUrl({ apiKey: env.edenApiKey, url });
+        markdown = scrapeResult.markdown;
+        title = scrapeResult.title;
+        if (typeof scrapeResult.costUsd === "number") costUsd += scrapeResult.costUsd;
+      } catch (scrapeErr) {
+        // Firecrawl unavailable — fall back to web search on the catalog domain
+        const fallbackQuery = step.label;
+        run.log.push(`⚠️ Catalog scrape failed (${(scrapeErr as Error).message}), falling back to web search: ${fallbackQuery}`);
+        const resp = await discoverySearch(fallbackQuery, {
+          source: "auto",
+          limit: 30,
+          excludeDomains: existingDomains,
+          serpApiKey: env.serpApiKey,
+          serperApiKey: env.serperApiKey,
+          braveApiKey: env.braveApiKey,
+          scraplingUrl: env.scraplingUrl,
+          scraplingToken: env.scraplingToken,
+          edenApiKey: env.edenApiKey,
+        });
+        hitsFound = resp.hits.length;
+        source = `fallback-search (${resp.source})`;
+        if (typeof resp.costUsd === "number") costUsd += resp.costUsd;
+        if (resp.hits.length > 0) {
+          const seeds = resp.hits.map(hitToSeedRow).map((data) => ({
+            id: randomUUID(), caseId: run.caseId, rowIndex: 0,
+            data: data as Record<string, string>,
+            cellStatuses: {}, cellErrors: {}, createdAt: now(), updatedAt: now(),
+          }));
+          const { inserted } = await appendDiscoveryRows(run.caseId, seeds);
+          uniqueInserted = inserted;
+        }
+        return { stepId: step.id, attemptedAt: t0, hitsFound, uniqueInserted, costUsd, source };
+      }
 
       if (isOperationCancelled(cancelKey)) {
         return { stepId: step.id, attemptedAt: t0, hitsFound: 0, uniqueInserted: 0, costUsd, source: "cancelled" };
       }
 
       if (markdown) {
-        hitsFound = 1;
-        const { inserted } = await appendDiscoveryRows(
-          run.caseId,
-          [{
-            id: randomUUID(),
-            caseId: run.caseId,
-            rowIndex: 0,
-            data: {
-              company_name: title ?? new URL(url).hostname,
-              domain: "",
-              source_url: url,
-              source_title: title ?? "",
-              source_snippet: (markdown ?? "").slice(0, 500),
-              source_domain: new URL(url).hostname,
-              search_query: step.label,
-              search_source: "catalog-scrape",
-              is_catalog: "true",
-            },
-            cellStatuses: {},
-            cellErrors: {},
-            createdAt: now(),
-            updatedAt: now(),
-          }]
-        );
-        uniqueInserted = inserted;
+        // Extract company entries from catalog markdown using LLM
+        const extractionPrompt = step.extractionPrompt ??
+          "Extrahiere alle Firmeneinträge aus dieser Katalogseite. Für jeden Eintrag: Firmenname, eigene Website-URL (NICHT die Katalog-Domain selbst, sondern die verlinkte externe Firmenwebsite), Telefon, Adresse. Wenn keine externe Website vorhanden, lasse website leer.";
+
+        const { edenChatCompletion: chatFn } = await import("./edenai");
+        const extractResp = await chatFn({
+          apiKey: env.edenApiKey,
+          region: "us",   // openai/gpt-4o-mini only available on US endpoint
+          model: "openai/gpt-4o-mini",
+          system: `Du extrahierst strukturierte Firmendaten aus Katalog-Seiten-Markdown.
+Antworte NUR mit JSON-Array:
+[{"name":"Firma GmbH","website":"https://firma.de","phone":"030 123456","address":"Musterstr. 1, 12345 Berlin"}]
+Leeres Array [] wenn keine Einträge gefunden. website="" wenn keine externe Firmenwebsite vorhanden.`,
+          prompt: `${extractionPrompt}\n\nKatalog-Seite (${title ?? url}):\n${markdown.slice(0, 8000)}`,
+          maxTokens: 2000,
+          temperature: 0.1,
+        });
+
+        if (typeof extractResp.costUsd === "number") costUsd += extractResp.costUsd;
+
+        let firms: Array<{ name?: string; website?: string; phone?: string; address?: string }> = [];
+        try {
+          const raw = (extractResp.raw ?? "").trim()
+            .replace(/^```(?:json)?\n?/i, "").replace(/\n?```$/i, "").trim();
+          firms = JSON.parse(raw);
+        } catch {
+          // fallback: import the catalog page itself as a single low-quality entry
+          firms = [{ name: title ?? new URL(url).hostname, website: "" }];
+        }
+
+        hitsFound = firms.length;
+
+        if (firms.length > 0) {
+          const catalogDomain = new URL(url).hostname.replace(/^www\./, "");
+          const rows = firms.map((f) => {
+            const website = (f.website ?? "").trim();
+            // Ignore links pointing back to the catalog domain
+            let firmDomain = "";
+            try {
+              if (website) {
+                const d = new URL(website).hostname.replace(/^www\./, "");
+                if (!d.includes(catalogDomain)) firmDomain = d;
+              }
+            } catch { /* ignore malformed urls */ }
+
+            return {
+              id: randomUUID(),
+              caseId: run.caseId,
+              rowIndex: 0,
+              data: {
+                company_name: f.name ?? "",
+                domain: firmDomain,
+                source_url: firmDomain ? website : url,
+                source_title: f.name ?? "",
+                source_snippet: [f.phone, f.address].filter(Boolean).join(" · "),
+                source_domain: firmDomain || catalogDomain,
+                search_query: step.label,
+                search_source: `catalog-scrape (${catalogDomain})`,
+                phone: f.phone ?? "",
+                address: f.address ?? "",
+                // Flag low quality entries that have no own website
+                ...(firmDomain ? {} : { data_quality: "catalog-only" }),
+              } as Record<string, string>,
+              cellStatuses: {},
+              cellErrors: {},
+              createdAt: now(),
+              updatedAt: now(),
+            };
+          });
+
+          const { inserted } = await appendDiscoveryRows(run.caseId, rows);
+          uniqueInserted = inserted;
+        }
       }
-      source = "firecrawl";
+      source = "catalog-scrape";
     } else {
       // ── Search step (google_search / multi_search) ──
       // multi_search: iterate ALL expanded queries (not just queries[0])
@@ -346,16 +587,17 @@ async function executePlanStep(
           limit: 30,
           excludeDomains: await getExistingDomains(run.caseId), // re-fetch each time to exclude just-inserted
           serpApiKey: env.serpApiKey,
+          serperApiKey: env.serperApiKey,
           braveApiKey: env.braveApiKey,
           scraplingUrl: env.scraplingUrl,
           scraplingToken: env.scraplingToken,
           edenApiKey: env.edenApiKey,
-          firecrawlDepth: "deep",
+          firecrawlDepth: "basic",
         });
 
         hitsFound += resp.hits.length;
         source = resp.source;
-        if (resp.source === "firecrawl") costUsd += 0.004;
+        if (typeof resp.costUsd === "number") costUsd += resp.costUsd;
 
         if (resp.hits.length > 0) {
           const seeds = resp.hits.map(hitToSeedRow).map((data) => ({

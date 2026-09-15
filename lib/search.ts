@@ -25,7 +25,7 @@ export interface SearchResult {
   snippet: string;
 }
 
-export type SearchLayer = "serpapi" | "brave" | "duckduckgo" | "playwright" | "scrapling" | "firecrawl";
+export type SearchLayer = "serpapi" | "serper" | "brave" | "duckduckgo" | "playwright" | "scrapling" | "firecrawl";
 
 export interface SearchResponse {
   results: SearchResult[];
@@ -36,6 +36,8 @@ export interface SearchResponse {
   error?: string;
   /** Warnings from layers that were tried but failed */
   layerErrors?: Record<string, string>;
+  /** Firecrawl/Eden API cost in USD (only populated when using edenWebSearch) */
+  costUsd?: number;
 }
 
 // ── Internal helpers ─────────────────────────────────────────────────────────
@@ -85,7 +87,22 @@ const CATALOG_DOMAINS = new Set([
   "regional.de", "regional.at",
   "local.ch", "local.de",
   "klicktel.de", "teleauskunft.de",
-  // ── Handwerker / Installateur Finder ─────────────────────────────────────
+  // ── Immobilien / Bau Portale ──────────────────────────────────────────────
+  "immobilienscout24.de", "immowelt.de", "immonet.de", "immowelt.at",
+  "houzz.de", "houzz.com",
+  "fertighaus.de", "fertighaus.net", "fertighausanbieter.de",
+  "fertighaus-welt.de", "fertighaus-aktuell.de",
+  "massivhaus.de", "massivhausanbieter.de",
+  "bauportal.de", "bau.de", "baulinks.de", "baunetz.de",
+  "bauen.de", "bauen-wohnen.de",
+  "hausbau-deutschland.de", "hausbaukatalog.de",
+  "mein-eigenheim.de", "eigenheim24.de",
+  // ── Handwerker-Vermittlung / Marktplätze ──────────────────────────────────
+  "my-hammer.de", "myhammer.de",
+  "homeday.de", "home24.de",
+  "handwerker24.de", "handwerker-vermittlung.de",
+  "auftragsboerse.de", "blauarbeit.de",
+  "1-2-do.com", "1-2-do.de",
   "installateur.de", "installateur-mv.de", "installateur-suche.de",
   "dein-heizungsbauer.de", "deine-heizungsmeister.de",
   "heizungsfinder.de", "heizung-finder.de",
@@ -188,6 +205,50 @@ function deduplicate(results: SearchResult[]): SearchResult[] {
 
 /** Exported so tests and the LLM system prompt can reference the same list */
 export { CATALOG_DOMAINS, isCatalogUrl };
+
+// ── Layer 1b: Serper.dev (Google Search JSON API) ─────────────────────────────
+
+/**
+ * Search via Serper.dev — Google SERP JSON API.
+ * 2,500 free queries/month, then $1/1000. Docs: https://serper.dev
+ */
+export async function searchViaSerper(
+  query: string,
+  serperApiKey: string,
+  maxResults = 10
+): Promise<SearchResult[]> {
+  if (!query.trim()) throw new Error("empty query");
+  if (!serperApiKey.trim()) throw new Error("missing Serper API key");
+
+  const { controller, clear } = withTimeout(10_000);
+  let res: Response;
+  try {
+    res = await fetch("https://google.serper.dev/search", {
+      method: "POST",
+      headers: { "X-API-KEY": serperApiKey, "Content-Type": "application/json" },
+      body: JSON.stringify({ q: query, gl: "de", hl: "de", num: Math.min(maxResults, 100) }),
+      signal: controller.signal,
+    });
+  } finally {
+    clear();
+  }
+  if (!res.ok) { await drainBody(res); throw new Error(`Serper HTTP ${res.status}`); }
+  const data = await res.json() as {
+    organic?: Array<{ title?: string; link?: string; snippet?: string }>;
+    knowledgeGraph?: { title?: string; website?: string; description?: string };
+  };
+  const results: SearchResult[] = [];
+  if (data.knowledgeGraph?.website) {
+    results.push({ title: sanitiseText(data.knowledgeGraph.title ?? "", 200), url: data.knowledgeGraph.website, snippet: sanitiseText(data.knowledgeGraph.description ?? "", 400) });
+  }
+  for (const r of data.organic ?? []) {
+    if (results.length >= maxResults) break;
+    const url = (r.link ?? "").trim();
+    if (!url.startsWith("http")) continue;
+    results.push({ title: sanitiseText(r.title ?? "", 200), url, snippet: sanitiseText(r.snippet ?? "", 400) });
+  }
+  return deduplicate(results);
+}
 
 // ── Layer 1: SerpAPI ─────────────────────────────────────────────────────────
 
@@ -471,7 +532,7 @@ export async function searchViaFirecrawl(
   maxResults = 5,
   depth: "basic" | "deep" = "basic",
   includeDomains?: string[]
-): Promise<SearchResult[]> {
+): Promise<{ results: SearchResult[]; costUsd?: number }> {
   if (!query.trim()) throw new Error("empty query");
   if (!edenApiKey.trim()) throw new Error("missing Eden AI key for Firecrawl");
 
@@ -513,7 +574,14 @@ export async function searchViaFirecrawl(
     throw firecrawlResults.reason;
   }
 
-  return allResults;
+  // Sum real costs from both providers
+  let costUsd: number | undefined;
+  if (firecrawlResults.status === "fulfilled" && typeof firecrawlResults.value.costUsd === "number") costUsd = firecrawlResults.value.costUsd;
+  if (linkupResults.status === "fulfilled" && typeof linkupResults.value.costUsd === "number") {
+    costUsd = (costUsd ?? 0) + linkupResults.value.costUsd;
+  }
+
+  return { results: allResults, costUsd };
 }
 
 export async function searchViaPlaywright(
@@ -657,6 +725,7 @@ export async function webSearch(
   query: string,
   options: {
     serpApiKey?: string;
+    serperApiKey?: string;
     braveApiKey?: string;
     scraplingUrl?: string;
     scraplingToken?: string;
@@ -669,7 +738,7 @@ export async function webSearch(
     firecrawlDepth?: "basic" | "deep";
   } = {}
 ): Promise<SearchResponse> {
-  const { serpApiKey, braveApiKey, scraplingUrl, scraplingToken, firecrawlApiKey, maxResults = 5, forceLayer, limitCap = 100, firecrawlDepth = "basic" } = options;
+  const { serpApiKey, serperApiKey, braveApiKey, scraplingUrl, scraplingToken, firecrawlApiKey, maxResults = 5, forceLayer, limitCap = 100, firecrawlDepth = "basic" } = options;
   const clampedMax = Math.max(1, Math.min(maxResults, limitCap));
   const layerErrors: Record<string, string> = {};
   const t0 = Date.now();
@@ -689,11 +758,12 @@ export async function webSearch(
     }
   }
 
-  const respond = (results: SearchResult[], source: SearchLayer): SearchResponse => ({
+  const respond = (results: SearchResult[], source: SearchLayer, costUsd?: number): SearchResponse => ({
     results,
     source,
     query,
     latencyMs: Date.now() - t0,
+    ...(costUsd !== undefined ? { costUsd } : {}),
     ...(Object.keys(layerErrors).length > 0 ? { layerErrors } : {}),
   });
 
@@ -703,6 +773,11 @@ export async function webSearch(
       if (!serpApiKey) throw new Error("forceLayer=serpapi but no SERP_API_KEY");
       const r = await searchViaSerpApi(query, serpApiKey, clampedMax);
       return respond(r, "serpapi");
+    }
+    if (forceLayer === "serper") {
+      if (!serperApiKey) throw new Error("forceLayer=serper but no SERPER_API_KEY");
+      const r = await searchViaSerper(query, serperApiKey, clampedMax);
+      return respond(r, "serper");
     }
     if (forceLayer === "brave") {
       if (!braveApiKey) throw new Error("forceLayer=brave but no BRAVE_API_KEY");
@@ -723,8 +798,8 @@ export async function webSearch(
       return respond(r, "scrapling");
     }    if (forceLayer === "firecrawl") {
       if (!firecrawlApiKey) throw new Error("forceLayer=firecrawl but no Eden AI key");
-      const r = await searchViaFirecrawl(query, firecrawlApiKey!, clampedMax, firecrawlDepth);
-      return respond(r, "firecrawl");
+      const { results, costUsd } = await searchViaFirecrawl(query, firecrawlApiKey!, clampedMax, firecrawlDepth);
+      return respond(results, "firecrawl", costUsd);
     }  }
 
   // ─ Layer 1: SerpAPI ─
@@ -733,6 +808,14 @@ export async function webSearch(
       searchViaSerpApi(query, serpApiKey!, clampedMax)
     );
     if (r && r.length > 0) return respond(r, "serpapi");
+  }
+
+  // ─ Layer 1b: Serper.dev (cheaper Google, 2500 free/month) ─
+  if (serperApiKey) {
+    const r = await tryLayer("serper", () =>
+      searchViaSerper(query, serperApiKey!, clampedMax)
+    );
+    if (r && r.length > 0) return respond(r, "serper");
   }
 
   // ─ Layer 2: Brave Search API ─
@@ -746,7 +829,7 @@ export async function webSearch(
   // ─ Layer 2b: Firecrawl via Eden AI (structured, reliable; US endpoint) ─
   if (firecrawlApiKey) {
     const r = await tryLayer("firecrawl", () =>
-      searchViaFirecrawl(query, firecrawlApiKey!, clampedMax, firecrawlDepth)
+      searchViaFirecrawl(query, firecrawlApiKey!, clampedMax, firecrawlDepth).then(({ results }) => results)
     );
     if (r && r.length > 0) return respond(r, "firecrawl");
   }

@@ -30,15 +30,24 @@ export interface ExtrapolationResult {
 function normalizeGerman(s: string): string {
   return s
     .toLowerCase()
-    .replace(/ä/g, "ae")
-    .replace(/ö/g, "oe")
-    .replace(/ü/g, "ue")
+    .replace(/ä/g, "ae").replace(/Ä/g, "ae")
+    .replace(/ö/g, "oe").replace(/Ö/g, "oe")
+    .replace(/ü/g, "ue").replace(/Ü/g, "ue")
     .replace(/ß/g, "ss")
-    .replace(/[^a-z0-9.-]/g, "");   // strip anything non-ASCII
+    // Common accented chars (French, Czech, etc. names in German companies)
+    .replace(/[àáâãå]/g, "a")
+    .replace(/[èéêë]/g, "e")
+    .replace(/[ìíîï]/g, "i")
+    .replace(/[òóôõø]/g, "o")
+    .replace(/[ùúûý]/g, "u")
+    .replace(/[ñ]/g, "n")
+    .replace(/[ç]/g, "c")
+    .replace(/[^a-z0-9.-]/g, "");
 }
 
+/** Same as normalizeGerman — Umlauts and accents are always converted, never stripped. */
 function normalizeSimple(s: string): string {
-  return s.toLowerCase().replace(/[^a-z0-9.-]/g, "");
+  return normalizeGerman(s);
 }
 
 // ── Pattern definitions — ordered by priority (overridden by learned patterns) ──
@@ -281,4 +290,93 @@ export async function smtpVerifyEmail(email: string): Promise<{
   } catch (e) {
     return { exists: null, catchAll: null, code: 0, message: (e as Error).message };
   }
+}
+
+// ── Extrapolate ALL candidates and SMTP-verify in parallel ────────────────────
+
+export interface VerifiedCandidate extends EmailCandidate {
+  exists: boolean | null;
+  catchAll: boolean | null;
+  smtpCode: number;
+  smtpMessage: string;
+}
+
+export interface ExtrapolateAndVerifyResult {
+  candidates: VerifiedCandidate[];
+  /** Best confirmed email (exists=true), or best catch-all, or best extrapolated */
+  bestEmail: string | null;
+  bestPattern: string | null;
+  catchAll: boolean;
+  verified: boolean; // true if at least one exists=true found
+}
+
+/**
+ * Generate ALL email pattern candidates for a contact, then SMTP-verify all in parallel.
+ * Returns sorted results: verified first, then catch-all, then unverified.
+ */
+export async function extrapolateAndVerifyAll(
+  firstName: string,
+  lastName: string,
+  domain: string,
+  options: { learnedPatterns?: LearnedPattern[]; timeoutMs?: number } = {}
+): Promise<ExtrapolateAndVerifyResult> {
+  // 1. Generate all candidates (no limit)
+  const result = extrapolateEmails(firstName, lastName, domain, {
+    maxCandidates: 20,
+    includeGermanVariants: false, // already merged via normalizeSimple=normalizeGerman
+    learnedPatterns: options.learnedPatterns,
+  });
+
+  if (result.candidates.length === 0) {
+    return { candidates: [], bestEmail: null, bestPattern: null, catchAll: false, verified: false };
+  }
+
+  // 2. First check catch-all with fake address (single MX lookup shared by all)
+  const catchAllResult = await smtpVerifyEmail(
+    `xnoreply-verify-${Math.random().toString(36).slice(2,8)}@${domain.replace(/^https?:\/\//,"").replace(/^www\./,"").split("/")[0]}`
+  );
+  const isCatchAll = catchAllResult.catchAll === true;
+
+  // 3. If catch-all: no point verifying individuals — mark all as catch-all
+  if (isCatchAll) {
+    const candidates: VerifiedCandidate[] = result.candidates.map(c => ({
+      ...c,
+      exists: null,
+      catchAll: true,
+      smtpCode: catchAllResult.code,
+      smtpMessage: "Catch-all server",
+    }));
+    return {
+      candidates,
+      bestEmail: result.bestGuess,
+      bestPattern: result.candidates[0]?.pattern ?? null,
+      catchAll: true,
+      verified: false,
+    };
+  }
+
+  // 4. Verify all candidates in parallel
+  const verified = await Promise.all(
+    result.candidates.map(async (c): Promise<VerifiedCandidate> => {
+      const v = await smtpVerifyEmail(c.email);
+      return { ...c, exists: v.exists, catchAll: v.catchAll, smtpCode: v.code, smtpMessage: v.message };
+    })
+  );
+
+  // 5. Sort: confirmed (exists=true) first by confidence, then null, then false
+  verified.sort((a, b) => {
+    const score = (v: VerifiedCandidate) => v.exists === true ? 2 : v.exists === null ? 1 : 0;
+    return score(b) - score(a);
+  });
+
+  const bestConfirmed = verified.find(c => c.exists === true);
+  const best = bestConfirmed ?? verified[0];
+
+  return {
+    candidates: verified,
+    bestEmail: best?.email ?? null,
+    bestPattern: best?.pattern ?? null,
+    catchAll: false,
+    verified: !!bestConfirmed,
+  };
 }

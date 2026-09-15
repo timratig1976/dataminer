@@ -37,7 +37,7 @@ export function useAgentRun(caseId: string): UseAgentRunReturn {
     abortRef.current = false;
 
     try {
-      const res = await fetch(`/api/cases/${caseId}/agent/start`, {
+      const res = await fetch(`/api/cases/${caseId}/agent`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ goal }),
@@ -70,6 +70,14 @@ export function useAgentRun(caseId: string): UseAgentRunReturn {
         method: "POST",
         headers: { "Content-Type": "application/json" },
       });
+
+      // Guard against HTML error pages (e.g. Next.js 404/500 pages)
+      const contentType = res.headers.get("content-type") ?? "";
+      if (!contentType.includes("application/json")) {
+        setError(`Server error (HTTP ${res.status}) — expected JSON but got ${contentType.split(";")[0]}`);
+        setRunning(false);
+        return null;
+      }
 
       const data = await res.json();
       if (!res.ok) {

@@ -27,19 +27,18 @@ export interface MapsPlace {
   mapsUrl: string;
 }
 
-export type MapsProvider = "maps-serpapi" | "maps-scrapling";
+export type MapsProvider = "maps-serpapi" | "maps-serper" | "maps-apify" | "maps-scrapling";
 
 export interface MapsSearchParams {
   query: string;
   provider?: MapsProvider;
-  /** Max places (SerpApi caps at 120; we clamp to 100) */
   limit?: number;
-  /** Optional "lat,lng" bias, e.g. "52.39,13.06" */
   ll?: string;
   serpApiKey?: string;
+  serperApiKey?: string;
+  apifyApiToken?: string;
   scraplingUrl?: string;
   scraplingToken?: string;
-  /** Domains already in the case — used to flag duplicates */
   excludeDomains?: string[];
   signal?: AbortSignal;
 }
@@ -208,6 +207,97 @@ export async function mapsSearchViaScrapling(params: {
     .filter((p) => p.name);
 }
 
+// ── Provider 2: Serper.dev Google Places ──────────────────────────────────────
+
+export async function mapsSearchViaSerper(params: {
+  query: string;
+  limit: number;
+  serperApiKey: string;
+  signal?: AbortSignal;
+}): Promise<MapsPlace[]> {
+  const { query, limit, serperApiKey, signal } = params;
+  const res = await fetch("https://google.serper.dev/places", {
+    method: "POST",
+    headers: { "X-API-KEY": serperApiKey, "Content-Type": "application/json" },
+    body: JSON.stringify({ q: query, gl: "de", hl: "de" }),
+    signal,
+  });
+  if (!res.ok) throw new Error(`Serper Places HTTP ${res.status}`);
+  const data = await res.json() as {
+    places?: Array<{ title?: string; address?: string; phone?: string; website?: string; rating?: number; ratingCount?: number; category?: string; cid?: string }>;
+  };
+  return (data.places ?? []).slice(0, limit).map(p => ({
+    name: p.title ?? "",
+    address: p.address ?? "",
+    phone: p.phone ?? "",
+    website: p.website ?? "",
+    rating: p.rating,
+    reviews: p.ratingCount,
+    category: p.category,
+    mapsUrl: p.cid
+      ? `https://www.google.com/maps/place/?q=place_id:${p.cid}`
+      : `https://www.google.com/maps/search/${encodeURIComponent(p.title ?? "")}`,
+  }));
+}
+
+// ── Provider 3: Apify Google Maps Scraper ─────────────────────────────────────
+
+export async function mapsSearchViaApify(params: {
+  query: string;
+  limit: number;
+  apifyApiToken: string;
+  signal?: AbortSignal;
+}): Promise<MapsPlace[]> {
+  const { query, limit, apifyApiToken, signal } = params;
+  const BASE = "https://api.apify.com/v2";
+  const ACTOR = "compass~crawler-google-places";
+  const headers = { Authorization: `Bearer ${apifyApiToken}`, "Content-Type": "application/json" };
+
+  // Start run
+  const runRes = await fetch(`${BASE}/acts/${ACTOR}/runs`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      searchStringsArray: [query],
+      maxCrawledPlacesPerSearch: Math.min(limit, 200),
+      language: "de",
+      skipClosedPlaces: false,
+    }),
+    signal,
+  });
+  if (!runRes.ok) throw new Error(`Apify start HTTP ${runRes.status}`);
+  const runData = await runRes.json() as { data: { id: string; defaultDatasetId: string } };
+  const { id: runId, defaultDatasetId: datasetId } = runData.data;
+
+  // Poll max 120s
+  const deadline = Date.now() + 120_000;
+  while (Date.now() < deadline) {
+    if (signal?.aborted) throw new Error("Aborted");
+    await new Promise(r => setTimeout(r, 3000));
+    const s = await fetch(`${BASE}/actor-runs/${runId}`, { headers, signal });
+    const sd = await s.json() as { data: { status: string } };
+    const status = sd.data.status;
+    if (status === "SUCCEEDED") break;
+    if (["FAILED","ABORTED","TIMED-OUT"].includes(status)) throw new Error(`Apify run ${status}`);
+  }
+
+  // Fetch results
+  const itemsRes = await fetch(`${BASE}/datasets/${datasetId}/items?clean=true&format=json&limit=${limit}`, { headers, signal });
+  if (!itemsRes.ok) throw new Error(`Apify dataset HTTP ${itemsRes.status}`);
+  const items = await itemsRes.json() as Array<{ title?: string; address?: string; phone?: string; website?: string; totalScore?: number; reviewsCount?: number; categoryName?: string; url?: string }>;
+
+  return items.map(p => ({
+    name: p.title ?? "",
+    address: p.address ?? "",
+    phone: p.phone ?? "",
+    website: p.website ?? "",
+    rating: p.totalScore,
+    reviews: p.reviewsCount,
+    category: p.categoryName,
+    mapsUrl: p.url ?? "",
+  })).filter(p => p.name);
+}
+
 // ── Orchestration ────────────────────────────────────────────────────────────
 
 export async function mapsSearch(params: MapsSearchParams): Promise<MapsSearchResponse> {
@@ -217,6 +307,8 @@ export async function mapsSearch(params: MapsSearchParams): Promise<MapsSearchRe
     limit = 20,
     ll,
     serpApiKey,
+    serperApiKey,
+    apifyApiToken,
     scraplingUrl,
     scraplingToken,
     excludeDomains = [],
@@ -226,41 +318,40 @@ export async function mapsSearch(params: MapsSearchParams): Promise<MapsSearchRe
   const clampedLimit = Math.max(1, Math.min(limit, MAX_MAPS_LIMIT));
   const t0 = Date.now();
 
-  // Provider availability check with automatic fallback to the free scraper
   let effectiveProvider: MapsProvider = provider;
   let places: MapsPlace[] = [];
   let error: string | undefined;
 
   const trySerp = async (): Promise<boolean> => {
     if (!serpApiKey) return false;
-    try {
-      places = await mapsSearchViaSerpApi({ query, limit: clampedLimit, ll, serpApiKey, signal });
-      return places.length > 0;
-    } catch (e) {
-      error = (e as Error).message;
-      return false;
-    }
+    try { places = await mapsSearchViaSerpApi({ query, limit: clampedLimit, ll, serpApiKey, signal }); effectiveProvider = "maps-serpapi"; return places.length > 0; }
+    catch (e) { error = (e as Error).message; return false; }
   };
-
+  const trySerper = async (): Promise<boolean> => {
+    if (!serperApiKey) return false;
+    try { places = await mapsSearchViaSerper({ query, limit: clampedLimit, serperApiKey, signal }); effectiveProvider = "maps-serper"; return places.length > 0; }
+    catch (e) { error = `${error ? error + "; " : ""}${(e as Error).message}`; return false; }
+  };
+  const tryApify = async (): Promise<boolean> => {
+    if (!apifyApiToken) return false;
+    try { places = await mapsSearchViaApify({ query, limit: clampedLimit, apifyApiToken, signal }); effectiveProvider = "maps-apify"; return places.length > 0; }
+    catch (e) { error = `${error ? error + "; " : ""}${(e as Error).message}`; return false; }
+  };
   const tryScrapling = async (): Promise<boolean> => {
     if (!scraplingUrl || !scraplingToken) return false;
-    try {
-      places = await mapsSearchViaScrapling({ query, limit: clampedLimit, ll, scraplingUrl, scraplingToken, signal });
-      return places.length > 0;
-    } catch (e) {
-      error = `${error ? error + "; " : ""}${(e as Error).message}`;
-      return false;
-    }
+    try { places = await mapsSearchViaScrapling({ query, limit: clampedLimit, ll, scraplingUrl, scraplingToken, signal }); effectiveProvider = "maps-scrapling"; return places.length > 0; }
+    catch (e) { error = `${error ? error + "; " : ""}${(e as Error).message}`; return false; }
   };
 
-  if (provider === "maps-scrapling") {
+  if (provider === "maps-apify") {
+    if (!(await tryApify())) await trySerper() || await tryScrapling();
+  } else if (provider === "maps-serper") {
+    if (!(await trySerper())) await tryApify() || await tryScrapling();
+  } else if (provider === "maps-scrapling") {
     if (!(await tryScrapling())) effectiveProvider = "maps-scrapling";
   } else {
-    if (await trySerp()) {
-      effectiveProvider = "maps-serpapi";
-    } else if (await tryScrapling()) {
-      effectiveProvider = "maps-scrapling";
-    }
+    // Default: SerpApi → Serper → Apify → Scrapling
+    await trySerp() || await trySerper() || await tryApify() || await tryScrapling();
   }
 
   const hits = placesToHits(places, query, effectiveProvider, excludeDomains);

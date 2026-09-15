@@ -2,8 +2,8 @@
 
 import { useState, useCallback, useEffect, useRef } from "react";
 import {
-  X, Target, Loader2, CheckCircle2, XCircle, SkipForward,
-  AlertTriangle, TrendingUp, DollarSign, Clock,
+  X, Target, Loader2, CheckCircle2, XCircle, SkipForward, Circle,
+  AlertTriangle, TrendingUp, DollarSign, Clock, Globe, MapPin, List, Search,
 } from "lucide-react";
 import { useAgentRun, type AgentGoal, type AgentRunState } from "@/hooks/useAgentRun";
 
@@ -48,6 +48,29 @@ function stepIcon(result: { uniqueInserted: number; error?: string }): React.Rea
   return <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />;
 }
 
+function planStepTypeIcon(type: string): React.ReactNode {
+  switch (type) {
+    case "google_maps": return <MapPin className="w-3 h-3 text-sky-500" />;
+    case "catalog_scrape":
+    case "catalog_deep_crawl":
+    case "directory_search": return <List className="w-3 h-3 text-amber-500" />;
+    case "multi_search": return <Globe className="w-3 h-3 text-violet-500" />;
+    default: return <Search className="w-3 h-3 text-gray-500" />;
+  }
+}
+
+function planStepTypeLabel(type: string): string {
+  switch (type) {
+    case "google_maps": return "Maps";
+    case "google_search": return "Google";
+    case "multi_search": return "Multi";
+    case "catalog_scrape": return "Katalog";
+    case "catalog_deep_crawl": return "Deep Crawl";
+    case "directory_search": return "Verzeichnis";
+    default: return type;
+  }
+}
+
 export function AgentGoalModal({ caseId, rowsCount, onClose, onImported }: Props) {
   // ── Goal form state ──
   const [description, setDescription] = useState("");
@@ -62,21 +85,32 @@ export function AgentGoalModal({ caseId, rowsCount, onClose, onImported }: Props
   const importedRef = useRef(false);
 
   const isRunning = running && run !== null && !TERMINAL_STATUSES.has(run.status);
+  const reloadRef = useRef(reload);
+  useEffect(() => { reloadRef.current = reload; }, [reload]);
+
   useEffect(() => {
     fetch(`/api/cases/${caseId}/agent`)
-      .then((r) => r.json())
-      .then((runs) => {
-        if (Array.isArray(runs) && runs.length > 0) {
-          const active = runs.find((r: { status: string }) => !TERMINAL_STATUSES.has(r.status));
-          if (active) {
-            reload(active.id);
-          }
-        }
+      .then((r) => r.ok ? r.json() : [])
+      .then((runs: Array<{ id: string; status: string }>) => {
+        if (!Array.isArray(runs) || runs.length === 0) return;
+        // Prefer an active run; fall back to the most recent run (completed/etc.)
+        const active = runs.find((r) => !TERMINAL_STATUSES.has(r.status));
+        const target = active ?? runs[0]; // runs are sorted newest-first
+        if (target) reloadRef.current(target.id);
       })
       .catch(() => {});
-  }, [caseId, reload]);
+  }, [caseId]); // stable — reloadRef holds latest reload without being a dep
 
   // Step loop: call step() repeatedly while run is not terminal
+  // Pre-fill form fields from the loaded run so "Neue Suche" works immediately
+  useEffect(() => {
+    if (run && !description) {
+      setDescription(run.goal.description);
+      setTargetCount(run.goal.targetCount);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [run?.id]); // only when a new run is loaded
+
   useEffect(() => {
     if (!running || !run || TERMINAL_STATUSES.has(run.status)) {
       stepLoopRef.current = false;
@@ -162,6 +196,12 @@ export function AgentGoalModal({ caseId, rowsCount, onClose, onImported }: Props
               in mehreren Runden aus, bis das Ziel erreicht ist.
             </p>
 
+            {error && (
+              <div className="text-xs text-red-700 bg-red-50 rounded-lg px-3 py-2 border border-red-200">
+                ❌ {error}
+              </div>
+            )}
+
             <div>
               <label className="text-xs font-medium text-gray-600 mb-1 block">
                 Was suchst du?
@@ -169,12 +209,15 @@ export function AgentGoalModal({ caseId, rowsCount, onClose, onImported }: Props
               <input
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleStart()}
+                onKeyDown={(e) => e.key === "Enter" && description.trim() && handleStart()}
                 placeholder="z.B. Handwerksbetriebe Heizung/Sanitär in NRW"
-                className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-rose-400"
+                className={`w-full border rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-rose-400 ${description.length > 0 && !description.trim() ? "border-red-400 bg-red-50" : "border-gray-300"}`}
                 disabled={isRunning}
                 autoFocus
               />
+              {description.length > 0 && !description.trim() && (
+                <p className="text-xs text-red-500 mt-1">Bitte eine Beschreibung eingeben</p>
+              )}
             </div>
 
             <div className="grid grid-cols-2 gap-4">
@@ -245,10 +288,10 @@ export function AgentGoalModal({ caseId, rowsCount, onClose, onImported }: Props
             <button
               onClick={handleStart}
               disabled={!description.trim() || isRunning}
-              className="w-full bg-rose-600 text-white px-4 py-2.5 rounded-lg text-sm font-medium hover:bg-rose-700 disabled:opacity-40 flex items-center justify-center gap-2"
+              className="w-full bg-rose-600 text-white px-4 py-2.5 rounded-lg text-sm font-medium hover:bg-rose-700 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
-              <Target className="w-4 h-4" />
-              Ziel-Suche starten
+              {isRunning ? <Loader2 className="w-4 h-4 animate-spin" /> : <Target className="w-4 h-4" />}
+              {isRunning ? "Plane Suche…" : !description.trim() ? "Beschreibung eingeben…" : "Ziel-Suche starten"}
             </button>
           </div>
         ) : (
@@ -284,6 +327,91 @@ export function AgentGoalModal({ caseId, rowsCount, onClose, onImported }: Props
                 />
               </div>
             </div>
+
+            {/* Plan steps overview */}
+            {run.plan && run.plan.steps && run.plan.steps.length > 0 && (
+              <div>
+                <div className="text-xs font-medium text-gray-600 mb-2">
+                  Plan — {run.plan.steps.length} Steps, ~{run.plan.estimatedRows.toLocaleString("de-DE")} geschätzte Treffer
+                </div>
+                <div className="space-y-1 max-h-64 overflow-y-auto">
+                  {run.plan.steps.map((s) => {
+                    const executed = run.stepResults.find((r) => r.stepId === s.id);
+                    const isDone = !!executed;
+                    const isError = !!executed?.error;
+                    const isSkipped = executed && executed.uniqueInserted === 0;
+                    return (
+                      <div
+                        key={s.id}
+                        className={`flex items-start gap-2 text-xs rounded px-2 py-1.5 ${
+                          isError ? "bg-red-50" : isSkipped ? "bg-gray-50" : isDone ? "bg-emerald-50" : "bg-violet-50"
+                        }`}
+                      >
+                        {isError ? (
+                          <XCircle className="w-3.5 h-3.5 text-red-500 mt-0.5 shrink-0" />
+                        ) : isSkipped ? (
+                          <SkipForward className="w-3.5 h-3.5 text-gray-400 mt-0.5 shrink-0" />
+                        ) : isDone ? (
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 mt-0.5 shrink-0" />
+                        ) : (
+                          <Circle className="w-3.5 h-3.5 text-violet-300 mt-0.5 shrink-0" />
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            {planStepTypeIcon(s.type)}
+                            <span className={`text-xs font-medium uppercase ${isDone ? "text-emerald-600" : "text-violet-600"}`}>
+                              {planStepTypeLabel(s.type)}
+                            </span>
+                            <span className="text-gray-400">·</span>
+                            <span className="text-gray-700 truncate font-medium">{s.label}</span>
+                          </div>
+                          <div className="text-gray-400 mt-0.5">
+                            {s.query || s.mapQuery || s.url
+                              ? <span className="truncate block">{s.query || s.mapQuery || s.url}</span>
+                              : s.queryTemplate
+                              ? (
+                                <span className="truncate block">
+                                  {s.queryTemplate}
+                                  {s.queries && s.queries.length > 0 && (
+                                    <span className="ml-1 text-violet-400">
+                                      × {s.queries.length} Städte
+                                    </span>
+                                  )}
+                                </span>
+                              )
+                              : <span>—</span>
+                            }
+                          </div>
+                          {/* Show first few expanded city queries for multi_search */}
+                          {s.type === "multi_search" && s.queries && s.queries.length > 0 && (
+                            <div className="text-gray-400 mt-0.5 text-[10px] leading-relaxed">
+                              {s.queries.slice(0, 5).join(" · ")}
+                              {s.queries.length > 5 && <span className="text-gray-300"> +{s.queries.length - 5} weitere</span>}
+                            </div>
+                          )}
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <span className="text-gray-400">~{s.estimatedHits} Treffer</span>
+                            {executed && (
+                              <span className={isError ? "text-red-500" : "text-emerald-600"}>
+                                {isError ? `❌ ${executed.error}` : `✓ +${executed.uniqueInserted} neu`}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Warnings from planner */}
+            {run.plan && run.plan.warnings && run.plan.warnings.length > 0 && (
+              <div className="flex items-start gap-1.5 text-xs text-amber-700 bg-amber-50 rounded-lg px-3 py-2">
+                <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                <span>{run.plan.warnings[0]}</span>
+              </div>
+            )}
 
             {/* Cost & time */}
             <div className="flex flex-wrap items-center gap-3">

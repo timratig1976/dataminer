@@ -18,8 +18,45 @@ import { webSearch } from "./search";
 
 /** Strip surrogate pairs and other invalid UTF-16 sequences that Eden AI rejects. */
 function sanitizeForLlm(text: string): string {
-  // Replace lone surrogates (U+D800–U+DFFF) with replacement character
   return text.replace(/[\uD800-\uDFFF]/g, "\uFFFD").replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, " ");
+}
+
+/**
+ * Remove cookie banners, DSGVO notices, navigation noise and image spam from scraped Markdown.
+ * Strips common patterns before sending to LLM.
+ */
+function filterScrapedContent(markdown: string): string {
+  const lines = markdown.split("\n");
+  const filtered = lines.filter(line => {
+    const l = line.trim().toLowerCase();
+    if (l.length === 0) return true;
+
+    // ── Cookie / DSGVO / Datenschutz ──
+    if (l.includes("einwilligungsoptionen") || l.includes("einwilligungsoption")) return false;
+    if (l.includes("einstellung zum datenschutz")) return false;
+    if (l.includes("cookie") && (l.includes("akzeptier") || l.includes("zustimm") || l.includes("einwillig") || l.includes("ablehnen") || l.includes("einstellung") || l.includes("banner") || l.includes("hinweis"))) return false;
+    if (l.includes("datenschutz") && (l.includes("hinweis") || l.includes("einwillig") || l.includes("richtlinie") || l.includes("erkl"))) return false;
+    if (l.includes("dsgvo") || l.includes("gdpr") || l.includes("ccpa")) return false;
+    if (l.includes("wir verwenden cookies") || l.includes("diese website verwendet") || l.includes("durch die nutzung dieser")) return false;
+    if (l.includes("zum inhalt springen") || l.includes("skip to content") || l.includes("zum hauptinhalt")) return false;
+    if (l.includes("zu einwilligungs") || l.includes("zu cookie")) return false;
+
+    // ── Image markdown lines — strip completely (![alt](url)) ──
+    if (/^!\[.*?\]\(https?:\/\//.test(line.trim())) return false;
+
+    // ── Pure nav/menu lines (short link-only lines) ──
+    if (/^\[.{1,40}\]\(https?:\/\//.test(line.trim()) && line.trim().length < 80) return false;
+
+    // ── WordPress upload paths in links (image links wrapped in anchor) ──
+    if (l.includes("wp-content/uploads") || l.includes("wp-content/themes")) return false;
+
+    // ── "Weiterlesen"-style CTA links ──
+    if (/^\[weiterlesen|^\[mehr erfahren|^\[read more|^\[jetzt/i.test(line.trim())) return false;
+
+    return true;
+  });
+  // Collapse >2 consecutive empty lines to 1
+  return filtered.join("\n").replace(/\n{3,}/g, "\n\n").trim();
 }
 
 // ── Output field definitions ──────────────────────────────────────────────────
@@ -28,7 +65,7 @@ export const BATCH_FIELDS = [
   "company_name",
   "domain",
   "phone",
-  "email",
+  "company_email",
   "address",
   "city",
   "zip",
@@ -47,19 +84,19 @@ export type BatchField = (typeof BATCH_FIELDS)[number];
 export const BATCH_FIELD_LABELS: Record<BatchField, string> = {
   company_name: "Firmenname",
   domain: "Domain/Website",
-  phone: "Telefon",
-  email: "E-Mail",
-  address: "Adresse",
+  phone: "Telefon (primäre Kontaktnummer)",
+  company_email: "E-Mail (Firmen-Hauptadresse, z.B. info@, kontakt@)",
+  address: "Adresse (Straße + Hausnummer)",
   city: "Stadt",
   zip: "PLZ",
   industry: "Branche",
-  description: "Beschreibung",
+  description: "Kurzbeschreibung",
   employees: "Mitarbeiterzahl",
   founded: "Gründungsjahr",
-  first_name: "Vorname (Ansprechpartner)",
-  last_name: "Nachname (Ansprechpartner)",
-  position: "Position (Ansprechpartner)",
-  linkedin: "LinkedIn-Profil",
+  first_name: "Vorname Ansprechpartner/GF",
+  last_name: "Nachname Ansprechpartner/GF",
+  position: "Position Ansprechpartner/GF",
+  linkedin: "LinkedIn-Profil URL",
 };
 
 // ── System prompt (fixed, cached by LLM provider) ─────────────────────────────
@@ -71,7 +108,13 @@ export function buildSystemPrompt(requestedFields: string[]): string {
     .join(",\n");
 
   return `Du bist ein präziser Daten-Extraktions-Agent für Unternehmensprofile.
-Analysiere die gegebenen Quellen (Website-Inhalt, Suchergebnisse) und extrahiere strukturierte Unternehmensdaten.
+Analysiere die gegebenen Quellen (Website-Inhalt, Impressum, Suchergebnisse) und extrahiere strukturierte Unternehmensdaten.
+
+WICHTIG — Ignoriere folgende Inhalte vollständig (nicht extrahieren, nicht zitieren):
+- Cookie-Banner, DSGVO/Datenschutz-Hinweise, Cookie-Einwilligungs-Texte
+- Navigation, Footer-Links, Breadcrumbs, Menüpunkte
+- Werbetexte, Slider-Teaser, Social-Media-Buttons
+- AGBs, Widerrufsbelehrungen, Haftungsausschlüsse
 
 Antworte NUR mit JSON (kein Markdown, keine Erklärungen):
 {
@@ -81,11 +124,16 @@ ${fieldList}
 Regeln:
 - Fehlende Felder: null (NICHT weglassen, NICHT raten)
 - domain: nur Basis-Domain ohne http/https/www (z.B. "example.de")
-- phone: internationales Format wenn möglich (z.B. "+49 381 454000")
-- industry: kurze präzise Beschreibung (z.B. "Heizungs-, Sanitär- und Klimatechnik")
-- description: 1-2 Sätze was das Unternehmen macht
-- Ansprechpartner: nur wenn Name/Position klar erkennbar (kein Raten)
-- Wenn mehrere Telefonnummern: die primäre Kontaktnummer`;
+- phone: primäre Kontaktnummer im internationalen Format (z.B. "+49 381 454000"); bei mehreren Nummern: Zentrale/Hauptnummer bevorzugen
+- company_email: generische Firmen-Hauptadresse (info@, kontakt@, mail@, office@, hallo@) — KEINE persönlichen Emails; aus Impressum oder Kontaktseite
+- address: Straße und Hausnummer (ohne PLZ/Stadt)
+- city: Ortsname
+- zip: Postleitzahl (5-stellig)
+- industry: präzise Branchenbezeichnung (z.B. "Heizungs-, Sanitär- und Klimatechnik", "Steuerberatung", "Softwareentwicklung")
+- description: 1-2 prägnante Sätze was das Unternehmen macht (aus Über-uns oder Homepage, kein Marketing-Bla)
+- employees: Zahl oder Größenklasse (z.B. "12", "50-200") — nur wenn eindeutig angegeben
+- founded: Gründungsjahr (4-stellig) — nur wenn eindeutig angegeben
+- first_name / last_name / position: Geschäftsführer oder Inhaber — nur wenn klar benannt im Impressum; kein Raten`;
 }
 
 // ── Main enrichment function ──────────────────────────────────────────────────
@@ -107,6 +155,7 @@ export interface BatchEnrichOptions {
 export interface BatchEnrichResult {
   fields: Record<string, string | null>;
   scrapeMarkdown?: string;
+  impressumMarkdown?: string;
   searchSnippets?: string;
   debugPrompt?: string;
   debugRawResponse?: string;
@@ -128,7 +177,7 @@ export async function batchEnrichRow(
     serpApiKey,
     braveApiKey,
     requestedFields = [...BATCH_FIELDS],
-    searchContacts = true,
+    searchContacts = false,  // default off — batch_contacts column handles contacts separately
     cachedScrape,
     customSystemPrompt,
     signal,
@@ -143,27 +192,45 @@ export async function batchEnrichRow(
   }
 
   const contextParts: string[] = [];
+  const sourcesUsed: string[] = [];
   let scrapeMarkdown: string | undefined;
   let searchSnippets: string | undefined;
+  let impressumMarkdown: string | undefined;
   let scrapeError: string | undefined;
   let searchError: string | undefined;
 
-  // 2. Scrape homepage
+  // 2. Scrape homepage + impressum/kontakt page for company email
   if (domain) {
     if (cachedScrape) {
-      scrapeMarkdown = cachedScrape;
+      scrapeMarkdown = filterScrapedContent(cachedScrape);
     } else {
       try {
-        const url = domain.startsWith("http") ? domain : `https://${domain}`;
-        const result = await edenScrapeUrl({ apiKey: edenApiKey, url });
-        scrapeMarkdown = result.markdown?.slice(0, 8000);  // limit to 8k chars
+        const base = domain.startsWith("http") ? domain : `https://${domain}`;
+        const result = await edenScrapeUrl({ apiKey: edenApiKey, url: base });
+        scrapeMarkdown = filterScrapedContent(result.markdown?.slice(0, 6000) ?? "");
       } catch (e) {
         scrapeError = (e as Error).message;
-        // Continue without scrape — use search results only
       }
     }
     if (scrapeMarkdown?.trim()) {
-      contextParts.push(`## Website-Inhalt (${domain})\n${scrapeMarkdown}`);
+      contextParts.push(`## Homepage (${domain})\n${scrapeMarkdown}`);
+      sourcesUsed.push("scrape");
+    }
+    // Also scrape impressum/kontakt to find company email & address
+    if (!cachedScrape) {
+      const base = domain.startsWith("http") ? domain : `https://${domain}`;
+      const impressumPaths = ["/impressum", "/kontakt", "/impressum.html", "/kontakt.html", "/about", "/ueber-uns"];
+      for (const path of impressumPaths) {
+        try {
+          const result = await edenScrapeUrl({ apiKey: edenApiKey, url: `${base}${path}` });
+          if (result.markdown && result.markdown.length > 150) {
+            impressumMarkdown = filterScrapedContent(result.markdown.slice(0, 3000));
+            contextParts.push(`## Impressum/Kontakt (${path})\n${impressumMarkdown}`);
+            sourcesUsed.push(`impressum:${path}`);
+            break;
+          }
+        } catch { continue; }
+      }
     }
   }
 
@@ -184,6 +251,7 @@ export async function batchEnrichRow(
           .map((r, i) => `[${i + 1}] ${r.title}\n${r.snippet}`)
           .join("\n\n");
         contextParts.push(`## Suchergebnisse (Kontaktdaten)\n${searchSnippets}`);
+        sourcesUsed.push("search");
       }
     } catch (e) {
       searchError = (e as Error).message;
@@ -200,8 +268,9 @@ export async function batchEnrichRow(
         maxResults: 5,
       });
       if (resp.results.length > 0) {
-        const snippets = resp.results.map((r, i) => `[${i + 1}] ${r.title}\n${r.snippet}`).join("\n\n");
-        contextParts.push(`## Suchergebnisse\n${snippets}`);
+        searchSnippets = resp.results.map((r, i) => `[${i + 1}] ${r.title}\n${r.snippet}`).join("\n\n");
+        contextParts.push(`## Suchergebnisse\n${searchSnippets}`);
+        sourcesUsed.push("search");
       }
     } catch (e) {
       // ignore
@@ -228,7 +297,7 @@ export async function batchEnrichRow(
   ].filter(Boolean).join("\n"));
 
   // Store the prompt for debugging (returned in result)
-  const debugPrompt = userPrompt.slice(0, 4000);  // full context for modal
+  const debugPrompt = userPrompt;  // full prompt for modal
 
   try {
     const resp = await edenChatCompletion({
@@ -237,7 +306,7 @@ export async function batchEnrichRow(
       model,
       system: systemPrompt,
       prompt: userPrompt,
-      maxTokens: 600,  // compact JSON output
+      maxTokens: 800,  // enough for all fields incl. description
       temperature: 0,
       signal,
     });
@@ -276,10 +345,11 @@ export async function batchEnrichRow(
     return {
       fields,
       scrapeMarkdown,
+      impressumMarkdown,
       searchSnippets,
       debugPrompt,
       debugRawResponse: resp.raw ?? "",
-      sourcesUsed: contextParts.map((_, i) => i === 0 && scrapeMarkdown ? "scrape" : "search"),
+      sourcesUsed,
       tokensUsed: resp.tokens?.total,
       costUsd: resp.costUsd,
       scrapeError,

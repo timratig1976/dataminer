@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { discoverySearch, normalizeDomain, type DiscoverySource } from "@/lib/discovery";
 import { mapsSearch, type MapsProvider } from "@/lib/maps";
-import { getExistingDomains } from "@/lib/db";
+import { getExistingDomains, resolveSearchKeys } from "@/lib/db";
 
 const VALID_SOURCES = new Set<string>([
-  "auto", "firecrawl", "serpapi", "brave", "duckduckgo", "scrapling",
-  "maps-serpapi", "maps-scrapling",
+  "auto", "firecrawl", "serpapi", "serper", "brave", "duckduckgo", "scrapling",
+  "maps-serpapi", "maps-serper", "maps-apify", "maps-scrapling",
 ]);
 
 const DISCOVERY_MAX_LIMIT = 100;
@@ -18,8 +18,6 @@ function clamp(raw: unknown, fallback: number): number {
 
 function getEnvOpts() {
   return {
-    serpApiKey: process.env.SERP_API_KEY?.trim() || undefined,
-    braveApiKey: process.env.BRAVE_API_KEY?.trim() || undefined,
     scraplingUrl: process.env.SCRAPLING_URL?.trim() || undefined,
     scraplingToken: process.env.SCRAPLING_TOKEN?.trim() || undefined,
     edenApiKey: process.env.EDEN_API_KEY?.trim() || undefined,
@@ -97,14 +95,17 @@ async function runDiscovery(
   const excludeList = Array.from(exclusions);
 
   const env = getEnvOpts();
+  const searchKeys = await resolveSearchKeys();
 
-  if (src === "maps-serpapi" || src === "maps-scrapling") {
+  if (src === "maps-serpapi" || src === "maps-scrapling" || src === "maps-serper" || src === "maps-apify") {
     const resp = await mapsSearch({
       query: q,
       provider: src as MapsProvider,
       limit: lim,
       ll: typeof ll === "string" && ll.includes(",") ? ll : undefined,
-      serpApiKey: env.serpApiKey,
+      serpApiKey: searchKeys.serpApiKey,
+      serperApiKey: searchKeys.serperApiKey,
+      apifyApiToken: searchKeys.apifyApiToken,
       scraplingUrl: env.scraplingUrl,
       scraplingToken: env.scraplingToken,
       excludeDomains: excludeList,
@@ -144,6 +145,9 @@ async function runDiscovery(
     limit: lim,
     excludeDomains: excludeList,
     ...env,
+    serpApiKey: searchKeys.serpApiKey,
+    serperApiKey: searchKeys.serperApiKey,
+    braveApiKey: searchKeys.braveApiKey,
   });
   return NextResponse.json(resp);
 }

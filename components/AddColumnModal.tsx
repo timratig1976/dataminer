@@ -104,8 +104,51 @@ export function AddColumnModal({ caseId, onClose, onAdded, availableFields = [] 
     setInputMappings(nextMappings);
   }
 
-  const isPlain = colType === "text" || colType === "number";
+  // Default batch system prompts (mirrored from lib/batch-enrich.ts for preview)
+  function getDefaultBatchEnrichPrompt() {
+    const fields = batchOutputFields.length > 0 ? batchOutputFields
+      : ["company_name","domain","phone","email","city","zip","industry","description","first_name","last_name","position","linkedin"];
+    const fieldLines = fields.map(f => `  "${f}": "..."`).join(",\n");
+    return `Du bist ein präziser Daten-Extraktions-Agent für Unternehmensprofile.
+Analysiere die gegebenen Quellen (Website-Inhalt, Suchergebnisse) und extrahiere strukturierte Unternehmensdaten.
+
+Antworte NUR mit JSON (kein Markdown, keine Erklärungen):
+{
+${fieldLines}
+}
+
+Regeln:
+- Fehlende Felder: null (NICHT weglassen, NICHT raten)
+- domain: nur Basis-Domain ohne http/https/www (z.B. "example.de")
+- phone: internationales Format wenn möglich (z.B. "+49 381 454000")
+- industry: kurze präzise Beschreibung
+- description: 1-2 Sätze was das Unternehmen macht
+- Ansprechpartner: nur wenn klar erkennbar`;
+  }
+
+  function getDefaultBatchContactsPrompt() {
+    return `Du bist ein Kontaktdaten-Extraktions-Agent.
+Analysiere Impressum, LinkedIn-Profile und Google-Suchergebnisse.
+
+Antworte NUR mit JSON:
+{
+  "first_name": "Vorname des Ansprechpartners",
+  "last_name": "Nachname",
+  "position": "Position/Titel",
+  "contact_email": "direkte Email (NICHT info@ oder kontakt@)",
+  "contact_phone": "direkte Telefonnummer",
+  "linkedin": "LinkedIn-Profil-URL"
+}
+
+Regeln:
+- NUR persönliche Emails, keine generischen (info@, kontakt@, mail@)
+- Bei mehreren Kontakten: Geschäftsführer/Inhaber bevorzugen`;
+  }
+
+  const [showBatchPrompt, setShowBatchPrompt] = useState(false);
+
   const isBatch = batchTool === "batch_enrich" || batchTool === "batch_contacts";
+  const isPlain = colType === "text" || colType === "number";
   const hasMissingRequiredMappings = colType === "ai" && requiredFields.some((field) => !(inputMappings[field] || "").trim());
   const canSave = name.trim() !== "" && outputKey.trim() !== "" && (isPlain || isBatch || prompt.trim() !== "") && !hasMissingRequiredMappings;
 
@@ -191,80 +234,128 @@ export function AddColumnModal({ caseId, onClose, onAdded, availableFields = [] 
         </div>
 
         <div className="p-6 space-y-6">
-          {/* Column type */}
-          <div className={colType === "ai" ? "grid grid-cols-1 md:grid-cols-2 gap-4 items-start" : "block"}>
-            <div>
-              <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Spaltentyp</div>
+          {/* Primary type selection */}
+          <div>
+            <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Spaltentyp wählen</div>
+            <div className="grid grid-cols-3 gap-3">
+              {/* Batch column */}
+              <button
+                onClick={() => { setColType("ai"); setBatchTool("batch_enrich"); setMode("preset"); }}
+                className={`flex flex-col gap-2 p-4 rounded-xl border-2 text-left transition-colors ${colType === "ai" && isBatch ? "border-violet-500 bg-violet-50" : "border-gray-200 hover:border-violet-300 hover:bg-violet-50/30"}`}>
+                <div className="flex items-center gap-2">
+                  <span className="text-xl">🚀</span>
+                  <span className="font-semibold text-sm text-gray-900">Batch-Spalte</span>
+                </div>
+                <p className="text-xs text-gray-500 leading-relaxed">
+                  Scrapt Website & sucht Kontakte — 1 Aufruf füllt <strong>viele Felder</strong> gleichzeitig. Ideal für Firmendaten & Entscheider.
+                </p>
+                <div className="flex gap-1 flex-wrap mt-1">
+                  <span className="text-[10px] bg-violet-100 text-violet-700 px-2 py-0.5 rounded-full">Firmendaten</span>
+                  <span className="text-[10px] bg-violet-100 text-violet-700 px-2 py-0.5 rounded-full">Entscheider</span>
+                  <span className="text-[10px] bg-violet-100 text-violet-700 px-2 py-0.5 rounded-full">Multi-Feld</span>
+                </div>
+              </button>
+
+              {/* AI column */}
+              <button
+                onClick={() => { setColType("ai"); setBatchTool(undefined); setMode("preset"); }}
+                className={`flex flex-col gap-2 p-4 rounded-xl border-2 text-left transition-colors ${colType === "ai" && !isBatch ? "border-green-500 bg-green-50" : "border-gray-200 hover:border-green-300 hover:bg-green-50/30"}`}>
+                <div className="flex items-center gap-2">
+                  <Sparkles className="w-5 h-5 text-green-600" />
+                  <span className="font-semibold text-sm text-gray-900">KI-Spalte</span>
+                </div>
+                <p className="text-xs text-gray-500 leading-relaxed">
+                  Eigener Prompt pro Zeile — liefert <strong>einen Wert</strong>. Optional mit Web-Suche. Frei konfigurierbar.
+                </p>
+                <div className="flex gap-1 flex-wrap mt-1">
+                  <span className="text-[10px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full">Freier Prompt</span>
+                  <span className="text-[10px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full">Web-Suche</span>
+                  <span className="text-[10px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full">1 Feld</span>
+                </div>
+              </button>
+
+              {/* Data column */}
+              <button
+                onClick={() => { setColType("text"); setBatchTool(undefined); }}
+                className={`flex flex-col gap-2 p-4 rounded-xl border-2 text-left transition-colors ${isPlain ? "border-gray-400 bg-gray-50" : "border-gray-200 hover:border-gray-400 hover:bg-gray-50/30"}`}>
+                <div className="flex items-center gap-2">
+                  <Type className="w-5 h-5 text-gray-500" />
+                  <span className="font-semibold text-sm text-gray-900">Datenspalte</span>
+                </div>
+                <p className="text-xs text-gray-500 leading-relaxed">
+                  Leere Spalte für manuelle Eingabe oder als Ziel für Batch-Felder (Text oder Zahl).
+                </p>
+                <div className="flex gap-1 flex-wrap mt-1">
+                  <span className="text-[10px] bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">Text</span>
+                  <span className="text-[10px] bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">Zahl</span>
+                  <span className="text-[10px] bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">Manuell</span>
+                </div>
+              </button>
+            </div>
+          </div>
+
+          {/* Data column subtype + inputs */}
+          {isPlain && (
+            <div className="space-y-3">
               <div className="flex gap-2">
-                {(["ai", "text", "number"] as ColType[]).map(t => (
-                  <button key={t} onClick={() => { setColType(t); }}
-                    className={`flex items-center gap-2 px-4 py-2.5 rounded-lg border text-sm font-medium transition-colors ${colType === t ? "border-green-500 bg-green-50 text-green-700" : "border-gray-200 text-gray-600 hover:border-gray-300"}`}>
-                    {t === "ai" && <Sparkles className="w-3.5 h-3.5" />}
-                    {t === "text" && <Type className="w-3.5 h-3.5" />}
-                    {t === "number" && <Hash className="w-3.5 h-3.5" />}
-                    {t === "ai" ? "KI-Spalte" : t === "text" ? "Text" : "Zahl"}
+                {(["text", "number"] as ColType[]).map(t => (
+                  <button key={t} onClick={() => setColType(t)}
+                    className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors ${colType === t ? "border-gray-400 bg-gray-100 text-gray-800" : "border-gray-200 text-gray-500 hover:border-gray-300"}`}>
+                    {t === "text" ? <><Type className="w-3 h-3" /> Text</> : <><Hash className="w-3 h-3" /> Zahl</>}
                   </button>
                 ))}
               </div>
-            </div>
-
-            {colType === "ai" && (
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs font-medium text-gray-600 uppercase tracking-wide">Spaltenname</label>
-                  <input value={name} onChange={e => setName(e.target.value)} placeholder="z.B. Website"
+                  <input value={name}
+                    onChange={e => { setName(e.target.value); if (!outputKey) setOutputKey(e.target.value.toLowerCase().replace(/\s+/g, "_")); }}
+                    placeholder={colType === "number" ? "z.B. Mitarbeiter" : "z.B. Notizen"}
                     className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" />
                 </div>
                 <div>
-                  <label className="text-xs font-medium text-gray-600 uppercase tracking-wide">Output Key</label>
-                  <input value={outputKey} onChange={e => setOutputKey(e.target.value)} placeholder="z.B. website"
+                  <label className="text-xs font-medium text-gray-600 uppercase tracking-wide">Feldname (Key)</label>
+                  <input value={outputKey} onChange={e => setOutputKey(e.target.value)}
+                    placeholder={colType === "number" ? "z.B. employees" : "z.B. notes"}
                     className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-green-500" />
                 </div>
-              </div>
-            )}
-          </div>
-
-          {/* Plain column: name + key only */}
-          {isPlain && (
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-xs font-medium text-gray-600 uppercase tracking-wide">Spaltenname</label>
-                <input value={name}
-                  onChange={e => { setName(e.target.value); if (!outputKey) setOutputKey(e.target.value.toLowerCase().replace(/\s+/g, "_")); }}
-                  placeholder={colType === "number" ? "z.B. Mitarbeiter" : "z.B. Notizen"}
-                  className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" />
-              </div>
-              <div>
-                <label className="text-xs font-medium text-gray-600 uppercase tracking-wide">Feldname (Key)</label>
-                <input value={outputKey} onChange={e => setOutputKey(e.target.value)}
-                  placeholder={colType === "number" ? "z.B. employees" : "z.B. notes"}
-                  className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-green-500" />
               </div>
             </div>
           )}
 
-          {/* AI column */}
+          {/* Name + key for AI cols */}
+          {colType === "ai" && (
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs font-medium text-gray-600 uppercase tracking-wide">Spaltenname</label>
+                <input value={name} onChange={e => setName(e.target.value)} placeholder="z.B. Website"
+                  className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-gray-600 uppercase tracking-wide">Output Key</label>
+                <input value={outputKey} onChange={e => setOutputKey(e.target.value)} placeholder="z.B. website"
+                  className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-green-500" />
+              </div>
+            </div>
+          )}
+          {/* AI column config */}
           {colType === "ai" && (
             <>
               <div className="grid grid-cols-1 md:grid-cols-[1fr_280px] gap-3 items-end">
                 <div className="flex gap-1 bg-gray-100 p-1 rounded-lg w-fit">
                   <button onClick={() => setMode("preset")}
                     className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${mode === "preset" ? "bg-white shadow-sm text-gray-900" : "text-gray-500 hover:text-gray-700"}`}>
-                    Aus Vorlage
+                    {isBatch ? "Batch-Preset" : "Aus Vorlage"}
                   </button>
                   <button onClick={() => setMode("custom")}
                     className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${mode === "custom" ? "bg-white shadow-sm text-gray-900" : "text-gray-500 hover:text-gray-700"}`}>
-                    Eigener Prompt
+                    {isBatch ? "Anpassen" : "Eigener Prompt"}
                   </button>
                 </div>
-
                 <div>
                   <label className="text-xs font-medium text-gray-600 uppercase tracking-wide">Modell</label>
-                  <select
-                    value={model}
-                    onChange={e => setModel(e.target.value)}
-                    className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
-                  >
+                  <select value={model} onChange={e => setModel(e.target.value)}
+                    className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500">
                     {mergeModelOptions([model], modelOptions).map(m => <option key={m}>{m}</option>)}
                   </select>
                 </div>
@@ -384,8 +475,47 @@ export function AddColumnModal({ caseId, onClose, onAdded, availableFields = [] 
                     </div>
                   )}
 
-                  {/* Prompt + field chips — hidden for batch tools */}
-                  <div style={{display: isBatch ? "none" : undefined}}>                    <label className="text-xs font-medium text-gray-600 uppercase tracking-wide">Prompt</label>
+                  {/* Prompt — for batch tools show default preview; for normal tools show editable textarea */}
+                  {isBatch ? (
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <label className="text-xs font-medium text-gray-600 uppercase tracking-wide">System-Prompt</label>
+                        <div className="flex gap-2">
+                          <button type="button" onClick={() => setShowBatchPrompt(v => !v)}
+                            className="text-xs px-2 py-1 rounded border border-gray-200 bg-gray-50 text-gray-600 hover:bg-gray-100">
+                            {showBatchPrompt ? "▲ Verstecken" : "▼ Standard anzeigen"}
+                          </button>
+                          {prompt.trim() && (
+                            <button type="button" onClick={() => setPrompt("")}
+                              className="text-xs px-2 py-1 rounded border border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100">
+                              ↺ Standard wiederherstellen
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                      {prompt.trim() ? (
+                        <div className="space-y-1">
+                          <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1">✏️ Eigener Prompt aktiv — überschreibt den Standard</div>
+                          <textarea value={prompt} onChange={e => setPrompt(e.target.value)} rows={8}
+                            className="w-full border border-amber-300 rounded-lg px-3 py-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-amber-400 resize-y" />
+                        </div>
+                      ) : (
+                        <div className="space-y-1">
+                          <div className="text-xs text-green-700 bg-green-50 border border-green-200 rounded px-2 py-1">✓ Standard-Prompt wird verwendet — klicke auf den Prompt zum Anpassen</div>
+                          {showBatchPrompt && (
+                            <textarea
+                              readOnly
+                              value={batchTool === "batch_contacts" ? getDefaultBatchContactsPrompt() : getDefaultBatchEnrichPrompt()}
+                              rows={12}
+                              onClick={e => { setPrompt((e.target as HTMLTextAreaElement).value); }}
+                              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-xs font-mono bg-gray-50 text-gray-500 resize-y cursor-pointer hover:border-green-300"
+                              title="Klicken zum Übernehmen und Bearbeiten" />
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                  <div>
                     <p className="text-xs text-gray-400 mt-0.5 mb-1">Platzhalter: &#123;company_name&#125;, &#123;website&#125; usw.</p>
                     <textarea id={promptTextareaId} value={prompt} onChange={e => setPrompt(e.target.value)} rows={12}
                       placeholder="Find the official website domain for {company_name}..."
@@ -519,6 +649,7 @@ export function AddColumnModal({ caseId, onClose, onAdded, availableFields = [] 
                       )}
                     </div>
                   </div>
+                  )}
 
                   {/* ── Reasoning capture ── */}
                   <div className="border border-purple-200 rounded-lg overflow-hidden">
@@ -559,7 +690,7 @@ export function AddColumnModal({ caseId, onClose, onAdded, availableFields = [] 
                     </div>
                   </div>
 
-                  {/* Condition */}
+                  {/* Condition + Bindungsfeld */}
                   <div className="grid grid-cols-3 gap-3">
                     <div>
                       <label className="text-xs font-medium text-gray-600 uppercase tracking-wide">Bedingung</label>
@@ -568,20 +699,23 @@ export function AddColumnModal({ caseId, onClose, onAdded, availableFields = [] 
                         {CONDITIONS.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
                       </select>
                     </div>
-                    <div>
-                      <label className="text-xs font-medium text-gray-600 uppercase tracking-wide">Bedingungsfeld</label>
+                    <div className="col-span-2">
+                      <label className="text-xs font-medium text-gray-600 uppercase tracking-wide">Bindungsfeld</label>
+                      <p className="text-[10px] text-gray-400 mt-0.5 mb-1">
+                        Welches Tabellenfeld wird für die Bedingung geprüft? (z.B. "domain" → läuft nur wenn domain vorhanden/leer ist)
+                      </p>
                       {availableFields.length > 0 ? (
                         <select value={conditionField} onChange={e => setConditionField(e.target.value)} disabled={!condition}
-                          className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-green-500 disabled:opacity-40">
-                          <option value="">Feld wählen…</option>
+                          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-green-500 disabled:opacity-40">
+                          <option value="">= Ausgabefeld selbst ({outputKey || "…"})</option>
                           {availableFields.map((field) => (
                             <option key={field} value={field}>{field}</option>
                           ))}
                         </select>
                       ) : (
                         <input value={conditionField} onChange={e => setConditionField(e.target.value)}
-                          placeholder="z.B. company_name" disabled={!condition}
-                          className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-green-500 disabled:opacity-40" />
+                          placeholder={`Leer = prüft Ausgabefeld (${outputKey || "…"}) selbst`} disabled={!condition}
+                          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-green-500 disabled:opacity-40" />
                       )}
                     </div>
                   </div>

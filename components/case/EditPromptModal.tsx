@@ -202,23 +202,36 @@ Regeln:
             <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}}>
               <label style={{...lbl,marginBottom:0}}>Prompt</label>
               {isBatch && (
-                <button
-                  type="button"
-                  onClick={() => setDraft(d => ({...d, prompt: getDefaultBatchPrompt()}))}
-                  style={{fontSize:11,padding:"2px 10px",borderRadius:6,border:"1px solid #d1d5db",background:"#f9fafb",cursor:"pointer",color:"#374151",fontFamily:"inherit"}}
-                  title="Prompt auf Standard zurücksetzen"
-                >
-                  ↺ Standard
-                </button>
+                <div style={{display:"flex",gap:6}}>
+                  <button
+                    type="button"
+                    onClick={() => setDraft(d => ({...d, prompt: ""}))}
+                    disabled={!draft.prompt.trim()}
+                    style={{fontSize:11,padding:"2px 10px",borderRadius:6,border:"1px solid #d1d5db",background:"#f9fafb",cursor:"pointer",color:"#374151",fontFamily:"inherit",opacity:draft.prompt.trim()?1:0.4}}
+                    title="Eigenen Prompt löschen → Standard wird wieder verwendet"
+                  >
+                    ↺ Standard
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDraft(d => ({...d, prompt: getDefaultBatchPrompt()}))}
+                    style={{fontSize:11,padding:"2px 10px",borderRadius:6,border:"1px solid #7c3aed",background:"#f5f3ff",cursor:"pointer",color:"#7c3aed",fontFamily:"inherit"}}
+                    title="Standard-Prompt laden und bearbeiten"
+                  >
+                    ✏️ Standard laden & bearbeiten
+                  </button>
+                </div>
               )}
             </div>
             {isBatch && !draft.prompt.trim() && (
-              <div style={{marginBottom:6,padding:"8px 10px",background:"#f0f9ff",border:"1px solid #bfdbfe",borderRadius:6,fontSize:11,color:"#1e40af"}}>
-                ℹ️ Leer = Standard-Prompt wird verwendet. Hier kannst du einen eigenen System-Prompt eingeben.
+              <div style={{marginBottom:6,padding:"8px 10px",background:"#f0f9ff",border:"1px solid #bfdbfe",borderRadius:6,fontSize:11,color:"#1e40af",cursor:"pointer"}}
+                onClick={() => setDraft(d => ({...d, prompt: getDefaultBatchPrompt()}))}>
+                ℹ️ <strong>Leer = Standard-Prompt wird verwendet.</strong> Klicke hier oder „Standard laden" um ihn zu sehen und zu bearbeiten.
               </div>
             )}
             <textarea ref={promptRef} style={{...inp,fontFamily:"monospace",fontSize:12,minHeight:260,resize:"vertical",lineHeight:1.6}}
               value={draft.prompt}
+              placeholder={isBatch ? getDefaultBatchPrompt() : ""}
               onChange={e=>{
                 const scroll = promptRef.current?.scrollTop ?? 0;
                 const selStart = e.target.selectionStart;

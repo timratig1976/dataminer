@@ -35,18 +35,18 @@ export default function CostDashboard({ totals, rowCount, colCount }: CostDashbo
         </span>
       )}
       {totalCostUsd > 0 && (
-        <span style={{
+        <span title="Von Eden AI gemeldete Kosten (inkl. 5,5% Plattformgebühr). Tokens ohne Prompt/Completion-Aufteilung können nicht rückwärts gerechnet werden." style={{
           background: "#eff6ff", color: "#1d4ed8",
           padding: "2px 8px", borderRadius: 4, fontSize: 11, fontWeight: 600,
-          display: "inline-flex", alignItems: "center", gap: 4,
+          display: "inline-flex", alignItems: "center", gap: 4, cursor: "help",
         }}>
           $ {totalCostUsd < 0.01 ? totalCostUsd.toFixed(5) : totalCostUsd.toFixed(3)}
         </span>
       )}
       {totalCostEur > 0 && (
-        <span style={{
+        <span title="Umrechnung bei aktuellem EUR/USD-Kurs (~0.91)" style={{
           background: "#fef3c7", color: "#92400e",
-          padding: "2px 8px", borderRadius: 4, fontSize: 11, fontWeight: 600,
+          padding: "2px 8px", borderRadius: 4, fontSize: 11, fontWeight: 600, cursor: "help",
         }}>
           € {totalCostEur < 0.01 ? totalCostEur.toFixed(5) : totalCostEur.toFixed(3)}
         </span>

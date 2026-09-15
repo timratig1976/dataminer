@@ -23,14 +23,25 @@ export function inferProviderFromModel(_model?: string): LlmProvider {
 
 function estimateCostUsd(model: string, tokens?: { prompt: number; completion: number; total: number }): number | undefined {
   if (!tokens) return undefined;
+  // prompt/completion split is required for accurate estimation
+  // If only total is known (e.g. batch endpoint), we cannot estimate reliably
+  if (tokens.prompt === 0 && tokens.completion === 0) return undefined;
 
   const m = model.toLowerCase();
+  // Prices as of 2025-09 (OpenAI list price) + 5.5% Eden platform fee
+  const EDEN_FEE = 1.055;
 
   if (m.includes("gpt-4o-mini")) {
-    return (tokens.prompt * 0.15 + tokens.completion * 0.60) / 1_000_000;
+    return (tokens.prompt * 0.15 + tokens.completion * 0.60) / 1_000_000 * EDEN_FEE;
   }
   if (m.includes("gpt-4o")) {
-    return (tokens.prompt * 2.5 + tokens.completion * 10.0) / 1_000_000;
+    return (tokens.prompt * 2.5 + tokens.completion * 10.0) / 1_000_000 * EDEN_FEE;
+  }
+  if (m.includes("claude-3-5-haiku") || m.includes("claude-haiku")) {
+    return (tokens.prompt * 0.80 + tokens.completion * 4.0) / 1_000_000 * EDEN_FEE;
+  }
+  if (m.includes("claude-3-5-sonnet") || m.includes("claude-sonnet")) {
+    return (tokens.prompt * 3.0 + tokens.completion * 15.0) / 1_000_000 * EDEN_FEE;
   }
 
   return undefined;
@@ -288,6 +299,9 @@ export async function runAiColumn(
     // Store debug info for detail modal
     if (result.debugPrompt) multiValues[`_llm_prompt_${column.outputKey}`] = result.debugPrompt;
     if (result.debugRawResponse) multiValues[`_llm_raw_${column.outputKey}`] = result.debugRawResponse;
+    if (result.scrapeMarkdown) multiValues[`_batch_scrape_md_${column.outputKey}`] = result.scrapeMarkdown.slice(0, 12000);
+    if (result.impressumMarkdown) multiValues[`_batch_impressum_md_${column.outputKey}`] = result.impressumMarkdown.slice(0, 6000);
+    if (result.searchSnippets) multiValues[`_batch_search_snip_${column.outputKey}`] = result.searchSnippets.slice(0, 6000);
     if (result.scrapeError) multiValues[`_batch_scrape_error_${column.outputKey}`] = result.scrapeError;
     if (result.searchError) multiValues[`_batch_search_error_${column.outputKey}`] = result.searchError;
     if (result.sourcesUsed) multiValues[`_batch_sources_${column.outputKey}`] = result.sourcesUsed.join(", ");
@@ -351,9 +365,32 @@ export async function runAiColumn(
       if (primary.email) multiValues["contact_email"] = primary.email;
       if (primary.phone) multiValues["contact_phone"] = primary.phone;
       if (primary.linkedin) multiValues["linkedin"] = primary.linkedin;
+
+      // Auto-extrapolate email if no personal email found but name+domain available
+      if (!primary.email && primary.first_name && primary.last_name) {
+        const domain = (rowData["domain"] ?? rowData["source_domain"] ?? "").replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0];
+        if (domain) {
+          const { extrapolateEmails } = await import("./email-extrapolator");
+          const extrapolated = extrapolateEmails(primary.first_name, primary.last_name, domain, { maxCandidates: 1 });
+          if (extrapolated.bestGuess) {
+            multiValues["email_extrapolated"] = extrapolated.bestGuess;
+            multiValues[`${prefix}1_email_extrapolated`] = extrapolated.bestGuess;
+          }
+        }
+      }
     }
 
-    // Additional contacts
+    // Store generic company email (info@, kontakt@) as fallback if found in impressum
+    if (result.companyEmail) {
+      multiValues["company_email"] = result.companyEmail;
+      // If no email at all yet, use it as fallback
+      if (!multiValues["contact_email"] && !multiValues["email"]) {
+        multiValues["email_fallback"] = result.companyEmail;
+      }
+    }
+
+    // Additional contacts + extrapolate emails for all without personal email
+    const domain = (rowData["domain"] ?? rowData["source_domain"] ?? "").replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0];
     for (let i = 1; i < result.contacts.length; i++) {
       const c = result.contacts[i];
       const n = i + 1;
@@ -363,14 +400,23 @@ export async function runAiColumn(
       multiValues[`${prefix}${n}_email`] = c.email ?? "";
       multiValues[`${prefix}${n}_phone`] = c.phone ?? "";
       multiValues[`${prefix}${n}_linkedin`] = c.linkedin ?? "";
+      // Extrapolate for contacts without personal email
+      if (!c.email && c.first_name && c.last_name && domain) {
+        const { extrapolateEmails } = await import("./email-extrapolator");
+        const extrapolated = extrapolateEmails(c.first_name, c.last_name, domain, { maxCandidates: 1 });
+        if (extrapolated.bestGuess) {
+          multiValues[`${prefix}${n}_email_extrapolated`] = extrapolated.bestGuess;
+        }
+      }
     }
 
     // JSON summary in outputKey — structured for detail modal and sub-table display
-    const contactsJson = JSON.stringify(result.contacts.map(c => ({
+    const contactsJson = JSON.stringify(result.contacts.map((c, i) => ({
       first_name: c.first_name,
       last_name: c.last_name,
       position: c.position,
       email: c.email,
+      email_extrapolated: multiValues[`${prefix}${i+1}_email_extrapolated`] ?? null,
       phone: c.phone,
       linkedin: c.linkedin,
       source: c.source,
@@ -388,6 +434,10 @@ export async function runAiColumn(
     // Debug info
     multiValues[`_contacts_sources_${column.outputKey}`] = result.sourcesUsed.join(", ");
     multiValues[`_contacts_json_${column.outputKey}`] = contactsJson;
+    if (result.impressumContent) multiValues[`_contacts_impressum_md_${column.outputKey}`] = result.impressumContent.slice(0, 6000);
+    if (result.googleSnippets)   multiValues[`_contacts_google_snip_${column.outputKey}`]  = result.googleSnippets.slice(0, 4000);
+    if (result.linkedinSnippets) multiValues[`_contacts_linkedin_snip_${column.outputKey}`] = result.linkedinSnippets.slice(0, 4000);
+    if (result.systemPrompt)     multiValues[`_llm_system_${column.outputKey}`]             = result.systemPrompt;
     // Standard meta fields so the detail modal can pick them up
     if (result.tokensUsed) multiValues[`_llm_tokens_${column.outputKey}`] = JSON.stringify({ prompt: 0, completion: 0, total: result.tokensUsed });
     if (result.costUsd !== undefined) multiValues[`_llm_cost_${column.outputKey}`] = String(result.costUsd);
@@ -1017,21 +1067,21 @@ Return ONLY valid JSON with the keys: legal_name, address, phone, email, managin
   },
   // ── Batch enrichment preset — replaces 6-8 individual column calls ──────
   {
-    name: "🚀 Alles auf einmal anreichern",
-    outputKey: "_batch_status",
+    name: "🚀 Firmendaten recherchieren",
+    outputKey: "_batch_firmendaten",
     model: "openai/gpt-4o-mini",
     tool: "batch_enrich",
-    batchOutputFields: ["company_name", "domain", "phone", "email", "city", "zip", "industry", "description", "first_name", "last_name", "position"],
-    batchSearchContacts: true,
+    batchOutputFields: ["company_name", "domain", "phone", "company_email", "city", "zip", "industry", "description", "employees", "founded"],
+    batchSearchContacts: false,
     prompt: "",
     condition: "empty",
-    conditionField: "_batch_status",
+    conditionField: "_batch_firmendaten",
     outputMode: "text",
   },
   // ── Contact search preset ─────────────────────────────────────────────────
   {
-    name: "👤 Kontakte & Entscheider finden",
-    outputKey: "contacts",
+    name: "👤 Entscheider finden",
+    outputKey: "_batch_kontakte",
     model: "openai/gpt-4o-mini",
     tool: "batch_contacts",
     batchContactsMax: 3,
@@ -1040,7 +1090,7 @@ Return ONLY valid JSON with the keys: legal_name, address, phone, email, managin
     batchContactsPrefix: "contact_",
     prompt: "",
     condition: "empty",
-    conditionField: "contacts",
+    conditionField: "_batch_kontakte",
     outputMode: "text",
   },
 ];
