@@ -38,7 +38,7 @@ export const PROJECT_TEMPLATES: ProjectTemplate[] = [
     description:
       "Firmen- und Kontaktdaten anreichern. Startet mit Firmenname — zwei KI-Aktionen befüllen alle weiteren Felder.",
     icon: "⚡",
-    recommendedColumns: ["company_name"],
+    recommendedColumns: ["company_name", "maps_url"],
     // Visible plain columns — pre-created so batch results show up in the table
     baseColumns: [
       { name: "Firmenname", outputKey: "company_name" },
@@ -52,6 +52,11 @@ export const PROJECT_TEMPLATES: ProjectTemplate[] = [
       { name: "Beschreibung", outputKey: "description" },
       { name: "Mitarbeiter", outputKey: "employees" },
       { name: "Gegründet", outputKey: "founded" },
+      // GMB fields
+      { name: "Maps URL", outputKey: "maps_url" },
+      { name: "★ Rating", outputKey: "maps_rating" },
+      { name: "Kategorie", outputKey: "category" },
+      { name: "Bewertungen", outputKey: "maps_reviews" },
       // Contact columns written by batch_contacts
       { name: "Vorname", outputKey: "first_name" },
       { name: "Nachname", outputKey: "last_name" },

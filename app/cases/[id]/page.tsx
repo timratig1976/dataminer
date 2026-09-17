@@ -736,7 +736,10 @@ function AgentRunRow({ run, isActive, activeRunUniqueCount, onOpenModal, onNewSe
 }) {
   const [expanded, setExpanded] = useState(false);
   const [runLog, setRunLog] = useState<string[]>([]);
+  const [runPlan, setRunPlan] = useState<Array<{id:string;type:string;mapQuery?:string;query?:string;queryTemplate?:string;location?:string;label?:string;estimatedHits:number;queries?:string[]}>>([]);
+  const [stepResults, setStepResults] = useState<Array<{stepId:string;uniqueInserted:number;error?:string}>>([]);
   const [logLoading, setLogLoading] = useState(false);
+  const [resuming, setResuming] = useState(false);
 
   const { label, color, bg } = agentRunStatusLabel(run.status);
   const isTerminal = AGENT_RUN_TERMINAL.has(run.status);
@@ -746,7 +749,19 @@ function AgentRunRow({ run, isActive, activeRunUniqueCount, onOpenModal, onNewSe
   const fetchLog = useCallback(async () => {
     const data = await fetch(`/api/cases/${caseId}/agent/${run.id}`).then(r => r.ok ? r.json() : null);
     setRunLog(data?.log ?? []);
+    setRunPlan(data?.plan?.steps ?? []);
+    setStepResults(data?.stepResults ?? []);
   }, [caseId, run.id]);
+
+  const handleResume = async () => {
+    setResuming(true);
+    try {
+      await fetch(`/api/cases/${caseId}/agent/${run.id}`, { method: "PATCH" });
+      // Open the modal so the step loop picks it up
+      onOpenModal();
+    } catch { /* ignore */ }
+    setResuming(false);
+  };
 
   const toggleLog = async () => {
     if (!expanded && runLog.length === 0) {
@@ -805,20 +820,74 @@ function AgentRunRow({ run, isActive, activeRunUniqueCount, onOpenModal, onNewSe
         </div>
       </div>
 
-      {/* Expandable log */}
+      {/* Expandable plan + log */}
       {expanded && (
-        <div style={{ borderTop: "1px solid #f1f5f9", background: "#0f172a", padding: "10px 14px", maxHeight: 220, overflowY: "auto", fontFamily: "monospace", fontSize: 11 }}>
-          {logLoading ? (
-            <span style={{ color: "#475569" }}>Lade…</span>
-          ) : runLog.length === 0 ? (
-            <span style={{ color: "#475569" }}>Keine Log-Einträge.</span>
-          ) : runLog.map((line, i) => (
-            <div key={i} style={{ lineHeight: 1.6, color: line.startsWith("✓") ? "#86efac" : line.startsWith("⚠") ? "#fbbf24" : "#94a3b8" }}>
-              {line}
+        <div style={{ borderTop: "1px solid #f1f5f9", padding: "10px 14px", maxHeight: 360, overflowY: "auto" }}>
+          {/* Plan steps — compact single-line */}
+          {runPlan.length > 0 && (
+            <div style={{ marginBottom: 10 }}>
+              <div style={{ fontSize: 10, fontWeight: 600, color: "#64748b", marginBottom: 4 }}>
+                📋 {runPlan.length} Steps · ~{runPlan.reduce((s,st) => s + (st.estimatedHits||0), 0)} geschätzte Treffer
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
+                {runPlan.map(s => {
+                  const executed = stepResults.find(r => r.stepId === s.id);
+                  const isDone = !!executed;
+                  const isErr = !!executed?.error;
+                  const typeShort = s.type === "google_maps" ? "MAPS" : s.type === "google_search" ? "WEB" : s.type?.includes("catalog") ? "KAT" : "SRC";
+                  return (
+                    <div key={s.id} style={{ fontSize: 10, display: "flex", alignItems: "center", gap: 4, padding: "1px 4px", borderRadius: 3, background: isErr ? "#fef2f2" : isDone ? "#f0fdf4" : "#f8fafc" }}>
+                      <span style={{ color: isErr ? "#ef4444" : isDone ? "#22c55e" : "#cbd5e1", fontSize: 8 }}>{isErr ? "✕" : isDone ? "✓" : "○"}</span>
+                      <span style={{ color: "#94a3b8", fontWeight: 600, textTransform: "uppercase", fontSize: 9 }}>{typeShort}</span>
+                      <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "#334155" }}>
+                        {s.mapQuery && s.location ? `${s.mapQuery} · ${s.location}` : s.mapQuery || s.query || s.queryTemplate || s.label || "–"}
+                      </span>
+                      <span style={{ color: "#94a3b8", fontSize: 9, flexShrink: 0 }}>~{s.estimatedHits}</span>
+                      {executed && <span style={{ color: isErr ? "#ef4444" : "#166534", fontSize: 9, flexShrink: 0 }}>{isErr ? "❌" : `+${executed.uniqueInserted}`}</span>}
+                    </div>
+                  );
+                })}
+              </div>
             </div>
-          ))}
+          )}
+
+          {/* Log */}
+          <div>
+            <div style={{ fontSize: 10, fontWeight: 600, color: "#64748b", marginBottom: 4 }}>📜 Log</div>
+            <div style={{ background: "#0f172a", padding: "8px 10px", borderRadius: 6, maxHeight: 180, overflowY: "auto", fontFamily: "monospace", fontSize: 10 }}>
+              {logLoading ? (
+                <span style={{ color: "#475569" }}>Lade…</span>
+              ) : runLog.length === 0 ? (
+                <span style={{ color: "#475569" }}>Keine Log-Einträge.</span>
+              ) : runLog.map((line, i) => (
+                <div key={i} style={{ lineHeight: 1.5, color: line.startsWith("✓") ? "#86efac" : line.startsWith("⚠") ? "#fbbf24" : line.startsWith("🔄") ? "#93c5fd" : "#94a3b8" }}>
+                  {line}
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       )}
+
+      {/* Actions row */}
+      <div style={{ borderTop: "1px solid #f1f5f9", padding: "8px 16px", display: "flex", gap: 8, justifyContent: "flex-end" }}>
+        {isTerminal && (
+          <button onClick={handleResume} disabled={resuming}
+            style={{ fontSize: 11, padding: "4px 12px", border: "1px solid #c4b5fd", borderRadius: 6, background: "#f5f3ff", cursor: "pointer", color: "#7c3aed", fontWeight: 600 }}>
+            {resuming ? "…" : "▶ Fortsetzen"}
+          </button>
+        )}
+        {isActive && !isTerminal ? (
+          <button onClick={onOpenModal}
+            style={{ fontSize: 11, padding: "4px 12px", border: "1px solid #bfdbfe", borderRadius: 6, background: "#eff6ff", cursor: "pointer", color: "#1d4ed8", fontWeight: 600 }}>
+            📊 Öffnen
+          </button>
+        ) : null}
+        <button onClick={toggleLog}
+          style={{ fontSize: 11, padding: "4px 12px", border: "1px solid #e2e8f0", borderRadius: 6, background: expanded ? "#f1f5f9" : "#fff", cursor: "pointer", color: "#374151" }}>
+          {expanded ? "▲ Weniger" : "▼ Details"}
+        </button>
+      </div>
     </div>
   );
 }
@@ -1083,9 +1152,27 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
 
   async function deleteSelectedRows() {
     if (selectedRows.size === 0 || !confirm(`Delete ${selectedRows.size} row(s)?`)) return;
-    await Promise.all([...selectedRows].map((id) => fetch(`/api/rows/${id}`, { method: "DELETE" })));
-    setRows((prev) => prev.filter((r) => !selectedRows.has(r.id)));
-    setSelectedRows(new Set());
+    const ids = [...selectedRows];
+    const res = await fetch(`/api/rows`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids }),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      setRows((prev) => prev.filter((r) => !selectedRows.has(r.id)));
+      setSelectedRows(new Set());
+      // Reload contacts if any were cascade-deleted
+      if (data.contactsDeleted > 0) {
+        setContactRowsLoaded(false);
+        fetch(`/api/contact-rows?caseId=${caseId}`)
+          .then(r => r.json())
+          .then(d => {
+            setContactRowsData((d.contacts ?? []).map((c: { data: Record<string, string | null> }) => c.data));
+            setContactRowsLoaded(true);
+          });
+      }
+    }
   }
 
   // ── Delete column ─────────────────────────────────────────────────────────
