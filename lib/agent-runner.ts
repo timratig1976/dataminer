@@ -20,13 +20,82 @@ import {
   appendLog,
 } from "./db";
 import { createDiscoveryPlan, refinePlan } from "./planner";
-import { discoverySearch, hitToSeedRow } from "./discovery";
-import { mapsSearch, placeToSeedExtras } from "./maps";
-import { edenScrapeUrl } from "./edenai";
+import { discoverySearch, hitToSeedRow, normalizeDomain } from "./discovery";
+import { mapsSearch, placeToSeedExtras, type MapsPlace } from "./maps";
+import { edenScrapeUrl, edenChatCompletion } from "./edenai";
 import { scrapeCatalog } from "./catalog-scraper";
 import { listRows } from "./db";
 import { learnCatalogDomains } from "./catalog-registry";
 import { isOperationCancelled } from "./operations";
+
+// ── Places Validation Hook ────────────────────────────────────────────────────
+
+/**
+ * Validates a batch of Maps places against the goal description using an LLM.
+ * Removes irrelevant, implausible, or low-quality entries.
+ *
+ * Returns the filtered list + a short reason for each rejection (for logging).
+ */
+export async function validatePlaces(
+  places: MapsPlace[],
+  goalDescription: string,
+  edenApiKey: string,
+  model = "openai/gpt-4o-mini"
+): Promise<{ valid: MapsPlace[]; rejected: Array<{ name: string; reason: string }> }> {
+  if (places.length === 0) return { valid: [], rejected: [] };
+
+  const prompt = `Goal: "${goalDescription}"
+
+Places to validate (${places.length} entries):
+${places.map((p, i) => `[${i}] ${p.name} | ${p.category ?? ""} | ${p.address} | ${p.website}`).join("\n")}
+
+For each entry decide: KEEP or REJECT.
+REJECT if:
+- Wrong industry/category (e.g. goal is "Heizungsbauer" but entry is a supermarket)
+- Generic chain/franchise not matching the niche (e.g. OBI, IKEA for craftsmen)
+- No real business name (e.g. "Test", empty, or generic placeholder)
+- Clearly outside the target geography if a specific region was named
+
+Respond ONLY with compact JSON — no prose:
+{ "results": [{"i":0,"keep":true},{"i":1,"keep":false,"reason":"wrong category: restaurant"},...] }`;
+
+  try {
+    const resp = await edenChatCompletion({
+      apiKey: edenApiKey,
+      region: "us",
+      model,
+      system: "You are a precise B2B data quality validator. Respond only with the requested JSON.",
+      prompt,
+      maxTokens: 1000,
+      temperature: 0,
+    });
+
+    const raw = resp.raw?.trim().replace(/^```(?:json)?\n?/i, "").replace(/\n?```$/i, "").trim() ?? "";
+    const parsed = JSON.parse(raw) as { results: Array<{ i: number; keep: boolean; reason?: string }> };
+
+    const valid: MapsPlace[] = [];
+    const rejected: Array<{ name: string; reason: string }> = [];
+
+    for (const r of parsed.results) {
+      const place = places[r.i];
+      if (!place) continue;
+      if (r.keep) {
+        valid.push(place);
+      } else {
+        rejected.push({ name: place.name, reason: r.reason ?? "filtered by validator" });
+      }
+    }
+    // Safety: if LLM returned fewer results than expected, keep unmentioned ones
+    const mentionedIndices = new Set(parsed.results.map(r => r.i));
+    for (let i = 0; i < places.length; i++) {
+      if (!mentionedIndices.has(i)) valid.push(places[i]);
+    }
+    return { valid, rejected };
+  } catch {
+    // On any error, return all places unfiltered — validation is best-effort
+    return { valid: places, rejected: [] };
+  }
+}
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -58,14 +127,16 @@ export function evaluateStopCondition(run: AgentRunState): AgentRunStatus | null
   // Safety iteration limit?
   if (run.goal.maxIterations != null && run.iteration >= run.goal.maxIterations) return "budget_exhausted";
 
-  // Diminishing returns check — only stop if recent steps are genuinely returning near-zero
-  // results, meaning sources are exhausted. Do NOT stop just because progress is slow
-  // relative to a large target (e.g. multi-city search with many planned steps).
-  if (run.stepResults.length >= 4) {
-    const recent = run.stepResults.slice(-4);
+  // Diminishing returns check — only stop when genuinely exhausted.
+  // Must have executed at least 40% of plan steps AND ≥ 10 steps total before checking.
+  const planSteps = run.plan.steps.length;
+  const minStepsForDiminish = Math.max(10, Math.ceil(planSteps * 0.4));
+  if (run.stepResults.length >= minStepsForDiminish) {
+    // Check last 6 steps (not 4) for a better signal
+    const recent = run.stepResults.slice(-6);
     const recentInserted = recent.reduce((s, r) => s + r.uniqueInserted, 0);
     const avgPerStep = recentInserted / recent.length;
-    // Stop only if average new leads per step drops below 3 — sources are truly exhausted
+    // Stop if average new leads per step drops below 3
     if (avgPerStep < 3) {
       run.log.push(`⚠️ Diminishing returns: only ${recentInserted} new leads in last ${recent.length} steps (avg ${avgPerStep.toFixed(1)}/step). Sources exhausted, stopping.`);
       return "completed";
@@ -211,7 +282,21 @@ export async function executeNextStep(
 // ── Auto-inject catalog deep-crawl steps ────────────────────────────────────
 
 /**
- * After each discovery step, check for newly found catalog rows (is_catalog=true).
+ * Domains that are job/service marketplaces or aggregators — they list
+ * service requests, not actual company directories. Deep-crawling them
+ * yields 0 real firm URLs. Skip them in catalog_deep_crawl steps.
+ */
+const NON_SCRAPEAGLE_CATALOG_DOMAINS = new Set([
+  "houzz.de", "houzz.com",
+  "my-hammer.de", "myhammer.de",
+  "blauarbeit.de", "1-2-do.com", "1-2-do.de",
+  "homeday.de", "handwerker-vermittlung.de",
+  "auftragsboerse.de", "tripadvisor.de", "tripadvisor.com",
+  "yelp.de", "yelp.com",
+  "gelbeseiten.de",   // paginated but low yield — skip deep crawl, use planned steps
+]);
+
+/**
  * For each catalog URL that doesn't yet have a deep-crawl step in the plan,
  * inject a new catalog_deep_crawl step at priority 1.5 (after current step, before next search).
  */
@@ -232,7 +317,16 @@ async function injectCatalogDeepCrawlSteps(run: AgentRunState): Promise<void> {
         .map(s => s.url ?? "")
     );
 
-    const newUrls = catalogUrls.filter(url => url && !existingUrls.has(url));
+    const newUrls = catalogUrls.filter(url => {
+      if (!url) return false;
+      if (existingUrls.has(url)) return false;
+      // Skip non-scrapeble aggregator/marketplace domains — they list requests, not firms
+      try {
+        const hostname = new URL(url).hostname.replace(/^www\./, "");
+        if (NON_SCRAPEAGLE_CATALOG_DOMAINS.has(hostname)) return false;
+      } catch { /* keep */ }
+      return true;
+    });
     if (newUrls.length === 0) return;
 
     // Learn new catalog domains into the persistent registry
@@ -286,9 +380,11 @@ async function executePlanStep(
 
     if (step.type === "google_maps") {
       // ── Maps step ──
-      const query = step.mapQuery
-        ? (step.location ? `${step.mapQuery} ${step.location}` : step.mapQuery)
-        : step.label;
+      // Keep mapQuery and location SEPARATE — Serper Places needs them as distinct params
+      const mapQuery = step.mapQuery ?? step.label;
+      const mapLocation = step.location ?? undefined;
+      // Combined for providers that take a single string (SerpApi, Apify, fallback web search)
+      const query = mapLocation ? `${mapQuery} ${mapLocation}` : mapQuery;
       const serpApiKey = env.serpApiKey ?? process.env.SERP_API_KEY?.trim();
       const serperApiKey = env.serperApiKey ?? process.env.SERPER_API_KEY?.trim();
       const apifyApiToken = env.apifyApiToken ?? process.env.APIFY_API_TOKEN?.trim();
@@ -329,8 +425,11 @@ async function executePlanStep(
 
       const resp = await mapsSearch({
         query,
+        ll: mapLocation,  // passed separately to Serper Places — key fix for DE coverage
+        // Priority: SerpApi > Serper > Apify > Scrapling
+        // Apify actor (apify/google-maps-scraper) currently unreliable — skip until validated
         provider: serpApiKey ? "maps-serpapi" : serperApiKey ? "maps-serper" : apifyApiToken ? "maps-apify" : "maps-scrapling",
-        limit: 200,  // always request maximum
+        limit: 200,
         serpApiKey: serpApiKey ?? undefined,
         serperApiKey: serperApiKey ?? undefined,
         apifyApiToken: apifyApiToken ?? undefined,
@@ -346,13 +445,67 @@ async function executePlanStep(
       hitsFound = resp.places.length;
       source = resp.provider;
 
+      // Fallback: if Maps returns 0 places, try web search instead.
+      // Serper Places has limited coverage for niche categories in smaller German cities.
+      if (resp.places.length === 0 && (env.serpApiKey || env.serperApiKey || env.braveApiKey)) {
+        const fallbackQuery = step.mapQuery
+          ? `${step.mapQuery}${step.location ? ` ${step.location}` : ""}`
+          : step.label;
+        run.log.push(`⚠️ Maps (${resp.provider}) returned 0 places, falling back to web search: ${fallbackQuery}`);
+        const webResp = await discoverySearch(fallbackQuery, {
+          source: "auto",
+          limit: 200,
+          excludeDomains: existingDomains,
+          serpApiKey: env.serpApiKey,
+          serperApiKey: env.serperApiKey,
+          braveApiKey: env.braveApiKey,
+          scraplingUrl: env.scraplingUrl,
+          scraplingToken: env.scraplingToken,
+          edenApiKey: env.edenApiKey,
+        });
+        if (isOperationCancelled(cancelKey)) {
+          return { stepId: step.id, attemptedAt: t0, hitsFound: 0, uniqueInserted: 0, costUsd: 0, source: "cancelled" };
+        }
+        hitsFound = webResp.hits.length;
+        source = `maps-fallback-search (${webResp.source})`;
+        if (typeof webResp.costUsd === "number") costUsd += webResp.costUsd;
+        if (webResp.hits.length > 0) {
+          const seeds = webResp.hits.map(hitToSeedRow).map((data) => ({
+            id: randomUUID(), caseId: run.caseId, rowIndex: 0,
+            data: data as Record<string, string>,
+            cellStatuses: {}, cellErrors: {}, createdAt: now(), updatedAt: now(),
+          }));
+          const { inserted } = await appendDiscoveryRows(run.caseId, seeds);
+          uniqueInserted = inserted;
+        }
+        return { stepId: step.id, attemptedAt: t0, hitsFound, uniqueInserted, costUsd, source };
+      }
+
       if (resp.places.length > 0) {
-        const seeds = resp.places.map((p) => {
+        // ── Optional LLM validation of places against goal ──
+        let placesToInsert = resp.places;
+        if (run.goal.validatePlaces && env.edenApiKey) {
+          const { valid, rejected } = await validatePlaces(
+            resp.places,
+            run.goal.description,
+            env.edenApiKey,
+          );
+          if (rejected.length > 0) {
+            run.log.push(`🔍 Validator: ${rejected.length} irrelevant entries removed (${rejected.slice(0, 3).map(r => r.name).join(", ")}${rejected.length > 3 ? "…" : ""})`);
+          }
+          placesToInsert = valid;
+        }
+
+        const seeds = placesToInsert.map((p) => {
           const url = p.website || p.mapsUrl;
+          const websiteUrl = p.website
+            ? (p.website.startsWith("http") ? p.website : `https://${p.website}`)
+            : "";
+          const domain = websiteUrl ? normalizeDomain(websiteUrl) : "";
           return {
             data: {
               company_name: p.name,
-              domain: "", // filled by appendDiscoveryRows
+              domain,
               source_url: url,
               source_title: p.name,
               source_snippet: [p.category, p.address].filter(Boolean).join(" · "),
@@ -380,12 +533,18 @@ async function executePlanStep(
       }
     } else if (step.type === "catalog_deep_crawl" as string) {
       // ── Catalog deep crawl (auto-injected for discovered catalog rows) ──
-      // Uses the full catalog-scraper with pagination — same logic as the
-      // manual "Deep Crawl Catalogs" button in the Quellen-Tab.
       const url = step.url ?? "";
       if (!url) {
         return { stepId: step.id, attemptedAt: t0, hitsFound: 0, uniqueInserted: 0, costUsd: 0, source: "none", error: "No catalog URL" };
       }
+      // Skip non-scrapeble aggregator domains — saves time + Firecrawl credits
+      try {
+        const hostname = new URL(url).hostname.replace(/^www\./, "");
+        if (NON_SCRAPEAGLE_CATALOG_DOMAINS.has(hostname)) {
+          run.log.push(`⏭ Katalog übersprungen (Vermittlungsplattform, nicht scrapeabel): ${hostname}`);
+          return { stepId: step.id, attemptedAt: t0, hitsFound: 0, uniqueInserted: 0, costUsd: 0, source: "skipped" };
+        }
+      } catch { /* keep */ }
       if (!env.edenApiKey) {
         return { stepId: step.id, attemptedAt: t0, hitsFound: 0, uniqueInserted: 0, costUsd: 0, source: "none", error: "No Eden API key" };
       }
