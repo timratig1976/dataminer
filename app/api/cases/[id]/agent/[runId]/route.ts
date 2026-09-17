@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCase, resolveEdenKey, getAgentRun } from "@/lib/db";
-import { executeNextStep, cancelAgentRun } from "@/lib/agent-runner";
+import { executeNextStep, cancelAgentRun, resumeAgentRun } from "@/lib/agent-runner";
 import { registerOperation } from "@/lib/operations";
 
 export const runtime = "nodejs";
@@ -93,4 +93,32 @@ async function GET(
   return NextResponse.json(run);
 }
 
-export { POST, CANCEL as PUT, GET };
+/**
+ * PATCH /api/cases/[id]/agent/[runId]
+ * Resume a completed/error/cancelled run. Optionally merge new steps.
+ * Body: { extraSteps?: PlanStep[], targetCount?: number }
+ */
+async function PATCH(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string; runId: string }> }
+) {
+  const { id: caseId, runId } = await params;
+  if (!(await assertRunBelongsToCase(caseId, runId))) {
+    return NextResponse.json({ error: "Run not found" }, { status: 404 });
+  }
+
+  try {
+    const body = await req.json().catch(() => ({}));
+    const run = await resumeAgentRun(runId, {
+      extraSteps: body.extraSteps ?? undefined,
+      targetCount: body.targetCount ?? undefined,
+    });
+    if (!run) return NextResponse.json({ error: "Run not found" }, { status: 404 });
+    return NextResponse.json(run);
+  } catch (e: unknown) {
+    console.error("[agent/resume]", e);
+    return NextResponse.json({ error: (e as Error).message }, { status: 500 });
+  }
+}
+
+export { POST, CANCEL as PUT, PATCH, GET };

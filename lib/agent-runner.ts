@@ -852,6 +852,56 @@ async function handleReplan(
   return run;
 }
 
+// ── Resume ───────────────────────────────────────────────────────────────────
+
+/**
+ * Resume a completed/error/cancelled run.
+ * Resets terminal status to "running", clears error state on failed steps so
+ * they get retried. Optionally merges extra steps into the plan.
+ * Domain deduplication is handled by appendDiscoveryRows (existing domains skipped).
+ */
+export async function resumeAgentRun(
+  runId: string,
+  opts?: { extraSteps?: PlanStep[]; targetCount?: number }
+): Promise<AgentRunState | null> {
+  const run = await getAgentRun(runId);
+  if (!run) return null;
+
+  // Reset to running — the step loop will pick it up
+  run.status = "running";
+  run.iteration++;
+
+  // Retry failed steps: clear error so they get re-executed
+  for (const r of run.stepResults) {
+    if (r.error) {
+      r.error = undefined;
+      r.uniqueInserted = 0;
+      r.hitsFound = 0;
+    }
+  }
+
+  // Merge extra steps (e.g. user-added cities/branches)
+  if (opts?.extraSteps?.length) {
+    const baseIdx = run.plan.steps.length;
+    const extra = opts.extraSteps.map((s, i) => ({
+      ...s,
+      id: s.id || `step_resume_${baseIdx + i + 1}`,
+    }));
+    run.plan.steps.push(...extra);
+    run.log.push(`📝 ${extra.length} neue Steps vom Benutzer hinzugefügt`);
+  }
+
+  // Bump target if user wants more
+  if (opts?.targetCount != null && opts.targetCount > run.goal.targetCount) {
+    run.goal.targetCount = opts.targetCount;
+  }
+
+  stamp(run);
+  await updateAgentRunState(run);
+  await appendLog(run.caseId, `🔄 Ziel-Suche fortgesetzt (${run.uniqueCount}/${run.goal.targetCount})`);
+  return run;
+}
+
 // ── Cancel ───────────────────────────────────────────────────────────────────
 
 export async function cancelAgentRun(runId: string): Promise<AgentRunState | null> {

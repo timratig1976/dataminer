@@ -1044,7 +1044,7 @@ export function AgentGoalModal({ caseId, rowsCount, onClose, onImported, externa
                   </>
                 )
               ) : (
-                /* TERMINAL — show Done + New Search */
+                /* TERMINAL — show Done + Resume + New Search */
                 <>
                   <button
                     onClick={() => {
@@ -1057,6 +1057,21 @@ export function AgentGoalModal({ caseId, rowsCount, onClose, onImported, externa
                     {run.uniqueCount > 0
                       ? `Fertig · ${run.uniqueCount.toLocaleString("de-DE")} neue Leads`
                       : "Schließen"}
+                  </button>
+                  <button
+                    onClick={async () => {
+                      try {
+                        const res = await fetch(`/api/cases/${caseId}/agent/${run.id}`, { method: "PATCH" });
+                        if (res.ok) {
+                          setPaused(false);
+                        }
+                      } catch { /* ignore */ }
+                    }}
+                    className="bg-violet-600 text-white px-3 py-2 rounded-lg text-sm font-medium hover:bg-violet-700 flex items-center justify-center gap-2"
+                    title="Existierenden Plan fortsetzen — fehlgeschlagene Steps wiederholen"
+                  >
+                    <Play className="w-4 h-4" />
+                    Fortsetzen
                   </button>
                   <button
                     onClick={handleNewSearch}
