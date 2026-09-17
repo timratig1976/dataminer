@@ -127,22 +127,6 @@ export function evaluateStopCondition(run: AgentRunState): AgentRunStatus | null
   // Safety iteration limit?
   if (run.goal.maxIterations != null && run.iteration >= run.goal.maxIterations) return "budget_exhausted";
 
-  // Diminishing returns check — only stop when genuinely exhausted.
-  // Must have executed at least 40% of plan steps AND ≥ 10 steps total before checking.
-  const planSteps = run.plan.steps.length;
-  const minStepsForDiminish = Math.max(10, Math.ceil(planSteps * 0.4));
-  if (run.stepResults.length >= minStepsForDiminish) {
-    // Check last 6 steps (not 4) for a better signal
-    const recent = run.stepResults.slice(-6);
-    const recentInserted = recent.reduce((s, r) => s + r.uniqueInserted, 0);
-    const avgPerStep = recentInserted / recent.length;
-    // Stop if average new leads per step drops below 3
-    if (avgPerStep < 3) {
-      run.log.push(`⚠️ Diminishing returns: only ${recentInserted} new leads in last ${recent.length} steps (avg ${avgPerStep.toFixed(1)}/step). Sources exhausted, stopping.`);
-      return "completed";
-    }
-  }
-
   return null;
 }
 
