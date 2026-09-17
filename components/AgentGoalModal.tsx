@@ -3,7 +3,7 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import {
   X, Target, Loader2, CheckCircle2, XCircle, SkipForward, Circle,
-  AlertTriangle, TrendingUp, DollarSign, Clock, Globe, MapPin, List, Search,
+  AlertTriangle, TrendingUp, DollarSign, Clock, MapPin,
   Play, Pause, Trash2, Pencil,
 } from "lucide-react";
 import { useAgentRun, type AgentGoal, type AgentRunState, type AgentRunStatus } from "@/hooks/useAgentRun";
@@ -56,28 +56,7 @@ function stepIcon(result: { uniqueInserted: number; error?: string }): React.Rea
   return <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />;
 }
 
-function planStepTypeIcon(type: string): React.ReactNode {
-  switch (type) {
-    case "google_maps": return <MapPin className="w-3 h-3 text-sky-500" />;
-    case "catalog_scrape":
-    case "catalog_deep_crawl":
-    case "directory_search": return <List className="w-3 h-3 text-amber-500" />;
-    case "multi_search": return <Globe className="w-3 h-3 text-violet-500" />;
-    default: return <Search className="w-3 h-3 text-gray-500" />;
-  }
-}
-
-function planStepTypeLabel(type: string): string {
-  switch (type) {
-    case "google_maps": return "Maps";
-    case "google_search": return "Google";
-    case "multi_search": return "Multi";
-    case "catalog_scrape": return "Katalog";
-    case "catalog_deep_crawl": return "Deep Crawl";
-    case "directory_search": return "Verzeichnis";
-    default: return type;
-  }
-}
+// ── Agent run hook — only used when no external state provided ──
 
 export function AgentGoalModal({ caseId, rowsCount, onClose, onImported, externalRun, externalRunning, externalStart, externalStep, externalCancel, externalReload }: Props) {
   // ── Goal form state ──
@@ -103,6 +82,9 @@ export function AgentGoalModal({ caseId, rowsCount, onClose, onImported, externa
   const [subIndustryLoading, setSubIndustryLoading] = useState(false);
   const [subSuggestions, setSubSuggestions] = useState<SubBranchNode[]>([]);
   const [subGeography, setSubGeography] = useState<string | undefined>();
+  const [subCities, setSubCities] = useState<string[]>([]);
+  const [subSelectedCities, setSubSelectedCities] = useState<Set<string>>(new Set());
+  const [subCustomCitiesInput, setSubCustomCitiesInput] = useState("");
   const [subCustomInput, setSubCustomInput] = useState("");
 
   // Drill-down: load sub-branches for a specific branch
@@ -297,6 +279,10 @@ export function AgentGoalModal({ caseId, rowsCount, onClose, onImported, externa
         if (analysis.isBroadIndustry && analysis.suggestions?.length > 0) {
           setSubSuggestions(analysis.suggestions);
           setSubGeography(analysis.geography);
+          setSubCities(analysis.cities ?? []);
+          // Pre-select all cities by default
+          setSubSelectedCities(new Set(analysis.cities ?? []));
+          setSubCustomCitiesInput("");
           setSubCustomInput("");
           setSubIndustryLoading(false);
           setSubIndustryScreen(true);
@@ -328,7 +314,6 @@ export function AgentGoalModal({ caseId, rowsCount, onClose, onImported, externa
   const handleSubIndustryConfirm = async () => {
     const selectedNodes = collectSelected(subSuggestions);
     const selected = selectedNodes.map(s => {
-      // Strip geography from mapQuery if LLM included it (e.g. "Maschinenbau Bayern" → "Maschinenbau")
       let q = s.mapQuery.trim();
       if (subGeography && q.toLowerCase().includes(subGeography.toLowerCase())) {
         q = q.replace(new RegExp(`\\s*${subGeography}\\s*`, "gi"), "").trim();
@@ -336,12 +321,18 @@ export function AgentGoalModal({ caseId, rowsCount, onClose, onImported, externa
       return q;
     }).filter(Boolean);
     const custom = subCustomInput.split(",").map(s => s.trim()).filter(Boolean);
-    const all = [...selected, ...custom];
-    if (all.length === 0) return;
+    const allBranches = [...selected, ...custom];
+    if (allBranches.length === 0) return;
 
-    const geo = subGeography ? ` in ${subGeography}` : "";
-    const branchList = all.map(b => `"${b}"`).join(", ");
-    const finalDescription = `Sub-Branchen: ${branchList}${geo}. Für jede Branche und jede Stadt in der Region separate google_maps Steps erstellen mit mapQuery=Branche und location=Stadt.`;
+    // Collect selected cities
+    const customCities = subCustomCitiesInput.split(",").map(s => s.trim()).filter(Boolean);
+    const allCities = [...subSelectedCities, ...customCities];
+    const citiesList = allCities.join(", ");
+
+    const branchList = allBranches.map(b => `"${b}"`).join(", ");
+    const finalDescription = citiesList
+      ? `Sub-Branchen: ${branchList}. Städte: ${citiesList}. Für jede Branche und jede Stadt separate google_maps Steps erstellen mit mapQuery=Branche und location=Stadt.`
+      : `Sub-Branchen: ${branchList}. Für jede Branche in der erkannten Region separate google_maps Steps erstellen. Städte selbst recherchieren und vollständig abdecken.`;
     setSubIndustryScreen(false);
     await _startPlan(finalDescription);
   };
@@ -544,6 +535,59 @@ export function AgentGoalModal({ caseId, rowsCount, onClose, onImported, externa
                   onChange={e => setSubCustomInput(e.target.value)}
                   placeholder="z.B. Schreinerei, Glaserei, Dachdeckerei"
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-rose-400"
+                />
+              </div>
+
+              {/* City selection */}
+              {subCities.length > 0 && (
+                <div className="bg-blue-50 border border-blue-100 rounded-lg p-3">
+                  <label className="text-xs font-semibold text-blue-700 mb-2 block">
+                    🏙️ Städte ({subSelectedCities.size}/{subCities.length} ausgewählt)
+                  </label>
+                  <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto mb-2">
+                    {subCities.map(city => {
+                      const isSelected = subSelectedCities.has(city);
+                      return (
+                        <button
+                          key={city}
+                          onClick={() => {
+                            setSubSelectedCities(prev => {
+                              const next = new Set(prev);
+                              isSelected ? next.delete(city) : next.add(city);
+                              return next;
+                            });
+                          }}
+                          className={`text-xs px-2 py-0.5 rounded-full border transition-colors ${
+                            isSelected
+                              ? "bg-blue-500 text-white border-blue-500"
+                              : "bg-white text-gray-600 border-gray-200 hover:border-blue-300"
+                          }`}
+                        >
+                          {city}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div className="flex gap-2">
+                    <button onClick={() => setSubSelectedCities(new Set(subCities))}
+                      className="text-xs text-blue-500 hover:text-blue-700 underline">Alle</button>
+                    <span className="text-gray-300">·</span>
+                    <button onClick={() => setSubSelectedCities(new Set())}
+                      className="text-xs text-gray-400 hover:text-gray-600 underline">Keine</button>
+                  </div>
+                </div>
+              )}
+
+              {/* Custom cities */}
+              <div>
+                <label className="text-xs font-medium text-gray-600 mb-1 block">
+                  Weitere Städte ergänzen <span className="text-gray-400 font-normal">(kommagetrennt)</span>
+                </label>
+                <input
+                  value={subCustomCitiesInput}
+                  onChange={e => setSubCustomCitiesInput(e.target.value)}
+                  placeholder="z.B. Bad Doberan, Teterow, Grimmen"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
                 />
               </div>
 
@@ -803,31 +847,23 @@ export function AgentGoalModal({ caseId, rowsCount, onClose, onImported, externa
             {/* Plan steps overview */}
             {run.plan && run.plan.steps && run.plan.steps.length > 0 && (
               <div>
-                {/* Coverage gap warning */}
+                {/* Coverage gap warning — compact single line */}
                 {run.plan.estimatedRows < run.goal.targetCount * 0.6 && (
-                  <div className="mb-2 p-2.5 bg-amber-50 border border-amber-200 rounded-lg space-y-1">
-                    <div className="flex items-center gap-1.5 text-xs font-semibold text-amber-700">
-                      <span>⚠️</span>
-                      <span>Nur ~{run.plan.estimatedRows.toLocaleString("de-DE")} von {run.goal.targetCount.toLocaleString("de-DE")} Ziel-Ergebnissen erreichbar</span>
+                  <div className="mb-2 flex items-start gap-1.5 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                    <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                    <div>
+                      <span className="font-semibold">Nur ~{run.plan.estimatedRows.toLocaleString("de-DE")} von {run.goal.targetCount.toLocaleString("de-DE")} erreichbar. </span>
+                      <span className="text-amber-600">Suchbereich zu eng — Region erweitern oder verwandte Begriffe ergänzen.</span>
                     </div>
-                    <p className="text-xs text-amber-700 leading-relaxed">
-                      Die verfügbaren Quellen reichen für dieses Ziel nicht aus — der Suchbereich ist wahrscheinlich zu eng (einzelne Stadt oder seltene Branche).
-                    </p>
-                    <p className="text-xs text-amber-800 font-medium">💡 Tipps für mehr Ergebnisse:</p>
-                    <ul className="text-xs text-amber-700 pl-3 list-disc space-y-0.5">
-                      <li>Region erweitern — z. B. Bundesland statt einzelner Stadt</li>
-                      <li>Verwandte Begriffe ergänzen — z. B. „Bauunternehmen" zusätzlich</li>
-                      <li>Mehrere Städte angeben — z. B. „Rostock, Schwerin, Greifswald"</li>
-                    </ul>
                   </div>
                 )}
-                <div className="text-xs font-medium text-gray-600 mb-2 flex items-center justify-between">
+                <div className="text-xs font-medium text-gray-600 mb-1.5 flex items-center justify-between">
                   <span>Plan — {run.plan.steps.filter(s => !deletedStepIds.has(s.id)).length} Steps, ~{run.plan.estimatedRows.toLocaleString("de-DE")} geschätzte Treffer</span>
                   {paused && run.stepResults.length === 0 && (
-                    <span className="text-[10px] text-gray-400">Klick auf 🗑 zum Entfernen eines Steps</span>
+                    <span className="text-[10px] text-gray-400">Klick auf 🗑 zum Entfernen</span>
                   )}
                 </div>
-                <div className="space-y-1 max-h-64 overflow-y-auto">
+                <div className="space-y-0.5 max-h-56 overflow-y-auto">
                   {run.plan.steps.map((s) => {
                     const executed = run.stepResults.find((r) => r.stepId === s.id);
                     const isDone = !!executed;
@@ -835,107 +871,56 @@ export function AgentGoalModal({ caseId, rowsCount, onClose, onImported, externa
                     const isSkipped = executed && executed.uniqueInserted === 0;
                     const isDeleted = deletedStepIds.has(s.id);
                     if (isDeleted) return null;
-                    const sourceLabel = s.source === "auto" ? "Auto" : s.source ?? "Auto";
-                    const sourceBadgeColor = s.type === "google_maps"
-                      ? "bg-sky-100 text-sky-700"
-                      : s.type.includes("catalog") || s.type === "directory_search"
-                      ? "bg-amber-100 text-amber-700"
-                      : "bg-violet-100 text-violet-700";
                     return (
                       <div
                         key={s.id}
-                        className={`flex items-start gap-2 text-xs rounded px-2 py-1.5 ${
-                          isError ? "bg-red-50" : isSkipped ? "bg-gray-50" : isDone ? "bg-emerald-50" : paused ? "bg-gray-50 border border-gray-200" : "bg-violet-50"
+                        className={`flex items-center gap-1.5 text-xs rounded px-2 py-1 ${
+                          isError ? "bg-red-50" : isSkipped ? "bg-gray-50" : isDone ? "bg-emerald-50" : "bg-gray-50"
                         }`}
+                        title={`${s.type === "google_maps" ? `${s.mapQuery} in ${s.location}` : s.query ?? s.url ?? s.label} · ~${s.estimatedHits} Treffer · Quelle: ${s.source ?? "auto"}`}
                       >
                         {isError ? (
-                          <XCircle className="w-3.5 h-3.5 text-red-500 mt-0.5 shrink-0" />
+                          <XCircle className="w-3 h-3 text-red-400 shrink-0" />
                         ) : isSkipped ? (
-                          <SkipForward className="w-3.5 h-3.5 text-gray-400 mt-0.5 shrink-0" />
+                          <SkipForward className="w-3 h-3 text-gray-300 shrink-0" />
                         ) : isDone ? (
-                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 mt-0.5 shrink-0" />
+                          <CheckCircle2 className="w-3 h-3 text-emerald-500 shrink-0" />
                         ) : (
-                          <Circle className="w-3.5 h-3.5 text-violet-300 mt-0.5 shrink-0" />
+                          <Circle className="w-3 h-3 text-gray-300 shrink-0" />
                         )}
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            {planStepTypeIcon(s.type)}
-                            <span className={`text-xs font-medium uppercase ${isDone ? "text-emerald-600" : "text-violet-600"}`}>
-                              {planStepTypeLabel(s.type)}
-                            </span>
-                            {/* Source badge */}
-                            <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${sourceBadgeColor}`}>
-                              {sourceLabel}
-                            </span>
-                            <span className="text-gray-700 truncate font-medium">
-                              {s.mapQuery && s.location
-                                ? `${s.mapQuery} · ${s.location}`
-                                : s.mapQuery || s.query || s.url || s.label}
-                            </span>
-                          </div>
-                          <div className="text-gray-400 mt-0.5">
-                            {editingStep === s.id ? (
-                              <div className="flex gap-1 mt-1">
-                                <input
-                                  value={editValue}
-                                  onChange={e => setEditValue(e.target.value)}
-                                  className="flex-1 border border-violet-300 rounded px-2 py-0.5 text-xs focus:outline-none"
-                                  autoFocus
-                                />
-                                <button onClick={handleSaveEdit} className="text-emerald-600 hover:text-emerald-700">
-                                  <CheckCircle2 className="w-3.5 h-3.5" />
-                                </button>
-                                <button onClick={() => setEditingStep(null)} className="text-gray-400 hover:text-gray-600">
-                                  <X className="w-3.5 h-3.5" />
-                                </button>
-                              </div>
-                            ) : (
-                              s.queryTemplate
-                                ? (
-                                  <span className="truncate block">
-                                    {s.queryTemplate}
-                                    {s.queries && s.queries.length > 0 && (
-                                      <span className="ml-1 text-violet-400">
-                                        × {s.queries.length} Städte
-                                      </span>
-                                    )}
-                                  </span>
-                                )
-                                : <span>—</span>
-                            )}
-                          </div>
-                          {/* Show first few expanded city queries for multi_search */}
-                          {s.type === "multi_search" && s.queries && s.queries.length > 0 && (
-                            <div className="text-gray-400 mt-0.5 text-[10px] leading-relaxed">
-                              {s.queries.slice(0, 5).join(" · ")}
-                              {s.queries.length > 5 && <span className="text-gray-300"> +{s.queries.length - 5} weitere</span>}
-                            </div>
-                          )}
-                          <div className="flex items-center gap-2 mt-0.5">
-                            <span className="text-gray-400">~{s.estimatedHits} Treffer</span>
-                            {executed && (
-                              <span className={isError ? "text-red-500" : "text-emerald-600"}>
-                                {isError ? `❌ ${executed.error}` : `✓ +${executed.uniqueInserted} neu`}
-                              </span>
-                            )}
-                          </div>
-                        </div>
+                        <span className={`text-[10px] font-semibold uppercase shrink-0 ${isDone ? "text-emerald-600" : s.type === "google_maps" ? "text-sky-600" : s.type.includes("catalog") ? "text-amber-600" : "text-gray-500"}`}>
+                          {s.type === "google_maps" ? "MAPS" : s.type === "google_search" ? "WEB" : s.type.includes("catalog") ? "KAT" : "SRC"}
+                        </span>
+                        <span className="flex-1 min-w-0 truncate text-gray-700">
+                          {s.mapQuery && s.location
+                            ? `${s.mapQuery} · ${s.location}`
+                            : s.mapQuery || s.query || s.url || s.label}
+                        </span>
+                        {s.queries && s.queries.length > 0 && (
+                          <span className="text-gray-400 shrink-0 text-[10px]">×{s.queries.length} Städte</span>
+                        )}
+                        <span className="text-gray-400 shrink-0 text-[10px]">~{s.estimatedHits}</span>
+                        {executed && (
+                          <span className={`shrink-0 text-[10px] ${isError ? "text-red-500" : "text-emerald-600"}`}>
+                            {isError ? "❌" : `+${executed.uniqueInserted}`}
+                          </span>
+                        )}
                         {/* Delete/Edit actions (only when paused and step not yet executed) */}
                         {paused && !isDone && (
-                          <div className="flex gap-1 shrink-0 mt-0.5">
+                          <div className="flex gap-0.5 shrink-0">
                             <button
                               onClick={() => handleEditStep(s.id, s.query || s.mapQuery || s.queryTemplate || "")}
-                              className="text-gray-300 hover:text-violet-500"
+                              className="text-gray-300 hover:text-gray-600"
                               title="Query bearbeiten"
                             >
-                              <Pencil className="w-3 h-3" />
+                              <Pencil className="w-2.5 h-2.5" />
                             </button>
                             <button
                               onClick={() => handleDeleteStep(s.id)}
-                              className="text-gray-300 hover:text-red-500"
+                              className="text-gray-300 hover:text-red-400"
                               title="Step entfernen"
                             >
-                              <Trash2 className="w-3 h-3" />
+                              <Trash2 className="w-2.5 h-2.5" />
                             </button>
                           </div>
                         )}

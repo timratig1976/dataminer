@@ -279,6 +279,89 @@ export async function createDiscoveryPlan(
   return plan;
 }
 
+// ── Sub-industry analysis ────────────────────────────────────────────────────
+
+export interface SubIndustrySuggestion {
+  mapQuery: string;
+  label: string;
+  description: string;
+  estimatedSize: string;
+  selected: boolean;
+}
+
+export interface SubIndustryAnalysis {
+  isBroadIndustry: boolean;
+  suggestions: SubIndustrySuggestion[];
+  /** Human-readable geography extracted from the prompt */
+  geography?: string;
+  /** All cities in the detected region (empty if single city or no region) */
+  cities: string[];
+}
+
+/**
+ * Analyse a research prompt for broad-industry patterns and extract
+ * sub-industry suggestions + the full city list for the target region.
+ * The LLM is instructed to search for and list ALL cities in the region.
+ */
+export async function analyseSubIndustries(
+  prompt: string,
+  edenApiKey: string,
+  model: string = "openai/gpt-4o-mini"
+): Promise<SubIndustryAnalysis> {
+  const resp = await edenChatCompletion({
+    apiKey: edenApiKey,
+    region: "us",
+    model,
+    system: `Du bist ein B2B-Recherche-Analyst. Deine Aufgabe: Analysiere ob eine Suchanfrage eine breite Branche umfasst.
+
+Wenn JA: Zerlege in spezifische Sub-Branchen (NUR Branchen-Namen, KEINE Städte im mapQuery). 
+Erkenne IMMER die Geographie aus der Anfrage:
+- Einzelne Stadt → geography = Stadtname, cities = [Stadtname]
+- Region/Bundesland (z.B. "Mecklenburg-Vorpommern", "MV", "Bayern", "NRW") → geography = Regionsname, cities = ALLE Städte dieser Region recherchieren und vollständig aufzählen (15-50 Städte). Keine Stadt auslassen. Städte nur im cities-Array, NICHT in suggestions.mapQuery.
+- Gesamtes Land (z.B. "Deutschland") → geography = "Deutschland", cities = [] (zu viele Städte für Liste)
+
+Du hast umfassende Geographiekenntnisse. Liste bei Regionen EXPLIZIT jede einzelne Stadt auf.`,
+    prompt: `Analyse: ${prompt}
+
+Gib JSON zurück:
+{
+  "isBroadIndustry": true/false,
+  "geography": "erkannte Region/Stadt oder null",
+  "cities": ["Stadt1", "Stadt2", ...] — bei Region: ALLE Städte auflisten. Nur Städtenamen, keine Zusatzinfos,
+  "suggestions": [
+    {"mapQuery": "Sub-Branche (OHNE Stadt)", "label": "Anzeigename", "description": "kurze Beschreibung", "estimatedSize": "groß|mittel|klein"}
+  ]
+}
+
+WICHTIG: mapQuery in suggestions enthält NUR die Branche, KEINE Stadt. Städte sind separat im cities-Array.`,
+    maxTokens: 2000,
+    temperature: 0.1,
+  });
+
+  const raw = resp.raw?.trim() ?? "";
+  const jsonStr = raw.replace(/^```(?:json)?\n?/i, "").replace(/\n?```$/i, "").trim();
+
+  try {
+    const parsed = JSON.parse(jsonStr);
+    return {
+      isBroadIndustry: !!parsed.isBroadIndustry,
+      suggestions: Array.isArray(parsed.suggestions)
+        ? parsed.suggestions.map((s: Record<string, unknown>) => ({
+            mapQuery: String(s.mapQuery ?? ""),
+            label: String(s.label ?? s.mapQuery ?? ""),
+            description: String(s.description ?? ""),
+            estimatedSize: String(s.estimatedSize ?? "mittel"),
+            selected: false,
+          }))
+        : [],
+      geography: parsed.geography || undefined,
+      cities: Array.isArray(parsed.cities) ? parsed.cities.map(String) : [],
+    };
+  } catch {
+    return { isBroadIndustry: false, suggestions: [], cities: [] };
+  }
+}
+
 // ── Replan (agent loop: "what next?") ────────────────────────────────────────
 
 export interface ReplanOptions extends PlannerOptions {
