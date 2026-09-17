@@ -2,10 +2,11 @@ import { isOperationCancelled } from "./operations";
 import type { AiColumn } from "./types";
 import { webSearch, formatSearchResultsForLlm, type SearchLayer, isCatalogUrl } from "./search";
 import { normalizeEdenModel, edenChatCompletion, edenScrapeUrl, type EdenRegion } from "./edenai";
-import { getCachedScrape, setCachedScrape } from "./db";
+import { getCachedScrape, setCachedScrape, upsertContactRows } from "./db";
 import { lookupApolloContacts, ApolloBudget } from "./apollo";
 import { batchEnrichRow, BATCH_FIELDS } from "./batch-enrich";
 import { searchContacts } from "./contact-search";
+import { fetchMapsDetailsEnriched, fetchMapsReviews, fetchMapsLocationCount } from "./maps";
 
 /**
  * Eden AI is the ONLY LLM provider. Model IDs use the "provider/model" format
@@ -238,7 +239,9 @@ export async function runAiColumn(
   signal?: AbortSignal,
   operationId?: string,
   edenRegion: EdenRegion = "eu",
-  apolloBudget?: ApolloBudget
+  apolloBudget?: ApolloBudget,
+  /** The row ID of the company row — used by batch_contacts to upsert into contact_rows table */
+  companyRowId?: string,
 ): Promise<{ value: string; skipped?: boolean; skipReason?: string; error?: string; multiValues?: Record<string, string>; rawResponse?: string; renderedPrompt?: string; tokens?: { prompt: number; completion: number; total: number }; costUsd?: number; webSearchQuery?: string; webSearchResultCount?: number; webSearchSource?: string; scrapedUrls?: string[] }> {
   const requiredCheck = checkRequiredInputs(column, rowData);
   if (requiredCheck.skip) {
@@ -264,7 +267,7 @@ export async function runAiColumn(
   }
 
   // ── Batch enrichment — 1 scrape + optional search + 1 LLM call → all fields ──
-  if (column.tool === "batch_enrich") {
+  if (column.tool === "batch_company") {
     const serpApiKey = process.env.SERP_API_KEY || undefined;
     const braveApiKey = process.env.BRAVE_API_KEY || undefined;
     const cachedScrape = await getCachedScrape(
@@ -322,11 +325,10 @@ export async function runAiColumn(
   }
 
   // ── Contact search — Impressum + LinkedIn + Google → Entscheider ──────────
-  if (column.tool === "batch_contacts") {
+  if (column.tool === "batch_contact") {
     const serpApiKey = process.env.SERP_API_KEY || undefined;
     const braveApiKey = process.env.BRAVE_API_KEY || undefined;
     const maxContacts = column.batchContactsMax ?? 3;
-    const prefix = column.batchContactsPrefix ?? "contact_";
 
     const result = await searchContacts(rowData as Record<string, string | null>, {
       edenApiKey: apiKey,
@@ -343,86 +345,33 @@ export async function runAiColumn(
       return { value: "", error: result.error };
     }
 
-    // Write contacts as flat fields: contact_1_first_name, contact_1_last_name, etc.
-    // Also write primary contact directly into standard fields if they're empty
-    const multiValues: Record<string, string> = {};
-
-    // Primary contact → write into first_name, last_name, position if empty
-    const primary = result.contacts[0];
-    if (primary) {
-      // Always write to indexed fields
-      multiValues[`${prefix}1_first_name`] = primary.first_name ?? "";
-      multiValues[`${prefix}1_last_name`] = primary.last_name ?? "";
-      multiValues[`${prefix}1_position`] = primary.position ?? "";
-      multiValues[`${prefix}1_email`] = primary.email ?? "";
-      multiValues[`${prefix}1_phone`] = primary.phone ?? "";
-      multiValues[`${prefix}1_linkedin`] = primary.linkedin ?? "";
-
-      // Also write into standard flat fields (if not already set by batch_enrich)
-      if (!rowData["first_name"] || rowData["first_name"] === "") multiValues["first_name"] = primary.first_name ?? "";
-      if (!rowData["last_name"] || rowData["last_name"] === "") multiValues["last_name"] = primary.last_name ?? "";
-      if (!rowData["position"] || rowData["position"] === "") multiValues["position"] = primary.position ?? "";
-      if (primary.email) multiValues["contact_email"] = primary.email;
-      if (primary.phone) multiValues["contact_phone"] = primary.phone;
-      if (primary.linkedin) multiValues["linkedin"] = primary.linkedin;
-
-      // Auto-extrapolate email if no personal email found but name+domain available
-      if (!primary.email && primary.first_name && primary.last_name) {
-        const domain = (rowData["domain"] ?? rowData["source_domain"] ?? "").replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0];
-        if (domain) {
-          const { extrapolateEmails } = await import("./email-extrapolator");
-          const extrapolated = extrapolateEmails(primary.first_name, primary.last_name, domain, { maxCandidates: 1 });
-          if (extrapolated.bestGuess) {
-            multiValues["email_extrapolated"] = extrapolated.bestGuess;
-            multiValues[`${prefix}1_email_extrapolated`] = extrapolated.bestGuess;
-          }
-        }
-      }
-    }
-
-    // Store generic company email (info@, kontakt@) as fallback if found in impressum
-    if (result.companyEmail) {
-      multiValues["company_email"] = result.companyEmail;
-      // If no email at all yet, use it as fallback
-      if (!multiValues["contact_email"] && !multiValues["email"]) {
-        multiValues["email_fallback"] = result.companyEmail;
-      }
-    }
-
-    // Additional contacts + extrapolate emails for all without personal email
+    // Additional contacts — extrapolate emails for contacts without personal email
     const domain = (rowData["domain"] ?? rowData["source_domain"] ?? "").replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0];
-    for (let i = 1; i < result.contacts.length; i++) {
+    const emailExtrapolatedByIdx: Record<number, string> = {};
+    for (let i = 0; i < result.contacts.length; i++) {
       const c = result.contacts[i];
-      const n = i + 1;
-      multiValues[`${prefix}${n}_first_name`] = c.first_name ?? "";
-      multiValues[`${prefix}${n}_last_name`] = c.last_name ?? "";
-      multiValues[`${prefix}${n}_position`] = c.position ?? "";
-      multiValues[`${prefix}${n}_email`] = c.email ?? "";
-      multiValues[`${prefix}${n}_phone`] = c.phone ?? "";
-      multiValues[`${prefix}${n}_linkedin`] = c.linkedin ?? "";
-      // Extrapolate for contacts without personal email
       if (!c.email && c.first_name && c.last_name && domain) {
         const { extrapolateEmails } = await import("./email-extrapolator");
         const extrapolated = extrapolateEmails(c.first_name, c.last_name, domain, { maxCandidates: 1 });
         if (extrapolated.bestGuess) {
-          multiValues[`${prefix}${n}_email_extrapolated`] = extrapolated.bestGuess;
+          emailExtrapolatedByIdx[i] = extrapolated.bestGuess;
         }
       }
     }
 
-    // JSON summary in outputKey — structured for detail modal and sub-table display
+    // JSON summary — kept on the company row for the detail modal (compact, no flat fields)
     const contactsJson = JSON.stringify(result.contacts.map((c, i) => ({
       first_name: c.first_name,
       last_name: c.last_name,
       position: c.position,
       email: c.email,
-      email_extrapolated: multiValues[`${prefix}${i+1}_email_extrapolated`] ?? null,
+      email_extrapolated: emailExtrapolatedByIdx[i] ?? null,
       phone: c.phone,
       linkedin: c.linkedin,
       source: c.source,
     })));
 
-    // Human-readable summary for table cell display
+    // Human-readable summary for table cell display (badge + name)
     const summaryText = result.contacts.length > 0
       ? result.contacts.map(c =>
           [c.first_name, c.last_name].filter(Boolean).join(" ") +
@@ -431,27 +380,122 @@ export async function runAiColumn(
         ).join("\n")
       : "";
 
-    // Debug info
+    // Minimal metadata on the company row — only what's needed for the cell badge + cost tracking
+    const multiValues: Record<string, string> = {};
+    multiValues[`_contacts_json_${column.outputKey}`] = contactsJson;       // for detail modal
     multiValues[`_contacts_sources_${column.outputKey}`] = result.sourcesUsed.join(", ");
-    multiValues[`_contacts_json_${column.outputKey}`] = contactsJson;
-    if (result.impressumContent) multiValues[`_contacts_impressum_md_${column.outputKey}`] = result.impressumContent.slice(0, 6000);
-    if (result.googleSnippets)   multiValues[`_contacts_google_snip_${column.outputKey}`]  = result.googleSnippets.slice(0, 4000);
-    if (result.linkedinSnippets) multiValues[`_contacts_linkedin_snip_${column.outputKey}`] = result.linkedinSnippets.slice(0, 4000);
-    if (result.systemPrompt)     multiValues[`_llm_system_${column.outputKey}`]             = result.systemPrompt;
-    // Standard meta fields so the detail modal can pick them up
     if (result.tokensUsed) multiValues[`_llm_tokens_${column.outputKey}`] = JSON.stringify({ prompt: 0, completion: 0, total: result.tokensUsed });
     if (result.costUsd !== undefined) multiValues[`_llm_cost_${column.outputKey}`] = String(result.costUsd);
-    // Full prompt + raw LLM response stored under standard keys
-    if (result.debugPrompt) multiValues[`_llm_prompt_${column.outputKey}`] = result.debugPrompt;
-    if (result.debugRawResponse) multiValues[`_llm_raw_${column.outputKey}`] = result.debugRawResponse;
-    // Source URLs
-    if (result.sourceUrls?.length) multiValues[`_contacts_source_urls_${column.outputKey}`] = result.sourceUrls.join("\n");
+    // Keep company_email on the company row — it's a company attribute, not a person
+    if (result.companyEmail) multiValues["company_email"] = result.companyEmail;
+
+    // ── Clay-pattern: upsert found contacts into contact_rows table ──────────
+    if (companyRowId && result.contacts.length > 0) {
+      const caseId = rowData["_case_id"] as string | undefined;
+      if (caseId) {
+        const contactPayloads = result.contacts.map((c, i) => ({
+          first_name: c.first_name ?? null,
+          last_name: c.last_name ?? null,
+          position: c.position ?? null,
+          email: c.email ?? null,
+          email_extrapolated: emailExtrapolatedByIdx[i] ?? null,
+          phone: c.phone ?? null,
+          linkedin: c.linkedin ?? null,
+          source: c.source ?? null,
+          // Carry over company context for the contacts table
+          company_name: rowData["company_name"] ?? rowData["Unternehmensname"] ?? null,
+          domain: rowData["domain"] ?? rowData["source_domain"] ?? null,
+          city: rowData["city"] ?? rowData["Stadt"] ?? null,
+        }));
+        // Fire-and-forget — don't block the cell result
+        upsertContactRows(caseId, companyRowId, contactPayloads).catch((e) =>
+          console.error("[batch_contact] upsertContactRows failed:", e)
+        );
+      }
+    }
 
     return {
       value: summaryText || contactsJson,
       multiValues: { [column.outputKey]: summaryText, ...multiValues },
       tokens: result.tokensUsed ? { prompt: 0, completion: 0, total: result.tokensUsed } : undefined,
       costUsd: result.costUsd,
+    };
+  }
+
+  // ── Places summary — interpret Maps/Places data via LLM or structured output ──
+  // Reads address, phone, category, maps_rating, maps_reviews directly from rowData.
+  // No extra API call needed — data is already in the row from the Maps step.
+  if (column.tool === "places_summary") {
+    const PLACES_KEYS = [
+      "company_name", "address", "phone", "category",
+      "maps_rating", "maps_reviews", "maps_url",
+      "city", "zip", "domain", "website",
+    ];
+    const placesFields: Record<string, string> = {};
+    for (const k of PLACES_KEYS) {
+      const v = rowData[k];
+      if (v && String(v).trim()) placesFields[k] = String(v).trim();
+    }
+
+    if (Object.keys(placesFields).length === 0) {
+      return { value: "", skipped: true, skipReason: "Keine Places-Daten im Row vorhanden" };
+    }
+
+    const isJson = column.outputMode === "json";
+    const dataBlock = Object.entries(placesFields).map(([k, v]) => `${k}: ${v}`).join("\n");
+
+    const defaultJsonPrompt = `Analysiere diesen Google Maps Firmeneintrag und gib ein JSON-Objekt zurück mit:
+- "lead_score": Zahl 1-10 (10=perfekter Lead, basierend auf Bewertungen, Kategorie, Vollständigkeit)
+- "quality": "hoch" | "mittel" | "niedrig" (Qualität des Eintrags)
+- "city": Stadt (falls nicht vorhanden, aus Adresse extrahieren)
+- "zip": PLZ (falls nicht vorhanden, aus Adresse extrahieren)
+- "summary": 1 Satz Firmenbeschreibung auf Deutsch
+- "signals": Array von max. 3 positiven Signalen (z.B. "viele Bewertungen", "hohe Bewertung", "vollständiger Eintrag")
+Antworte NUR mit dem JSON-Objekt.`;
+
+    const defaultTextPrompt = `Schreibe einen präzisen 2-Satz-Firmenprofil-Text auf Deutsch basierend auf den Google Maps Daten. Erwähne Branche, Bewertung wenn vorhanden, und Standort.`;
+
+    const userInstruction = column.prompt?.trim() || (isJson ? defaultJsonPrompt : defaultTextPrompt);
+    const system = isJson
+      ? "Du bist ein Datenstrukturierungs-Assistent. Antworte NUR mit validem JSON, kein Markdown, keine Erklärungen."
+      : "Du bist ein Business-Analyst. Antworte nur mit dem angeforderten Text, keine Einleitung, kein Markdown.";
+
+    const prompt = `${userInstruction}\n\nGoogle Maps Daten:\n${dataBlock}`;
+
+    const resp = await edenChatCompletion({
+      apiKey,
+      region: edenRegion,
+      model: normalizeEdenModel(column.model ?? "openai/gpt-4o-mini"),
+      system,
+      prompt,
+      maxTokens: isJson ? 400 : 200,
+      temperature: 0,
+      signal,
+    });
+
+    const raw = resp.raw?.trim() ?? "";
+    let value = raw;
+    const multiValues: Record<string, string> = {};
+
+    if (isJson) {
+      value = raw.replace(/^```(?:json)?\n?/i, "").replace(/\n?```$/i, "").trim();
+      try {
+        const parsed = JSON.parse(value);
+        // Write extracted fields directly into row if missing
+        if (parsed.city && !rowData["city"]) multiValues["city"] = String(parsed.city);
+        if (parsed.zip && !rowData["zip"]) multiValues["zip"] = String(parsed.zip);
+        if (parsed.lead_score != null) multiValues["lead_score"] = String(parsed.lead_score);
+        if (parsed.quality) multiValues["maps_quality"] = String(parsed.quality);
+      } catch { value = raw; }
+    }
+
+    return {
+      value,
+      multiValues: Object.keys(multiValues).length > 0 ? { [column.outputKey]: value, ...multiValues } : undefined,
+      tokens: resp.tokens,
+      costUsd: resp.costUsd,
+      rawResponse: raw,
+      renderedPrompt: prompt,
     };
   }
 
@@ -619,9 +663,131 @@ export async function runAiColumn(
 
   const hasWebSearch = !!(column.useWebSearch && webSearchContext);
   let hasPageContent = !!pageContext;
+
+  // ── crawlSources: fetch additional data before LLM call ──────────────────
+  const crawlBlocks: string[] = [];
+  const crawlMetaValues: Record<string, string> = {};
+  if (column.crawlSources?.length) {
+    // Load Apify + SerpAPI tokens from DB settings
+    const { getGlobalSettings } = await import("./db");
+    const dbSettings = await getGlobalSettings().catch(() => null);
+    const apifyToken = dbSettings?.apifyApiToken || process.env.APIFY_API_TOKEN?.trim() || undefined;
+    const serpApiKey = dbSettings?.serpApiKey || process.env.SERP_API_KEY?.trim() || undefined;
+    const mapsUrl = rowData["maps_url"] ?? "";
+    const domain = rowData["domain"] ?? rowData["source_domain"] ?? "";
+
+    for (const src of column.crawlSources) {
+      try {
+        if (src === "domain" && domain) {
+          // Scrape company website
+          const scraped = await edenScrapeUrl({ apiKey, url: domain.startsWith("http") ? domain : `https://${domain}` }).catch(() => null);
+          if (scraped?.markdown) {
+            crawlBlocks.push(`#WEBSITE CONTENT (${domain}):\n${scraped.markdown.slice(0, 8000)}\n#END WEBSITE CONTENT`);
+            hasPageContent = true;
+          }
+        } else if (src === "maps_details" && apifyToken) {
+          const companyName = rowData["company_name"] ?? rowData["Unternehmensname"] ?? undefined;
+          const city = rowData["city"] ?? rowData["Stadt"] ?? undefined;
+          // Require either a maps_url OR a company name to search by
+          if (!mapsUrl && !companyName) {
+            console.warn("[ai] maps_details: no maps_url and no company_name, skipping");
+          }
+          const details = (mapsUrl || companyName) ? await fetchMapsDetailsEnriched({
+            mapsUrl,
+            companyName,
+            city,
+            apifyApiToken: apifyToken,
+            serpApiKey,
+            signal,
+          }).catch((e) => { console.warn("[ai] maps_details fetch failed:", (e as Error).message); return null; }) : null;
+          if (details) {
+            const profileLines = [
+              details.name           ? `Firmenname: ${details.name}` : null,
+              details.address        ? `Adresse: ${details.address}` : null,
+              details.city           ? `Stadt: ${details.city}` : null,
+              details.postalCode     ? `PLZ: ${details.postalCode}` : null,
+              details.phone          ? `Telefon: ${details.phone}` : null,
+              details.website        ? `Website: ${details.website}` : null,
+              details.categories?.length ? `Kategorien: ${details.categories.join(", ")}` : null,
+              details.rating      != null ? `Bewertung: ${details.rating} ★` : null,
+              details.reviews     != null ? `Anzahl Bewertungen: ${details.reviews}` : null,
+              details.ratingDistribution  ? `Bewertungsverteilung: ${details.ratingDistribution}` : null,
+              details.openState          ? `Status: ${details.openState}` : null,
+              details.openingHours       ? `Öffnungszeiten: ${details.openingHours}` : null,
+              details.description        ? `Beschreibung: ${details.description}` : null,
+              details.photosCount != null ? `Fotos: ${details.photosCount}` : null,
+              details.claimedByOwner != null ? `Inhaber verifiziert: ${details.claimedByOwner ? "ja" : "nein"}` : null,
+              details.hasOwnerResponse != null ? `Inhaber antwortet auf Reviews: ${details.hasOwnerResponse ? "ja" : "nein"}` : null,
+              details.closedState        ? `Status: ${details.closedState}` : null,
+              details.additionalInfo     ? `Info-Tab Attribute: ${details.additionalInfo}` : null,
+              details.questionsAndAnswersCount ? `Q&A Einträge: ${details.questionsAndAnswersCount}` : null,
+              details.userReviewSamples  ? `Beispiel-Bewertungen:\n${details.userReviewSamples}` : null,
+            ].filter(Boolean).join("\n");
+            if (profileLines) {
+              crawlBlocks.push(`#GOOGLE MAPS PROFIL:\n${profileLines}\n#END GOOGLE MAPS PROFIL`);
+              crawlMetaValues[`_crawl_maps_details_${column.outputKey}`] = JSON.stringify({
+                name: details.name,
+                address: details.address,
+                street: details.street,
+                city: details.city,
+                postalCode: details.postalCode,
+                phone: details.phone,
+                website: details.website,
+                rating: details.rating,
+                reviews: details.reviews,
+                ratingDistribution: details.ratingDistribution,
+                categories: details.categories,
+                description: details.description,
+                openingHours: details.openingHours,
+                openState: details.openState,
+                photosCount: details.photosCount,
+                claimedByOwner: details.claimedByOwner,
+                hasOwnerResponse: details.hasOwnerResponse,
+                userReviewSamples: details.userReviewSamples,
+                directUrl: details.directUrl,
+              });
+            }
+            if (details.directUrl && details.directUrl.includes("google.com/maps")) {
+              crawlMetaValues["maps_url"] = details.directUrl;
+            }
+            // Back-fill missing row fields from Maps data
+            if (details.address && !rowData["address"]) crawlMetaValues["address"] = details.address;
+            if (details.street  && !rowData["address"]) crawlMetaValues["address"] = details.street;
+            if (details.postalCode && !rowData["zip"])  crawlMetaValues["zip"]     = details.postalCode;
+            if (details.city    && !rowData["city"])    crawlMetaValues["city"]    = details.city;
+            if (details.phone   && !rowData["phone"])   crawlMetaValues["phone"]   = details.phone;
+            if (details.website && !rowData["domain"] && !rowData["website"]) {
+              const ws = details.website.replace(/^https?:\/\//, "").replace(/\/$/, "");
+              crawlMetaValues["domain"] = ws;
+            }
+            if (details.name && !rowData["company_name"]) crawlMetaValues["company_name"] = details.name;
+            if (details.rating  != null && !rowData["maps_rating"])  crawlMetaValues["maps_rating"]  = String(details.rating);
+            if (details.reviews != null && !rowData["maps_reviews"]) crawlMetaValues["maps_reviews"] = String(details.reviews);
+            if (details.categories?.length && !rowData["category"])  crawlMetaValues["category"]     = details.categories[0];
+          }
+        } else if (src === "maps_reviews" && apifyToken) {
+          // Use directUrl discovered by maps_details in same run (crawlMetaValues) or original mapsUrl
+          const effectiveMapsUrl = crawlMetaValues["maps_url"] || mapsUrl;
+          if (!effectiveMapsUrl) { console.warn("[ai] maps_reviews: no maps_url available, skipping"); }
+          const { reviews } = effectiveMapsUrl ? await fetchMapsReviews({ mapsUrl: effectiveMapsUrl, apifyApiToken: apifyToken, limit: column.crawlReviewsMax ?? 10, signal }).catch((e) => { console.warn("[ai] maps_reviews fetch failed:", (e as Error).message); return { reviews: [] }; }) : { reviews: [] };
+          if (reviews.length > 0) {
+            const reviewText = reviews.map(r =>
+              `★${r.rating} ${r.author} (${r.date}): ${r.text}${r.ownerReply ? ` → Inhaber: ${r.ownerReply}` : ""}`
+            ).join("\n");
+            crawlBlocks.push(`#GOOGLE MAPS REVIEWS (${reviews.length}):\n${reviewText}\n#END GOOGLE MAPS REVIEWS`);
+            crawlMetaValues[`_crawl_maps_reviews_${column.outputKey}`] = reviewText;
+          }
+        }
+      } catch (e) {
+        console.warn(`[ai] crawlSource ${src} failed:`, (e as Error).message);
+      }
+    }
+  }
+
   const promptBase = [
     hasWebSearch ? `#WEB SEARCH RESULTS (source: ${webSearchSource ?? "web"}):\n${webSearchContext}\n#END WEB SEARCH RESULTS` : "",
     hasPageContent ? `#PAGE CONTENT (scraped full pages):\n${pageContext}\n#END PAGE CONTENT` : "",
+    ...crawlBlocks,
     column.prompt,
   ].filter(Boolean).join("\n\n");
 
@@ -695,6 +861,43 @@ export async function runAiColumn(
     console.log(`[LLM] provider=${provider} model=${model} prompt_tokens=${tokens?.prompt} completion_tokens=${tokens?.completion} raw_length=${raw.length} raw_preview=${raw.slice(0,120)}`);
     const costUsd = costUsdOverride ?? estimateCostUsd(model, tokens);
 
+    // ── Post-LLM: Multi-location chain detection ─────────────────────────────
+    // Always check location count when crawlSources used — LLM alone can't see
+    // how many Maps listings exist for the same company name.
+    if (isJson && column.crawlSources?.length) {
+      try {
+        const parsed = JSON.parse(raw.replace(/^```json\s*/i, "").replace(/```\s*$/i, "").trim());
+        const companyName = rowData["company_name"] ?? rowData["Unternehmensname"] ?? undefined;
+        const dbSettings2 = await import("./db").then(m => m.getGlobalSettings()).catch(() => null);
+        const apifyToken2 = dbSettings2?.apifyApiToken || process.env.APIFY_API_TOKEN?.trim() || undefined;
+        if (companyName && apifyToken2) {
+          const locationData = await fetchMapsLocationCount({
+            companyName: String(companyName),
+            apifyApiToken: apifyToken2,
+            maxLocations: 50,
+            signal,
+          }).catch((e) => { console.warn("[ai] location-count fetch failed:", (e as Error).message); return null; });
+          if (locationData && locationData.count > 1) {
+            parsed.is_chain = true;
+            parsed.chain_location_count = locationData.count;
+            parsed.chain_location_count_plus = locationData.hitLimit; // true = there may be more
+            parsed.chain_main_location = locationData.mainLocation ?? null;
+            if (!parsed.chain_note) {
+              parsed.chain_note = `Kette mit ${locationData.count} Standorten — alle GBPs optimierbar`;
+            }
+            if (parsed.pitch_hook) {
+              parsed.pitch_hook = parsed.pitch_hook.replace(/\bStandort(e)?\b/i, `${locationData.count} Standorte`);
+            }
+            raw = JSON.stringify(parsed);
+          } else if (locationData) {
+            parsed.is_chain = false;
+            parsed.chain_location_count = 1;
+            raw = JSON.stringify(parsed);
+          }
+        }
+      } catch { /* ignore JSON parse errors */ }
+    }
+
     // Extract _reasoning if captureReasoning is enabled (JSON mode);
     // for text mode the REASONING: prefix line is stripped below.
     let reasoningValue: string | undefined;
@@ -749,12 +952,12 @@ export async function runAiColumn(
 
     if (isJson && column.jsonKey) {
       const extracted = extractJsonKey(raw, column.jsonKey);
-      const extra = reasoningValue ? { multiValues: { [`_reasoning_${column.outputKey}`]: reasoningValue } } : {};
-      return { value: extracted === "notFound" ? "" : extracted, rawResponse: raw, renderedPrompt: prompt, tokens, costUsd, webSearchQuery: webSearchQueryRendered, webSearchResultCount, webSearchSource, ...(scrapedUrls.length ? { scrapedUrls } : {}), ...extra };
+      const extra = { multiValues: { ...(reasoningValue ? { [`_reasoning_${column.outputKey}`]: reasoningValue } : {}), ...crawlMetaValues } };
+      return { value: extracted === "notFound" ? "" : extracted, rawResponse: raw, renderedPrompt: prompt, tokens, costUsd, webSearchQuery: webSearchQueryRendered, webSearchResultCount, webSearchSource, ...(scrapedUrls.length ? { scrapedUrls } : {}), ...(Object.keys(extra.multiValues).length ? extra : {}) };
     }
 
-    const extra = reasoningValue ? { multiValues: { [`_reasoning_${column.outputKey}`]: reasoningValue } } : {};
-    return { value: raw === "notFound" ? "" : raw, rawResponse: raw, renderedPrompt: prompt, tokens, costUsd, webSearchQuery: webSearchQueryRendered, webSearchResultCount, webSearchSource, ...(scrapedUrls.length ? { scrapedUrls } : {}), ...extra };
+    const extra = { multiValues: { ...(reasoningValue ? { [`_reasoning_${column.outputKey}`]: reasoningValue } : {}), ...crawlMetaValues } };
+    return { value: raw === "notFound" ? "" : raw, rawResponse: raw, renderedPrompt: prompt, tokens, costUsd, webSearchQuery: webSearchQueryRendered, webSearchResultCount, webSearchSource, ...(scrapedUrls.length ? { scrapedUrls } : {}), ...(Object.keys(extra.multiValues).length ? extra : {}) };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     return { value: "", error: message };
@@ -1070,7 +1273,7 @@ Return ONLY valid JSON with the keys: legal_name, address, phone, email, managin
     name: "🚀 Firmendaten recherchieren",
     outputKey: "_batch_firmendaten",
     model: "openai/gpt-4o-mini",
-    tool: "batch_enrich",
+    tool: "batch_company",
     batchOutputFields: ["company_name", "domain", "phone", "company_email", "city", "zip", "industry", "description", "employees", "founded"],
     batchSearchContacts: false,
     prompt: "",
@@ -1083,7 +1286,7 @@ Return ONLY valid JSON with the keys: legal_name, address, phone, email, managin
     name: "👤 Entscheider finden",
     outputKey: "_batch_kontakte",
     model: "openai/gpt-4o-mini",
-    tool: "batch_contacts",
+    tool: "batch_contact",
     batchContactsMax: 3,
     batchContactsLinkedIn: true,
     batchContactsImpressum: true,
@@ -1092,5 +1295,39 @@ Return ONLY valid JSON with the keys: legal_name, address, phone, email, managin
     condition: "empty",
     conditionField: "_batch_kontakte",
     outputMode: "text",
+  },
+  {
+    name: "Maps Analyse",
+    outputKey: "maps_analysis",
+    model: "openai/gpt-4o-mini",
+    tool: "places_summary",
+    outputMode: "json",
+    prompt: "",  // uses default JSON prompt with lead_score, quality, city, zip, summary, signals
+    condition: "empty",
+    conditionField: "maps_analysis",
+  },
+  {
+    name: "ViLocal Audit",
+    outputKey: "vilocal_audit",
+    model: "openai/gpt-4o-mini",
+    outputMode: "json",
+    crawlSources: ["maps_details", "maps_reviews"],
+    crawlReviewsMax: 10,
+    condition: "empty",
+    conditionField: "vilocal_audit",
+    prompt: `Du bist ein Google Business Profile Experte. Analysiere den folgenden Google Maps Eintrag für einen B2B-Kaltakquise-Pitch (Produkt: ViLocal — Google Business Profile Optimierung).
+
+Bewerte das Profil und gib ein JSON-Objekt zurück mit:
+- "score": Gesamtqualitäts-Score 1-10 (10 = perfekt optimiertes Profil)
+- "missing": Array von fehlenden Elementen (z.B. ["Beschreibung fehlt", "Keine Öffnungszeiten", "Wenige Fotos (<5)"])
+- "inconsistent": Array von Inkonsistenzen (z.B. ["Telefon auf Website ≠ Maps", "Adresse veraltet"])
+- "strengths": Array von Stärken (z.B. ["Viele Bewertungen", "Inhaber antwortet"])  
+- "potential": Kurzer Satz: konkret was ViLocal verbessern würde (für den Pitch)
+- "pitch_hook": 1 packender Satz für die Erstansprache (personalisiert, auf Deutsch)
+- "priority": "hoch" | "mittel" | "niedrig" (Lead-Priorität für ViLocal)
+- "is_chain": true | false — Ist das ein Filial-/Kettenunternehmen mit mehreren Standorten? Erkenne das an: Begriffen wie "Filiale", "Niederlassung", "Standort" im Namen/Beschreibung, gleichem Firmennamen in mehreren Städten, Franchise-Indikatoren, oder wenn die Website auf eine übergeordnete Kette hindeutet.
+- "chain_note": (nur wenn is_chain=true) Kurzer Hinweis für den Pitch z.B. "Kette mit mind. 3 Standorten — alle GBPs optimierbar" — leer lassen wenn is_chain=false
+
+Verfügbare Daten aus dem Google Maps Eintrag stehen oben als Kontext-Blöcke.`,
   },
 ];

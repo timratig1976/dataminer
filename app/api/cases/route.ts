@@ -35,18 +35,32 @@ export async function POST(req: NextRequest) {
         const tpl = getTemplate(templateId);
         if (tpl) {
           aiColumns = tpl.aiColumns;
-          // Order: [Eingabe] → [🏢 Aktion] → [Firmen-Ergebnis] → [👤 Aktion] → [Kontakt-Ergebnis]
-          const companyInputKeys = ["company_name", "domain"];
-          const companyOutputKeys = ["phone", "company_email", "address", "city", "zip", "industry", "description", "employees", "founded"];
-          const contactOutputKeys = ["first_name", "last_name", "position", "contact_email", "linkedin"];
-          const batchCompany = aiColumns.find((c) => c.tool === "batch_enrich");
-          const batchContacts = aiColumns.find((c) => c.tool === "batch_contacts");
+          // Optimal column order (proven in production):
+          // domain → Firmendaten-KI → company_name → industry → address → zip → city
+          // → description → phone → email → employees → founded
+          // → maps_rating → category → maps_reviews → Entscheider-KI
+          const batchCompany = aiColumns.find((c) => c.tool === "batch_company");
+          const batchContacts = aiColumns.find((c) => c.tool === "batch_contact");
+          const vilocalAudit = aiColumns.find((c) => c.outputKey === "vilocal_audit");
           colOrder = [
-            ...companyInputKeys,
+            "domain",
             ...(batchCompany ? [batchCompany.outputKey] : []),
-            ...companyOutputKeys,
+            "company_name",
+            "industry",
+            "address",
+            "zip",
+            "city",
+            "description",
+            "phone",
+            "email",
+            "employees",
+            "founded",
+            "maps_rating",
+            "category",
+            "maps_reviews",
+            "maps_url",
+            ...(vilocalAudit ? [vilocalAudit.outputKey] : []),
             ...(batchContacts ? [batchContacts.outputKey] : []),
-            ...contactOutputKeys,
           ];
         }
       }

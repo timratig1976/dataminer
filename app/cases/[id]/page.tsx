@@ -45,6 +45,11 @@ const COL_LABELS: Record<string, string> = {
   last_name: "Nachname",
   position: "Position",
   linkedin: "LinkedIn",
+  // Maps / Places fields
+  maps_url: "🗺 Maps-Link",
+  maps_rating: "★ Rating",
+  maps_reviews: "Bewertungen",
+  category: "Kategorie",
   // Batch AI columns
   _batch_firmendaten: "🏢 Firmendaten",
   _batch_kontakte: "👤 Entscheider",
@@ -543,6 +548,80 @@ function CatalogDeepCrawlButton({ caseId, onDone, catalogCount }: { caseId: stri
   );
 }
 
+function ResolveDomainButton({ caseId, onDone, count }: { caseId: string; onDone: () => void; count: number }) {
+  const [state, setState] = useState<"idle" | "running" | "done">("idle");
+  const [stats, setStats] = useState({ processed: 0, resolved: 0, enriched: 0, total: 0 });
+  const [currentName, setCurrentName] = useState("");
+
+  async function run() {
+    setState("running");
+    setStats({ processed: 0, resolved: 0, enriched: 0, total: count });
+    setCurrentName("");
+    try {
+      const res = await fetch(`/api/cases/${caseId}/resolve-domains`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ limit: 500 }),
+      });
+      if (!res.body) return;
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n\n"); buffer = lines.pop() ?? "";
+        for (const line of lines) {
+          const d = line.replace(/^data: /, "").trim();
+          if (!d) continue;
+          try {
+            const ev = JSON.parse(d);
+            if (ev.type === "start") setStats(s => ({ ...s, total: ev.total }));
+            if (ev.type === "scraping") setCurrentName(ev.name?.slice(0, 25) ?? "");
+            if (ev.type === "batch_done") setStats(s => ({
+              ...s,
+              processed: ev.processed,
+              resolved: ev.resolved,
+              enriched: ev.enriched ?? s.enriched,
+            }));
+            if (ev.type === "done") {
+              onDone();
+              setState("done");
+              setStats(s => ({ ...s, resolved: ev.resolved, enriched: ev.enriched ?? s.enriched }));
+            }
+          } catch { /* skip */ }
+        }
+      }
+    } catch { setState("idle"); }
+  }
+
+  if (state === "running") return (
+    <div style={{display:"flex",alignItems:"center",gap:5,padding:"4px 9px",border:"1px solid #a5f3fc",borderRadius:5,background:"#ecfeff",fontSize:11,color:"#0e7490"}}>
+      <Loader2 style={{width:10,height:10}} className="animate-spin"/>
+      <span>{stats.processed}/{stats.total}</span>
+      {stats.resolved > 0 && <span style={{color:"#0f766e",fontWeight:600}}>·  {stats.resolved} Domains</span>}
+      {stats.enriched > 0 && <span style={{color:"#7c3aed",fontWeight:600}}>· {stats.enriched} Profile</span>}
+      {currentName && <span style={{color:"#6b7280",maxWidth:100,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>· {currentName}</span>}
+    </div>
+  );
+
+  if (state === "done") return (
+    <button onClick={() => setState("idle")}
+      style={{display:"flex",alignItems:"center",gap:5,padding:"4px 9px",border:"1px solid #a7f3d0",borderRadius:5,background:"#ecfdf5",cursor:"pointer",fontSize:12,color:"#065f46",fontWeight:500}}>
+      ✓ {stats.resolved} Domains{stats.enriched > 0 ? ` · ${stats.enriched} Profile` : ""}
+    </button>
+  );
+
+  return (
+    <button onClick={run}
+      title={`${count} Firmen ohne Website:\n1. Web-Suche nach eigener Domain\n2. Katalog-Profilseite scrapen (Telefon, Adresse, Email)`}
+      style={{display:"flex",alignItems:"center",gap:5,padding:"4px 9px",border:"1px solid #a5f3fc",borderRadius:5,background:"#ecfeff",cursor:"pointer",fontSize:12,color:"#0e7490",fontWeight:500}}>
+      🔗 Kontakte vervollständigen ({count})
+    </button>
+  );
+}
+
 function CatalogScrapeButton({ url, caseId, onScraped }: { url: string; caseId: string; onScraped: () => void }) {  const [scraping, setScraping] = useState(false);
   const [result, setResult] = useState<{added: number; pages: number} | null>(null);
   return (
@@ -622,6 +701,214 @@ function InlineCaseName({ name, onSave }: { name: string; onSave: (name: string)
   );
 }
 
+// ── Agent Runs Tab ────────────────────────────────────────────────────────────
+
+interface AgentRunItem {
+  id: string;
+  goal: string;
+  status: string;
+  targetCount: number;
+  uniqueCount: number;
+  startedAt: string;
+}
+
+const AGENT_RUN_TERMINAL = new Set(["completed", "budget_exhausted", "cancelled", "failed"]);
+
+function agentRunStatusLabel(s: string) {
+  switch (s) {
+    case "running": return { label: "Läuft", color: "#1d4ed8", bg: "#eff6ff" };
+    case "planning": return { label: "Plant…", color: "#7c3aed", bg: "#f5f3ff" };
+    case "completed": return { label: "Abgeschlossen", color: "#166534", bg: "#f0fdf4" };
+    case "budget_exhausted": return { label: "Limit erreicht", color: "#92400e", bg: "#fffbeb" };
+    case "cancelled": return { label: "Abgebrochen", color: "#6b7280", bg: "#f9fafb" };
+    case "failed": return { label: "Fehler", color: "#991b1b", bg: "#fef2f2" };
+    default: return { label: s, color: "#6b7280", bg: "#f9fafb" };
+  }
+}
+
+function AgentRunRow({ run, isActive, activeRunUniqueCount, onOpenModal, onNewSearch, caseId }: {
+  run: AgentRunItem;
+  isActive: boolean;
+  activeRunUniqueCount: number;
+  onOpenModal: () => void;
+  onNewSearch: () => void;
+  caseId: string;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const [runLog, setRunLog] = useState<string[]>([]);
+  const [logLoading, setLogLoading] = useState(false);
+
+  const { label, color, bg } = agentRunStatusLabel(run.status);
+  const isTerminal = AGENT_RUN_TERMINAL.has(run.status);
+  const displayCount = isActive ? activeRunUniqueCount : run.uniqueCount;
+  const pct = run.targetCount > 0 ? Math.min(100, Math.round((displayCount / run.targetCount) * 100)) : 0;
+
+  const fetchLog = useCallback(async () => {
+    const data = await fetch(`/api/cases/${caseId}/agent/${run.id}`).then(r => r.ok ? r.json() : null);
+    setRunLog(data?.log ?? []);
+  }, [caseId, run.id]);
+
+  const toggleLog = async () => {
+    if (!expanded && runLog.length === 0) {
+      setLogLoading(true);
+      await fetchLog();
+      setLogLoading(false);
+    }
+    setExpanded(e => !e);
+  };
+
+  // Re-fetch log while run is active and expanded
+  useEffect(() => {
+    if (!isActive || !expanded) return;
+    fetchLog();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isActive, activeRunUniqueCount]);
+
+  return (
+    <div style={{ background: "#fff", borderRadius: 10, border: `1px solid ${isActive ? "#bfdbfe" : "#e2e8f0"}`, overflow: "hidden" }}>
+      {/* Header row */}
+      <div style={{ padding: "12px 16px", display: "flex", alignItems: "flex-start", gap: 12 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3 }}>
+            <div style={{ fontWeight: 700, fontSize: 14, color: "#1e293b", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {run.goal || "–"}
+            </div>
+            <span style={{ fontSize: 11, fontWeight: 600, padding: "1px 7px", borderRadius: 99, background: bg, color, whiteSpace: "nowrap", flexShrink: 0 }}>
+              {isActive && !isTerminal && <span style={{ display: "inline-block", marginRight: 3 }}>⏳</span>}
+              {label}
+            </span>
+          </div>
+          <div style={{ fontSize: 11, color: "#64748b", display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <span>🕐 {new Date(run.startedAt).toLocaleString("de-DE")}</span>
+            <span>🎯 Ziel: {run.targetCount.toLocaleString("de-DE")}</span>
+            <span style={{ fontWeight: 600, color: displayCount > 0 ? "#166534" : "#6b7280" }}>
+              ✅ {displayCount.toLocaleString("de-DE")} Leads
+            </span>
+          </div>
+          <div style={{ marginTop: 8, height: 4, background: "#e2e8f0", borderRadius: 99, overflow: "hidden" }}>
+            <div style={{ height: "100%", width: `${pct}%`, background: isTerminal ? "#22c55e" : "#3b82f6", borderRadius: 99, transition: "width 0.5s" }} />
+          </div>
+          <div style={{ fontSize: 10, color: "#9ca3af", marginTop: 3 }}>{pct}%</div>
+        </div>
+
+        <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+          <button onClick={toggleLog}
+            style={{ fontSize: 11, padding: "4px 10px", border: "1px solid #e2e8f0", borderRadius: 6, background: expanded ? "#f1f5f9" : "#fff", cursor: "pointer", color: "#374151" }}>
+            {expanded ? "▲ Log" : "▼ Log"}
+          </button>
+          {isActive && !isTerminal ? (
+            <button onClick={onOpenModal}
+              style={{ fontSize: 11, padding: "4px 10px", border: "1px solid #bfdbfe", borderRadius: 6, background: "#eff6ff", cursor: "pointer", color: "#1d4ed8", fontWeight: 600 }}>
+              Öffnen
+            </button>
+          ) : null}
+        </div>
+      </div>
+
+      {/* Expandable log */}
+      {expanded && (
+        <div style={{ borderTop: "1px solid #f1f5f9", background: "#0f172a", padding: "10px 14px", maxHeight: 220, overflowY: "auto", fontFamily: "monospace", fontSize: 11 }}>
+          {logLoading ? (
+            <span style={{ color: "#475569" }}>Lade…</span>
+          ) : runLog.length === 0 ? (
+            <span style={{ color: "#475569" }}>Keine Log-Einträge.</span>
+          ) : runLog.map((line, i) => (
+            <div key={i} style={{ lineHeight: 1.6, color: line.startsWith("✓") ? "#86efac" : line.startsWith("⚠") ? "#fbbf24" : "#94a3b8" }}>
+              {line}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AgentRunsTab({ caseId, onOpenModal, onNewSearch, activeRunId, activeRunStatus, activeRunUniqueCount, activeRunning }: {
+  caseId: string;
+  onOpenModal: () => void;
+  onNewSearch: () => void;
+  activeRunId: string | null;
+  activeRunStatus: string | null;
+  activeRunUniqueCount: number;
+  activeRunning: boolean;
+}) {
+  const [runs, setRuns] = useState<AgentRunItem[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    const data = await fetch(`/api/cases/${caseId}/agent`).then(r => r.ok ? r.json() : []);
+    const runs: AgentRunItem[] = Array.isArray(data) ? data : [];
+
+    // Auto-cancel stale "running" runs: no active hook + older than 5 min
+    const now = Date.now();
+    for (const r of runs) {
+      if (r.status === "running" && r.id !== activeRunId) {
+        const age = now - new Date(r.startedAt).getTime();
+        if (age > 5 * 60 * 1000) {
+          await fetch(`/api/cases/${caseId}/agent/${r.id}`, { method: "PUT" }).catch(() => {});
+          r.status = "cancelled";
+        }
+      }
+    }
+
+    setRuns(runs);
+    setLoading(false);
+  }, [caseId, activeRunId]);
+
+  useEffect(() => { load(); }, [load]);
+
+  // Refresh while a run is active
+  useEffect(() => {
+    if (!activeRunning) { load(); return; }
+    const t = setInterval(load, 3000);
+    return () => clearInterval(t);
+  }, [activeRunning, load]);
+
+  if (loading) return (
+    <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: "#9ca3af", fontSize: 13 }}>
+      Lade…
+    </div>
+  );
+
+  if (runs.length === 0) return (
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12 }}>
+      <div style={{ fontSize: 48 }}>🎯</div>
+      <div style={{ fontSize: 15, fontWeight: 600, color: "#1e293b" }}>Noch keine Ziel-Suchen</div>
+      <div style={{ fontSize: 13, color: "#64748b" }}>Starte eine Ziel-Suche um automatisch Leads zu sammeln.</div>
+      <button onClick={onOpenModal}
+        style={{ padding: "8px 20px", border: "1px solid #fda4af", borderRadius: 7, background: "#fff1f2", cursor: "pointer", color: "#be123c", fontWeight: 600, fontSize: 13 }}>
+        🎯 Neue Ziel-Suche
+      </button>
+    </div>
+  );
+
+  return (
+    <div style={{ flex: 1, overflowY: "auto", background: "#f8fafc", padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+          {runs.length} Ziel-Suche{runs.length !== 1 ? "n" : ""}
+        </div>
+        <button onClick={onNewSearch}
+          style={{ fontSize: 11, padding: "4px 12px", border: "1px solid #fda4af", borderRadius: 6, background: "#fff1f2", cursor: "pointer", color: "#be123c", fontWeight: 600 }}>
+          + Neue Suche
+        </button>
+      </div>
+
+      {runs.map(run => (
+        <AgentRunRow
+          key={run.id}
+          run={run}
+          caseId={caseId}
+          isActive={run.id === activeRunId}
+          activeRunUniqueCount={activeRunUniqueCount}
+          onOpenModal={onOpenModal}
+          onNewSearch={onNewSearch}
+        />
+      ))}
+    </div>
+  );
+}
+
 export default function CasePage({ params }: { params: Promise<{ id: string }> }) {
   const { id: caseId } = use(params);
   const router = useRouter();
@@ -636,6 +923,7 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
     rangeMax, setRangeMax,
     totals,
     refresh,
+    resetColOrder,
   } = useCaseData(caseId);
 
   // ── UI state ──────────────────────────────────────────────────────────────
@@ -652,13 +940,21 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
   const [pageSize] = useState(50);
   const [showLogs, setShowLogs] = useState(false);
   const [logs, setLogs] = useState<{ id: number; message: string; createdAt: string }[]>([]);
-  const [activeTab, setActiveTab] = useState<"Tabelle" | "Quellen" | "Log" | "Export">("Tabelle");
+  const [activeTab, setActiveTab] = useState<"Firmen" | "Kontakte" | "Suchen" | "Quellen" | "Log" | "Export">("Firmen");
+  const [contactRowsData, setContactRowsData] = useState<Array<Record<string,string|null>>>([]);
+  const [contactRowsLoading, setContactRowsLoading] = useState(false);
+  const [contactRowsLoaded, setContactRowsLoaded] = useState(false);
+  const [contactCleanupRunning, setContactCleanupRunning] = useState(false);
+  const [contactCleanupResult, setContactCleanupResult] = useState<{inserted:number;updated:number;rowsCleaned:number}|null>(null);
   const [showUpload, setShowUpload] = useState(false);
   const [showPromptCols, setShowPromptCols] = useState(false);
   const [rangeVon, setRangeVon] = useState(1);
   const [colWidths, setColWidths] = useState<Record<string, number>>({});
   const [dragCol, setDragCol] = useState<string | null>(null);
   const [dragOverCol, setDragOverCol] = useState<string | null>(null);
+  const [manuallyHiddenCols, setManuallyHiddenCols] = useState<Set<string>>(new Set());
+  const [showColVisibility, setShowColVisibility] = useState(false);
+  const [showSystemCols, setShowSystemCols] = useState(false);
   const [editingPromptCol, setEditingPromptCol] = useState<AiColumn | null>(null);
   const [editingPromptCell, setEditingPromptCell] = useState<{col: AiColumn; row: RowData} | null>(null);
   const [runDetailCell, setRunDetailCell] = useState<{col: AiColumn; row: RowData} | null>(null);
@@ -672,6 +968,15 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
   const agentStepLoopRef = useRef(false);
   const agentImportedRef = useRef(false);
   const AGENT_TERMINAL = new Set(["completed", "budget_exhausted", "cancelled", "failed"]);
+
+  // ── Key status check for agent goal search ──
+  const [agentKeyStatus, setAgentKeyStatus] = useState<{ anySearchConfigured?: boolean } | null>(null);
+  useEffect(() => {
+    fetch(`/api/cases/${caseId}/agent/check-keys`)
+      .then(r => r.ok ? r.json() : null)
+      .then(data => { if (data) setAgentKeyStatus(data); })
+      .catch(() => {});
+  }, [caseId]);
 
   // Auto-resume: on mount, check DB for an active run and resume the step loop
   useEffect(() => {
@@ -741,8 +1046,19 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
     setLogs(data);
   }
   useEffect(() => {
-    if (showLogs || activeTab === "Log" || activeTab === "Quellen") fetchLogs();
+    if (showLogs || activeTab === "Log" || activeTab === "Quellen" || activeTab === "Suchen") fetchLogs();
   }, [showLogs, activeTab]);
+
+  // ── Contact rows fetch ────────────────────────────────────────────────────
+  useEffect(() => {
+    if (activeTab !== "Kontakte") return;
+    setContactRowsLoading(true);
+    fetch(`/api/contact-rows?caseId=${caseId}`)
+      .then(r => r.json())
+      .then(d => { setContactRowsData((d.contacts ?? []).map((c: {data: Record<string,string|null>}) => c.data)); setContactRowsLoaded(true); })
+      .catch(() => {})
+      .finally(() => setContactRowsLoading(false));
+  }, [activeTab, caseId]);
 
   // ── Cell inline editing ───────────────────────────────────────────────────
   function startEdit(rowId: string, key: string, current: string) {
@@ -874,11 +1190,13 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
     return updated;
   };
 
-  const tabs = ["Tabelle","Quellen","Log","Export"] as const;
+  const tabs = ["Firmen","Kontakte","Suchen","Quellen","Log","Export"] as const;
 
   function tabIcon(t: string): string {
     switch (t) {
-      case "Tabelle": return "📋 ";
+      case "Firmen": return "📋 ";
+      case "Kontakte": return "👤 ";
+      case "Suchen": return "🎯 ";
       case "Quellen": return "🔍 ";
       case "Log": return "📜 ";
       case "Export": return "📤 ";
@@ -900,6 +1218,24 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
     refresh,
     updateCase,
   } : null;
+
+  // ── Hidden-column filter: fields written by batch_contact should not appear as own columns ──
+  const BATCH_CONTACTS_FLAT_KEYS = new Set(["first_name", "last_name", "position", "contact_email", "contact_phone", "linkedin", "email_extrapolated", "email_fallback"]);
+  const hasBatchContactsCol = caseData?.aiColumns.some(c => c.tool === "batch_contact") ?? false;
+  const aiOutputKeySet = new Set(caseData?.aiColumns.map(c => c.outputKey) ?? []);
+  const isHiddenCol = (key: string): boolean => {
+    // Never hide AI output columns — even if their outputKey starts with "_"
+    if (aiOutputKeySet.has(key)) return false;
+    if (key.startsWith("_")) return true;
+    if (/^contact_\d+_/.test(key)) return true;
+    if (/^(is_catalog|data_quality|email_fallback|email_extrapolated|company_email|profile_source|profile_url|search_query|search_source|source_domain|source_snippet|source_title|source_url)$/.test(key)) return true;
+    if (hasBatchContactsCol && BATCH_CONTACTS_FLAT_KEYS.has(key)) return true;
+    return false;
+  };
+  const visibleColOrder = (() => {
+    const seen = new Set<string>();
+    return colOrder.filter(k => !isHiddenCol(k) && !manuallyHiddenCols.has(k) && !seen.has(k) && seen.add(k));
+  })();
 
   return (
     <ErrorBoundary>
@@ -977,8 +1313,8 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
                 {tabIcon(t)}{t}
               </button>
             ))}
-            {/* View mode toggle — only visible in Tabelle tab when columnGroups exist */}
-            {activeTab === "Tabelle" && hasColumnGroups && (
+            {/* View mode toggle — only visible in Firmen tab when columnGroups exist */}
+            {activeTab === "Firmen" && hasColumnGroups && (
               <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:6}}>
                 <span style={{fontSize:11,color:"#9ca3af"}}>Ansicht:</span>
                 <button
@@ -1001,7 +1337,7 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
         </div>
 
         {/* ══ TAB: TABELLE — shared toolbar + conditional content ══ */}
-        {activeTab === "Tabelle" && (<>
+        {activeTab === "Firmen" && (<>
 
           {/* ── Compact toolbar — always visible regardless of view mode ── */}
           <div style={{background:"#fff",borderBottom:"1px solid #e5e7eb",flexShrink:0}}>
@@ -1023,7 +1359,7 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
               <button onClick={() => setShowAgentGoal(true)}
                 title="Ziel-basierte Suche: Definiere Anzahl & Ziel, KI plant und führt automatisch mehrere Runden aus"
                 style={{display:"flex",alignItems:"center",gap:5,padding:"4px 9px",border:"1px solid #fda4af",borderRadius:5,background:"#fff1f2",cursor:"pointer",fontSize:12,color:"#be123c",fontWeight:500}}>
-                🎯 Ziel-Suche
+                🎯 Ziel-Suche {agentKeyStatus && !agentKeyStatus.anySearchConfigured && <span title="Keine Such-API-Keys konfiguriert — in den Einstellungen hinterlegen" style={{fontSize:11,marginLeft:2}}>⚠️</span>}
               </button>
               {/* Agent running badge — visible when modal is closed */}
               {agentHook.running && !showAgentGoal && agentHook.run && !AGENT_TERMINAL.has(agentHook.run.status) && (
@@ -1041,6 +1377,10 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
               {/* Catalog deep-crawl — shown when catalog rows exist */}
               {catalogRows.length > 0 && (
                 <CatalogDeepCrawlButton caseId={caseId} onDone={refresh} catalogCount={catalogRows.length} />
+              )}
+              {/* Domain resolution — shown when no-domain rows exist */}
+              {baseDataRows.some(r => !(r.data["domain"] ?? "").trim() && !String(r.data["search_source"] ?? "").startsWith("maps")) && (
+                <ResolveDomainButton caseId={caseId} onDone={refresh} count={baseDataRows.filter(r => !(r.data["domain"] ?? "").trim() && !String(r.data["search_source"] ?? "").startsWith("maps")).length} />
               )}
 
               <span style={{width:1,height:16,background:"#e5e7eb",flexShrink:0}}/>
@@ -1156,10 +1496,111 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
                 style={{padding:"4px 8px",border:"1px solid #fecaca",borderRadius:5,background:"#fff",cursor:"pointer",fontSize:11,color:"#dc2626"}}>
                 ⊘ Dedupe
               </button>
-              <a href={`/api/export?caseId=${caseId}`}
-                style={{display:"flex",alignItems:"center",gap:4,padding:"4px 8px",border:"1px solid #d1d5db",borderRadius:5,background:"#fff",fontSize:11,color:"#374151",textDecoration:"none"}}>
-                <Download style={{width:11,height:11}}/> CSV
-              </a>
+              {/* Column visibility toggle */}
+              <div style={{position:"relative"}}>
+                <button
+                  onClick={() => setShowColVisibility(v => !v)}
+                  title="Spalten ein-/ausblenden"
+                  style={{padding:"4px 8px",border:`1px solid ${showColVisibility?"#7c3aed":"#d1d5db"}`,borderRadius:5,background:showColVisibility?"#f5f3ff":"#fff",cursor:"pointer",fontSize:11,color:showColVisibility?"#7c3aed":"#374151",display:"flex",alignItems:"center",gap:4}}>
+                  <Sliders style={{width:11,height:11}}/> Spalten {manuallyHiddenCols.size > 0 && <span style={{background:"#7c3aed",color:"#fff",borderRadius:8,padding:"0 5px",fontSize:10,fontWeight:700}}>{manuallyHiddenCols.size}</span>}
+                </button>
+                {showColVisibility && (() => {
+                  const allCols = colOrder.filter(k => !isHiddenCol(k));
+                  const srcCols = allCols.filter(k => !caseData.aiColumns.some(c => c.outputKey === k));
+                  const aiCols = allCols.filter(k => caseData.aiColumns.some(c => c.outputKey === k));
+                  const toggle = (k: string) => setManuallyHiddenCols(prev => { const n = new Set(prev); n.has(k) ? n.delete(k) : n.add(k); return n; });
+
+                  // Collect all system-hidden keys from row data
+                  const allDataKeys = new Set<string>();
+                  rows.forEach(r => Object.keys(r.data).forEach(k => allDataKeys.add(k)));
+                  const systemHidden = [...allDataKeys].filter(k => isHiddenCol(k) && !aiOutputKeySet.has(k) && !manuallyHiddenCols.has(k))
+                    .sort();
+                  const manuallyShownSystem = [...allDataKeys].filter(k => isHiddenCol(k) && !aiOutputKeySet.has(k) && manuallyHiddenCols.has(k) === false && visibleColOrder.includes(k));
+
+                  const SYSTEM_LABELS: Record<string, string> = {
+                    is_catalog: "Katalog-Flag (intern)",
+                    data_quality: "Datenqualität (intern)",
+                    email_fallback: "E-Mail Fallback",
+                    email_extrapolated: "E-Mail extrapoliert",
+                    company_email: "Firmen-E-Mail",
+                    first_name: "Vorname (flach)",
+                    last_name: "Nachname (flach)",
+                    position: "Position (flach)",
+                    contact_email: "E-Mail Kontakt (flach)",
+                    contact_phone: "Telefon Kontakt (flach)",
+                    linkedin: "LinkedIn (flach)",
+                    profile_url: "Profil-URL (Social)",
+                    profile_source: "Profil-Quelle (Social)",
+                  };
+
+                  return (
+                    <div style={{position:"absolute",top:"calc(100% + 4px)",right:0,background:"#fff",border:"1px solid #e5e7eb",borderRadius:8,boxShadow:"0 8px 24px rgba(0,0,0,0.12)",zIndex:500,minWidth:260,maxHeight:480,overflowY:"auto",padding:8}}
+                      onMouseLeave={() => { setShowColVisibility(false); setShowSystemCols(false); }}>
+                      {/* Header */}
+                      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"4px 4px 8px",borderBottom:"1px solid #f3f4f6",marginBottom:6}}>
+                        <span style={{fontSize:11,fontWeight:700,color:"#374151",textTransform:"uppercase",letterSpacing:"0.05em"}}>Spalten</span>
+                        <div style={{display:"flex",gap:6}}>
+                          {manuallyHiddenCols.size > 0 && <button onClick={()=>setManuallyHiddenCols(new Set())} style={{border:"none",background:"none",fontSize:11,color:"#7c3aed",cursor:"pointer",fontWeight:600}}>Alle einblenden</button>}
+                          <button onClick={()=>{resetColOrder();setShowColVisibility(false);}} title="Spaltenreihenfolge zurücksetzen" style={{border:"none",background:"none",fontSize:11,color:"#6b7280",cursor:"pointer"}}>↺ Reset</button>
+                        </div>
+                      </div>
+
+                      {/* Source cols */}
+                      {srcCols.length > 0 && <div style={{fontSize:10,fontWeight:700,color:"#9ca3af",textTransform:"uppercase",padding:"2px 4px",marginBottom:2}}>Quelldaten</div>}
+                      {srcCols.map(k => (
+                        <label key={k} style={{display:"flex",alignItems:"center",gap:8,padding:"4px 6px",borderRadius:4,cursor:"pointer",fontSize:12,color:"#1f2937"}} onMouseEnter={e=>(e.currentTarget.style.background="#f9fafb")} onMouseLeave={e=>(e.currentTarget.style.background="")}>
+                          <input type="checkbox" checked={!manuallyHiddenCols.has(k)} onChange={()=>toggle(k)} style={{accentColor:"#7c3aed"}}/>
+                          <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{COL_LABELS[k] ?? k}</span>
+                        </label>
+                      ))}
+
+                      {/* AI cols */}
+                      {aiCols.length > 0 && <div style={{fontSize:10,fontWeight:700,color:"#9ca3af",textTransform:"uppercase",padding:"6px 4px 2px",marginBottom:2,borderTop:srcCols.length?"1px solid #f3f4f6":undefined,marginTop:srcCols.length?6:0}}>KI-Spalten</div>}
+                      {aiCols.map(k => {
+                        const col = caseData.aiColumns.find(c => c.outputKey === k);
+                        return (
+                          <label key={k} style={{display:"flex",alignItems:"center",gap:8,padding:"4px 6px",borderRadius:4,cursor:"pointer",fontSize:12,color:"#1f2937"}} onMouseEnter={e=>(e.currentTarget.style.background="#f9fafb")} onMouseLeave={e=>(e.currentTarget.style.background="")}>
+                            <input type="checkbox" checked={!manuallyHiddenCols.has(k)} onChange={()=>toggle(k)} style={{accentColor:"#7c3aed"}}/>
+                            <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{col?.name ?? k}</span>
+                            <span style={{marginLeft:"auto",fontSize:10,color:"#a855f7",flexShrink:0}}>KI</span>
+                          </label>
+                        );
+                      })}
+
+                      {/* System-hidden fields — collapsible */}
+                      {systemHidden.length > 0 && (
+                        <div style={{borderTop:"1px solid #f3f4f6",marginTop:8,paddingTop:6}}>
+                          <button
+                            onClick={() => setShowSystemCols(v => !v)}
+                            style={{display:"flex",alignItems:"center",gap:4,width:"100%",border:"none",background:"none",cursor:"pointer",fontSize:10,fontWeight:700,color:"#9ca3af",textTransform:"uppercase",padding:"2px 4px",letterSpacing:"0.05em"}}>
+                            <span style={{fontSize:9}}>{showSystemCols ? "▾" : "▸"}</span>
+                            Systemfelder ({systemHidden.length} versteckt)
+                          </button>
+                          {showSystemCols && (
+                            <div style={{marginTop:4}}>
+                              <div style={{fontSize:10,color:"#9ca3af",padding:"2px 6px 6px",lineHeight:1.4}}>
+                                Diese Felder sind systemisch ausgeblendet. Einblenden nur zur Fehlersuche empfohlen.
+                              </div>
+                              {systemHidden.map(k => (
+                                <label key={k} style={{display:"flex",alignItems:"center",gap:8,padding:"3px 6px",borderRadius:4,cursor:"pointer",fontSize:11,color:"#6b7280"}} onMouseEnter={e=>(e.currentTarget.style.background="#f9fafb")} onMouseLeave={e=>(e.currentTarget.style.background="")}>
+                                  <input type="checkbox" checked={false} onChange={() => {
+                                    // Add to colOrder to make visible, remove from hidden
+                                    setManuallyHiddenCols(prev => { const n = new Set(prev); n.delete(k); return n; });
+                                    setColOrder(prev => prev.includes(k) ? prev : [...prev, k]);
+                                  }} style={{accentColor:"#6b7280"}}/>
+                                  <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontFamily:/^_/.test(k)?"monospace":"inherit"}}>{SYSTEM_LABELS[k] ?? k}</span>
+                                  {/^contact_\d+_/.test(k) && <span style={{marginLeft:"auto",fontSize:9,color:"#d1d5db",flexShrink:0}}>flat</span>}
+                                  {k.startsWith("_") && <span style={{marginLeft:"auto",fontSize:9,color:"#d1d5db",flexShrink:0}}>intern</span>}
+                                </label>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+              </div>
             </div>
 
             {/* Global run error */}
@@ -1186,8 +1627,10 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
                     <div style={{display:"flex",alignItems:"center",gap:6,fontSize:12}}>
                       <Loader2 style={{width:11,height:11,color:"#2563eb"}} className="animate-spin"/>
                       <span style={{fontWeight:600,color:"#1e40af"}}>Spalte: {col.name}</span>
-                      {col.tool === "batch_enrich" && <span style={{fontSize:10,color:"#3b82f6",background:"#dbeafe",padding:"1px 5px",borderRadius:4}}>🚀 Batch-Enrich</span>}
-                      {col.tool === "batch_contacts" && <span style={{fontSize:10,color:"#7c3aed",background:"#ede9fe",padding:"1px 5px",borderRadius:4}}>👤 Kontakt-Suche</span>}
+                      {col.tool === "batch_company" && <span style={{fontSize:10,color:"#3b82f6",background:"#dbeafe",padding:"1px 5px",borderRadius:4}}>🚀 Batch-Enrich</span>}
+                      {col.tool === "batch_contact" && <span style={{fontSize:10,color:"#7c3aed",background:"#ede9fe",padding:"1px 5px",borderRadius:4}}>👤 Kontakt-Suche</span>}
+                      {col.tool === "places_summary" && <span style={{fontSize:10,color:"#0369a1",background:"#e0f2fe",padding:"1px 5px",borderRadius:4}}>📍 Maps-Analyse</span>}
+                      {col.tool === "places_summary" && <span style={{fontSize:10,color:"#0369a1",background:"#e0f2fe",padding:"1px 5px",borderRadius:4}}>📍 Maps-Analyse</span>}
                     </div>
                   ) : null;
                 })()}
@@ -1284,7 +1727,7 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
                   <th style={{padding:"8px 12px",borderRight:"1px solid #e5e7eb",textAlign:"left",fontWeight:600,fontSize:12,color:"#1f2937",whiteSpace:"nowrap",minWidth:90}}>
                     Status
                   </th>
-                  {(colOrder.length > 0 ? colOrder : [...sourceColumns,...caseData.aiColumns.map(c=>c.outputKey)]).map(key => {
+                  {(visibleColOrder.length > 0 ? visibleColOrder : [...sourceColumns,...caseData.aiColumns.map(c=>c.outputKey)].filter(k=>!isHiddenCol(k))).map(key => {
                     const aiCol = caseData.aiColumns.find(c=>c.outputKey===key);
                     const isSrc = sourceColumns.includes(key);
                     const isOrphan = !isSrc && !aiCol;
@@ -1451,7 +1894,7 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
                         })()}
                         {/* Demote: move row to catalog tab — now shown in domain cell */}
                       </td>
-                      {(colOrder.length > 0 ? colOrder : [...sourceColumns,...caseData.aiColumns.map(c=>c.outputKey)]).map(key => {
+                      {(visibleColOrder.length > 0 ? visibleColOrder : [...sourceColumns,...caseData.aiColumns.map(c=>c.outputKey)].filter(k=>!isHiddenCol(k))).map(key => {
                         const aiCol = caseData.aiColumns.find(c=>c.outputKey===key);
                         const isSrc = sourceColumns.includes(key);
                         if (aiCol) {
@@ -1482,11 +1925,11 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
                                 borderRight:"1px solid #f3f4f6",
                                 cursor: status==="idle" ? "pointer" : "default",
                                 background: status==="error"?"#fef2f2": status==="idle"?"":undefined,
-                                minWidth: aiCol.tool==="batch_contacts" ? 220 : 100,
-                                verticalAlign: aiCol.tool==="batch_contacts" ? "top" : "middle",
+                                minWidth: aiCol.tool==="batch_contact" ? 160 : 100,
+                                verticalAlign: "middle",
                               }}>
                               {isEd ? <EditInput rowId={row.id} k={aiCol.outputKey} /> : (
-                                <div style={{display:"flex",alignItems: aiCol.tool==="batch_contacts" ? "flex-start" : "center",gap:4,minHeight:22,position:"relative"}}>
+                                <div style={{display:"flex",alignItems: aiCol.tool==="batch_contact" ? "flex-start" : "center",gap:4,minHeight:22,position:"relative"}}>
 
                                   {/* ── RUNNING ── */}
                                   {status==="running" && <>
@@ -1497,11 +1940,11 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
 
                                   {/* ── IDLE — click to run ── */}
                                   {status==="idle" && (() => {
-                                    const isBatch = col.tool === "batch_enrich" || col.tool === "batch_contacts";
+                                    const isBatch = col.tool === "batch_company" || col.tool === "batch_contact";
                                     const hasInput = !!(row.data["domain"] || row.data["company_name"]);
-                                    const label = col.tool==="batch_enrich"
+                                    const label = col.tool==="batch_company"
                                       ? (row.data["domain"] ? "Anreichern" : "Domain fehlt")
-                                      : col.tool==="batch_contacts"
+                                      : col.tool==="batch_contact"
                                       ? (hasInput ? "Kontakte suchen" : "Name/Domain fehlt")
                                       : "Run";
                                     const noInput = isBatch && !hasInput;
@@ -1520,24 +1963,24 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
 
                                   {/* ── SKIPPED ── */}
                                   {status==="skipped" && (() => {
-                                    const isBatch = col.tool === "batch_enrich" || col.tool === "batch_contacts";
+                                    const isBatch = col.tool === "batch_company" || col.tool === "batch_contact";
                                     if (!val || val === "") {
                                       // batch tools: only show run button if truly no data yet
                                       if (isBatch) {
                                         const d = row.data as Record<string, string|null>;
-                                        const hasData = col.tool === "batch_enrich"
+                                        const hasData = col.tool === "batch_company"
                                           ? (col.batchOutputFields ?? ["company_name","domain","phone","company_email","city","industry"]).some(f => d[f] && d[f] !== "")
                                           : !!(d[`_contacts_json_${col.outputKey}`] || d[`${col.batchContactsPrefix ?? "contact_"}1_first_name`]);
                                         if (hasData) {
                                           // data exists in sibling fields — show summary instead
-                                          if (col.tool === "batch_enrich") {
+                                          if (col.tool === "batch_company") {
                                             const filled = (col.batchOutputFields ?? ["company_name","domain","phone","company_email","city","zip","industry","description"]).filter(f => d[f] && d[f] !== "");
                                             return <span style={{fontSize:10,color:"#7c3aed",background:"#ede9fe",padding:"1px 5px",borderRadius:4,fontWeight:600}}>{filled.length} Felder ✓</span>;
                                           }
                                           return <span style={{fontSize:11,color:"#9ca3af",flex:1}}>✓</span>;
                                         }
                                         const hasInput = !!(row.data["domain"] || row.data["company_name"]);
-                                        const label = col.tool==="batch_enrich" ? "Anreichern" : "Kontakte suchen";
+                                        const label = col.tool==="batch_company" ? "Anreichern" : "Kontakte suchen";
                                         return (
                                           <span style={{fontSize:10,flex:1,display:"flex",alignItems:"center",gap:3,color:"#7c3aed"}}>
                                             <span style={{background:"#ede9fe",padding:"1px 6px",borderRadius:4,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",opacity:hasInput?1:0.5}}>
@@ -1550,7 +1993,23 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
                                     }
                                     return (
                                       <span style={{fontSize:11,color:"#9ca3af",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={`Übersprungen (Bedingung) · Wert: ${val}`}>
-                                        {val.split("\n")[0].slice(0,40)}{val.includes("\n") ? " …" : ""}
+                                        {col.tool === "batch_contact" ? (() => {
+                                          // Show compact badge even in skipped state
+                                          const d = row.data as Record<string, string|null>;
+                                          const jsonKey = `_contacts_json_${col.outputKey}`;
+                                          let contacts: Array<{first_name:string|null;last_name:string|null;position:string|null;email:string|null}> = [];
+                                          if (d[jsonKey]) { try { contacts = JSON.parse(d[jsonKey]!); } catch { /* ignore */ } }
+                                          if (contacts.length === 0) return <>{val.split("\n")[0].slice(0,40)}{val.includes("\n") ? " …" : ""}</>;
+                                          const primary = contacts[0];
+                                          const name = [primary.first_name, primary.last_name].filter(Boolean).join(" ");
+                                          return (
+                                            <div style={{flex:1,display:"flex",alignItems:"center",gap:5,minWidth:0,overflow:"hidden"}}>
+                                              <span style={{flexShrink:0,fontSize:10,fontWeight:700,color:"#7c3aed",background:"#ede9fe",padding:"1px 6px",borderRadius:10,lineHeight:1.6}}>{contacts.length}</span>
+                                              <span style={{fontSize:11,fontWeight:600,color:"#1e293b",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{name}</span>
+                                              {contacts.length > 1 && <span style={{flexShrink:0,fontSize:10,color:"#9ca3af"}}>+{contacts.length-1}</span>}
+                                            </div>
+                                          );
+                                        })() : <>{val.split("\n")[0].slice(0,40)}{val.includes("\n") ? " …" : ""}</>}
                                       </span>
                                     );
                                   })()}
@@ -1564,19 +2023,17 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
 
                                   {/* ── DONE ── */}
                                   {status==="done" && <>
-                                    {/* batch_contacts: always try to render contact cards first */}
-                                    {aiCol.tool==="batch_contacts" && (() => {
+                                    {/* batch_contact: compact badge — click cell to see full details in modal */}
+                                    {aiCol.tool==="batch_contact" && (() => {
                                       const contactsJsonKey = `_contacts_json_${aiCol.outputKey}`;
                                       const contactsRaw = row.data[contactsJsonKey];
                                       const d = row.data as Record<string, string|null>;
                                       const prefix = aiCol.batchContactsPrefix ?? "contact_";
                                       type FC = {first_name:string|null;last_name:string|null;position:string|null;email:string|null;phone:string|null;linkedin:string|null};
                                       let contacts: FC[] = [];
-                                      // parse from JSON summary
                                       if (contactsRaw) {
                                         try { contacts = JSON.parse(contactsRaw); } catch { /* ignore */ }
                                       }
-                                      // fallback: reconstruct from flat fields contact_1_*, contact_2_*, ...
                                       if (contacts.length === 0) {
                                         for (let n = 1; n <= 5; n++) {
                                           const fn = d[`${prefix}${n}_first_name`];
@@ -1584,7 +2041,6 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
                                           if (!fn && !ln) break;
                                           contacts.push({ first_name: fn??null, last_name: ln??null, position: d[`${prefix}${n}_position`]??null, email: d[`${prefix}${n}_email`]??null, phone: d[`${prefix}${n}_phone`]??null, linkedin: d[`${prefix}${n}_linkedin`]??null });
                                         }
-                                        // also check legacy flat fields
                                         if (contacts.length === 0 && (d["first_name"] || d["last_name"])) {
                                           contacts.push({ first_name: d["first_name"]??null, last_name: d["last_name"]??null, position: d["position"]??null, email: d["contact_email"]??d["email"]??null, phone: d["contact_phone"]??d["phone"]??null, linkedin: d["linkedin"]??null });
                                         }
@@ -1593,39 +2049,52 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
                                       if (contacts.length === 0 && !companyEmail) {
                                         return <span style={{fontSize:11,color:"#9ca3af",fontStyle:"italic",flex:1}}>—</span>;
                                       }
+                                      const primary = contacts[0];
+                                      const primaryName = primary ? [primary.first_name, primary.last_name].filter(Boolean).join(" ") : "";
+                                      const primaryEmail = primary?.email || d[`${prefix}1_email_extrapolated`] || d["email_extrapolated"] || "";
+                                      const hasEmail = !!(primary?.email);
+                                      const hasExtrapolated = !hasEmail && !!primaryEmail;
                                       return (
-                                        <div style={{flex:1,display:"flex",flexDirection:"column",gap:3,minWidth:0}}>
-                                          {contacts.slice(0,3).map((c, i) => (
-                                            <div key={i} style={{fontSize:11,lineHeight:1.4,borderBottom: i < Math.min(contacts.length,3)-1 ? "1px solid #f3f4f6" : "none",paddingBottom: i < Math.min(contacts.length,3)-1 ? 2 : 0}}>
-                                              <span style={{fontWeight:600,color:"#1e293b"}}>{[c.first_name,c.last_name].filter(Boolean).join(" ")||"—"}</span>
-                                              {c.position && <span style={{color:"#9ca3af",marginLeft:4,fontSize:10}}>· {c.position}</span>}
-                                              {c.email
-                                                ? <div style={{fontSize:10,color:"#2563eb",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.email}</div>
-                                                : (d[`${prefix}${i+1}_email_extrapolated`] || (i===0 && d["email_extrapolated"]))
-                                                ? <div style={{fontSize:10,color:"#a855f7",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>⚡ {d[`${prefix}${i+1}_email_extrapolated`] || d["email_extrapolated"]}</div>
-                                                : null}
-                                              {c.phone && <div style={{fontSize:10,color:"#6b7280"}}>📞 {c.phone}</div>}
-                                            </div>
-                                          ))}
-                                          {contacts.length > 3 && <span style={{fontSize:10,color:"#9ca3af"}}>+{contacts.length-3} weitere</span>}
-                                          {companyEmail && <div style={{fontSize:10,color:"#6b7280",marginTop:contacts.length?3:0,paddingTop:contacts.length?3:0,borderTop:contacts.length?"1px solid #f3f4f6":undefined}}>🏢 <a href={`mailto:${companyEmail}`} style={{color:"#6b7280",textDecoration:"none"}} onClick={e=>e.stopPropagation()}>{companyEmail}</a></div>}
+                                        <div style={{flex:1,display:"flex",alignItems:"center",gap:5,minWidth:0,overflow:"hidden"}}>
+                                          {/* count badge */}
+                                          <span style={{flexShrink:0,fontSize:10,fontWeight:700,color:"#7c3aed",background:"#ede9fe",padding:"1px 6px",borderRadius:10,lineHeight:1.6}}>
+                                            {contacts.length}
+                                          </span>
+                                          <div style={{minWidth:0,flex:1,overflow:"hidden"}}>
+                                            {primaryName && (
+                                              <div style={{fontSize:11,fontWeight:600,color:"#1e293b",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                                                {primaryName}
+                                              </div>
+                                            )}
+                                            {primaryEmail && (
+                                              <div style={{fontSize:10,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",color: hasExtrapolated ? "#a855f7" : "#2563eb"}}>
+                                                {hasExtrapolated ? "⚡ " : ""}{primaryEmail}
+                                              </div>
+                                            )}
+                                            {!primaryName && companyEmail && (
+                                              <div style={{fontSize:10,color:"#6b7280",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>🏢 {companyEmail}</div>
+                                            )}
+                                          </div>
+                                          {contacts.length > 1 && (
+                                            <span style={{flexShrink:0,fontSize:10,color:"#9ca3af"}}>+{contacts.length-1}</span>
+                                          )}
                                         </div>
                                       );
                                     })()}
-                                    {aiCol.tool!=="batch_contacts" && notFound && (
+                                    {aiCol.tool!=="batch_contact" && notFound && (
                                       <span style={{fontSize:11,color:"#9ca3af",fontStyle:"italic",flex:1}}>—</span>
                                     )}
-                                    {aiCol.tool!=="batch_contacts" && isValid && (
+                                    {aiCol.tool!=="batch_contact" && isValid && (
                                       <span style={{fontSize:12,fontWeight:600,color:"#6d28d9",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={val}>{val.slice(2)}</span>
                                     )}
-                                    {aiCol.tool!=="batch_contacts" && isInvalid && (
+                                    {aiCol.tool!=="batch_contact" && isInvalid && (
                                       <span style={{fontSize:12,fontWeight:600,color:"#dc2626",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={val}>{val.slice(2)}</span>
                                     )}
-                                    {aiCol.tool!=="batch_contacts" && val && !isValid && !isInvalid && (() => {
-                                      const isBatchEnrich = aiCol.tool === "batch_enrich";
+                                    {aiCol.tool!=="batch_contact" && val && !isValid && !isInvalid && (() => {
+                                      const isBatchEnrich = aiCol.tool === "batch_company";
                                       const isBatchContacts = false; // handled above
 
-                                      // ── batch_enrich: show filled field count + key values ──
+                                      // ── batch_company: show filled field count + key values ──
                                       if (isBatchEnrich) {
                                         const d = row.data as Record<string, string | null>;
                                         const enrichedFields = (aiCol.batchOutputFields ?? ["company_name","domain","phone","company_email","city","industry","description"])
@@ -1642,6 +2111,31 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
                                             {d["industry"] && <div style={{fontSize:10,color:"#9ca3af",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",marginTop:1}}>{d["industry"]}</div>}
                                           </div>
                                         );
+                                      }
+
+                                      // ── JSON audit col (vilocal_audit etc.) ──
+                                      if (col.outputMode === "json" && val.trimStart().startsWith("{")) {
+                                        try {
+                                          const j = JSON.parse(val);
+                                          const score = j.score as number | undefined;
+                                          const priority = j.priority as string | undefined;
+                                          const isChain = j.is_chain as boolean | undefined;
+                                          const chainCount = j.chain_location_count as number | undefined;
+                                          const pitchHook = j.pitch_hook as string | undefined;
+                                          const missingCount = Array.isArray(j.missing) ? (j.missing as unknown[]).length : 0;
+                                          const prioColor = priority === "hoch" ? "#dc2626" : priority === "mittel" ? "#d97706" : "#16a34a";
+                                          return (
+                                            <div style={{flex:1,display:"flex",flexDirection:"column",gap:2,minWidth:0}} title={pitchHook}>
+                                              <div style={{display:"flex",gap:3,alignItems:"center",flexWrap:"wrap"}}>
+                                                {score != null && <span style={{fontSize:10,fontWeight:700,background:score>=7?"#dcfce7":score>=5?"#fef9c3":"#fee2e2",color:score>=7?"#166534":score>=5?"#854d0e":"#991b1b",padding:"1px 5px",borderRadius:4,flexShrink:0}}>⭐ {score}/10</span>}
+                                                {priority && <span style={{fontSize:10,fontWeight:600,color:prioColor,background:priority==="hoch"?"#fef2f2":priority==="mittel"?"#fffbeb":"#f0fdf4",padding:"1px 5px",borderRadius:4,flexShrink:0}}>{priority}</span>}
+                                                {isChain && <span style={{fontSize:10,background:"#eff6ff",color:"#1d4ed8",padding:"1px 5px",borderRadius:4,flexShrink:0}}>🔗 {chainCount ?? "?"}{j.chain_location_count_plus ? "+" : ""}</span>}
+                                                {missingCount > 0 && <span style={{fontSize:10,color:"#92400e",background:"#fffbeb",padding:"1px 5px",borderRadius:4,flexShrink:0}}>⚠ {missingCount}</span>}
+                                              </div>
+                                              {pitchHook && <span style={{fontSize:10,color:"#6b7280",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{pitchHook}</span>}
+                                            </div>
+                                          );
+                                        } catch { /* fall through to normal render */ }
                                       }
 
                                       // ── normal AI col ──
@@ -1667,10 +2161,37 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
                         const isValidated = !isSrc && !aiCol;
                         const isReasoning = key.startsWith("_reasoning_");
 
+                        // ── Maps rating compact cell ──────────────────────
+                        if (key === "maps_rating" && val) {
+                          const rating = parseFloat(val);
+                          const reviews = row.data["maps_reviews"] ?? "";
+                          return (
+                            <td key={key} style={{padding:"5px 10px",borderRight:"1px solid #f3f4f6",whiteSpace:"nowrap"}}>
+                              <span style={{display:"inline-flex",alignItems:"center",gap:4,fontSize:12,fontWeight:600,color:"#b45309"}}>
+                                <span style={{color:"#f59e0b"}}>★</span> {rating.toFixed(1)}
+                                {reviews && <span style={{fontWeight:400,color:"#9ca3af",fontSize:11}}>({reviews})</span>}
+                              </span>
+                            </td>
+                          );
+                        }
+                        // ── Maps reviews — hidden if rating is shown ──────
+                        if (key === "maps_reviews") {
+                          // reviews are shown inline in maps_rating cell — skip separate cell only if rating exists
+                          if (row.data["maps_rating"]) return <td key={key} style={{padding:"5px 10px",borderRight:"1px solid #f3f4f6",maxWidth:80}}><span style={{fontSize:11,color:"#9ca3af"}}>{val}</span></td>;
+                        }
+                        // ── Category badge ────────────────────────────────
+                        if (key === "category" && val) {
+                          return (
+                            <td key={key} style={{padding:"5px 10px",borderRight:"1px solid #f3f4f6"}}>
+                              <span style={{fontSize:11,color:"#0369a1",background:"#e0f2fe",padding:"1px 7px",borderRadius:99,whiteSpace:"nowrap"}}>{val}</span>
+                            </td>
+                          );
+                        }
+
                         // ── Contacts aggregation cell ─────────────────────
-                        // Matches both the "contacts" source col and batch_contacts AI cols (e.g. _batch_kontakte)
+                        // Matches both the "contacts" source col and batch_contact AI cols (e.g. _batch_kontakte)
                         const isContactsCell = (key === "contacts" && isSrc) ||
-                          (aiCol?.tool === "batch_contacts");
+                          (aiCol?.tool === "batch_contact");
                         if (isContactsCell) {
                           const d = row.data as Record<string, string|null>;
                           type ContactEntry = {name:string; position:string; email:string; phone:string; linkedin:string; extrapolated?:string};
@@ -1740,6 +2261,32 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
                             </td>
                           );
                         }
+                        // ── JSON audit columns (vilocal_audit etc.) ──────
+                        if (caseData.aiColumns.find(c=>c.outputKey===key)?.outputMode === "json" && val?.trimStart().startsWith("{")) {
+                          try {
+                            const j = JSON.parse(val);
+                            const score = j.score as number | undefined;
+                            const priority = j.priority as string | undefined;
+                            const isChain = j.is_chain as boolean | undefined;
+                            const chainCount = j.chain_location_count as number | undefined;
+                            const pitchHook = j.pitch_hook as string | undefined;
+                            const missingCount = Array.isArray(j.missing) ? j.missing.length : 0;
+                            const prioColor = priority === "hoch" ? "#dc2626" : priority === "mittel" ? "#d97706" : "#16a34a";
+                            return (
+                              <td key={key} style={{padding:"5px 10px",borderRight:"1px solid #f3f4f6",minWidth:180,maxWidth:260}} onDoubleClick={()=>startEdit(row.id,key,val)}>
+                                <div style={{display:"flex",flexDirection:"column",gap:2}} title={pitchHook}>
+                                  <div style={{display:"flex",gap:3,alignItems:"center",flexWrap:"wrap"}}>
+                                    {score != null && <span style={{fontSize:10,fontWeight:700,background:score>=7?"#dcfce7":score>=5?"#fef9c3":"#fee2e2",color:score>=7?"#166534":score>=5?"#854d0e":"#991b1b",padding:"1px 5px",borderRadius:4}}>⭐ {score}/10</span>}
+                                    {priority && <span style={{fontSize:10,fontWeight:600,color:prioColor,background:priority==="hoch"?"#fef2f2":priority==="mittel"?"#fffbeb":"#f0fdf4",padding:"1px 5px",borderRadius:4}}>{priority}</span>}
+                                    {isChain && <span style={{fontSize:10,background:"#eff6ff",color:"#1d4ed8",padding:"1px 5px",borderRadius:4}}>🔗 {chainCount ?? "?"}</span>}
+                                    {missingCount > 0 && <span style={{fontSize:10,color:"#92400e",background:"#fffbeb",padding:"1px 5px",borderRadius:4}}>⚠ {missingCount}</span>}
+                                  </div>
+                                  {pitchHook && <span style={{fontSize:10,color:"#6b7280",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",display:"block",maxWidth:240}}>{pitchHook}</span>}
+                                </div>
+                              </td>
+                            );
+                          } catch { /* fall through */ }
+                        }
                         return (
                           <td key={key} style={{padding:"6px 12px",borderRight:"1px solid #f3f4f6",maxWidth:200,
                             background: isValidated ? (val.startsWith("✗")?"#fef2f2":val.startsWith("✓")?"#f5f3ff":undefined) : undefined,
@@ -1758,9 +2305,45 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
                                   : "";
                                 const displayVal = val || fallbackEmail;
                                 // Domain/URL columns → clickable link
-                                const isDomainCol = key === "domain" || key === "source_domain" || key === "source_url" || key === "website";
-                                const isUrl = displayVal && (displayVal.startsWith("http") || (isDomainCol && displayVal.includes(".")));
-                                const href = isUrl ? (displayVal.startsWith("http") ? displayVal : `https://${displayVal}`) : null;
+                                const isDomainCol = key === "domain" || key === "source_domain" || key === "source_url" || key === "website" || key === "maps_url" || key === "linkedin";
+                                // Fix place_id URLs for maps_url — convert to proper search URL
+                                const rawHrefVal = displayVal && (displayVal.startsWith("http") || (isDomainCol && displayVal.includes("."))) ? displayVal : null;
+                                let href = rawHrefVal ? (rawHrefVal.startsWith("http") ? rawHrefVal : `https://${rawHrefVal}`) : null;
+                                if (href && key === "maps_url") {
+                                  const placeIdMatch = href.match(/place_id[=:](\d+)/);
+                                  if (placeIdMatch) {
+                                    const rowCompany = row.data["company_name"] ?? row.data["Unternehmensname"] ?? "";
+                                    const rowCity = row.data["city"] ?? row.data["Stadt"] ?? "";
+                                    const q = [rowCompany, rowCity].filter(Boolean).join(" ");
+                                    href = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(q)}&query_place_id=${placeIdMatch[1]}`;
+                                  }
+                                }
+                                const isUrl = !!href;
+                                // ── JSON AI column: render as structured pills ──
+                                const aiColDef = caseData.aiColumns.find(c => c.outputKey === key);
+                                const trimmedVal = displayVal?.trimStart() ?? "";
+                                const isJsonAudit = (aiColDef?.outputMode === "json" || trimmedVal.includes('"score"')) && trimmedVal.startsWith("{");
+                                if (isJsonAudit) {
+                                  try {
+                                    const j = JSON.parse(displayVal);
+                                    const score = j.score;
+                                    const priority = j.priority as string | undefined;
+                                    const isChain = j.is_chain;
+                                    const chainCount = j.chain_location_count;
+                                    const pitchHook = j.pitch_hook as string | undefined;
+                                    const missing = Array.isArray(j.missing) ? j.missing.length : 0;
+                                    const prioColor = priority === "hoch" ? "#dc2626" : priority === "mittel" ? "#d97706" : "#16a34a";
+                                    return <div style={{display:"flex",flexDirection:"column",gap:2,padding:"2px 0"}} title={pitchHook}>
+                                      <div style={{display:"flex",gap:4,alignItems:"center",flexWrap:"wrap"}}>
+                                        {score != null && <span style={{fontSize:10,fontWeight:600,background:score>=7?"#dcfce7":score>=5?"#fef9c3":"#fee2e2",color:score>=7?"#166534":score>=5?"#854d0e":"#991b1b",padding:"1px 5px",borderRadius:4}}>⭐ {score}/10</span>}
+                                        {priority && <span style={{fontSize:10,fontWeight:600,color:prioColor,background:priority==="hoch"?"#fef2f2":priority==="mittel"?"#fffbeb":"#f0fdf4",padding:"1px 5px",borderRadius:4}}>{priority}</span>}
+                                        {isChain && <span style={{fontSize:10,background:"#eff6ff",color:"#1d4ed8",padding:"1px 5px",borderRadius:4}}>🔗 {chainCount ?? "?"} Standorte</span>}
+                                        {missing > 0 && <span style={{fontSize:10,color:"#92400e",background:"#fffbeb",padding:"1px 5px",borderRadius:4}}>⚠ {missing} fehlt</span>}
+                                      </div>
+                                      {pitchHook && <span style={{fontSize:10,color:"#6b7280",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:280}}>{pitchHook}</span>}
+                                    </div>;
+                                  } catch { /* fall through to normal render */ }
+                                }
                                 const content = isReasoning ? `🧠 ${displayVal}` : displayVal;
                                 const isFallback = isEmailCol && !val && !!fallbackEmail;
                                 const textStyle: React.CSSProperties = {
@@ -1819,6 +2402,19 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
 
         </>)} {/* end flat view */}
         </>)} {/* end activeTab === Tabelle */}
+
+        {/* ══ TAB: SUCHEN — Agent-Runs History ══ */}
+        {activeTab === "Suchen" && (
+          <AgentRunsTab
+            caseId={caseId}
+            onOpenModal={() => setShowAgentGoal(true)}
+            onNewSearch={() => { agentHook.reset(); setShowAgentGoal(true); }}
+            activeRunId={agentHook.run?.id ?? null}
+            activeRunStatus={agentHook.run?.status ?? null}
+            activeRunUniqueCount={agentHook.run?.uniqueCount ?? 0}
+            activeRunning={agentHook.running}
+          />
+        )}
 
         {/* ══ TAB: QUELLEN — Plan/Queries + Katalogseiten ══ */}
         {activeTab === "Quellen" && (
@@ -2019,6 +2615,128 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
                   </div>
                 );
               })}
+          </div>
+        )}
+
+        {/* ══ TAB: KONTAKTE ══ */}
+        {activeTab === "Kontakte" && (
+          <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
+            {/* Header bar */}
+            <div style={{padding:"10px 16px",borderBottom:"1px solid #e5e7eb",display:"flex",alignItems:"center",gap:10,flexShrink:0,background:"#fff"}}>
+              <span style={{fontWeight:700,fontSize:14,color:"#111"}}>👤 Kontakte</span>
+              {contactRowsLoaded && (
+                <span style={{fontSize:12,color:"#6b7280"}}>{contactRowsData.length} Einträge</span>
+              )}
+              <div style={{marginLeft:"auto",display:"flex",gap:8}}>
+                <button
+                  onClick={async () => {
+                    if (!confirm("Kontakte aus Firmen-Zeilen extrahieren und Firmen-Zeilen bereinigen (alle Kontakt-Felder entfernen)?")) return;
+                    setContactCleanupRunning(true);
+                    setContactCleanupResult(null);
+                    try {
+                      const res = await fetch("/api/contact-rows/cleanup", { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify({ caseId }) });
+                      const d = await res.json();
+                      setContactCleanupResult(d);
+                      // Reload contact rows
+                      const cr = await fetch(`/api/contact-rows?caseId=${caseId}`).then(r=>r.json());
+                      setContactRowsData((cr.contacts ?? []).map((c:{data:Record<string,string|null>})=>c.data));
+                    } finally { setContactCleanupRunning(false); }
+                  }}
+                  disabled={contactCleanupRunning}
+                  style={{display:"flex",alignItems:"center",gap:4,padding:"4px 12px",background:contactCleanupRunning?"#f3f4f6":"#fef3c7",border:"1px solid #fcd34d",borderRadius:6,cursor:contactCleanupRunning?"not-allowed":"pointer",fontSize:12,fontWeight:500,color:"#92400e"}}>
+                  {contactCleanupRunning ? <><Loader2 style={{width:10,height:10}} className="animate-spin"/> Läuft…</> : "⚡ Extrahieren & bereinigen"}
+                </button>
+                <button
+                  onClick={() => { setContactRowsLoaded(false); setContactRowsLoading(true); fetch(`/api/contact-rows?caseId=${caseId}`).then(r=>r.json()).then(d=>{setContactRowsData((d.contacts??[]).map((c:{data:Record<string,string|null>})=>c.data));setContactRowsLoaded(true);}).finally(()=>setContactRowsLoading(false)); }}
+                  style={{display:"flex",alignItems:"center",gap:4,padding:"4px 12px",background:"#f3f4f6",border:"1px solid #d1d5db",borderRadius:6,cursor:"pointer",fontSize:12,fontWeight:500}}>
+                  🔄 Aktualisieren
+                </button>
+                <a href={`/api/export?caseId=${caseId}&type=contacts`}
+                  style={{display:"inline-flex",alignItems:"center",gap:4,padding:"4px 12px",background:"#6d28d9",color:"#fff",borderRadius:6,fontSize:12,fontWeight:600,textDecoration:"none"}}>
+                  ⬇ CSV
+                </a>
+              </div>
+            </div>
+
+            {contactCleanupResult && (
+              <div style={{padding:"8px 16px",background:"#f0fdf4",borderBottom:"1px solid #bbf7d0",fontSize:12,color:"#166534",display:"flex",alignItems:"center",gap:12,flexShrink:0}}>
+                ✅ <strong>{contactCleanupResult.inserted} neue</strong> Kontakte eingefügt · <strong>{contactCleanupResult.updated}</strong> aktualisiert · <strong>{contactCleanupResult.rowsCleaned}</strong> Firmen-Zeilen bereinigt
+                <button onClick={()=>setContactCleanupResult(null)} style={{marginLeft:"auto",border:"none",background:"none",cursor:"pointer",color:"#166534",fontSize:14}}>×</button>
+              </div>
+            )}
+
+            {contactRowsLoading && (
+              <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",gap:8,color:"#9ca3af"}}>
+                <Loader2 style={{width:16,height:16}} className="animate-spin"/> Lade Kontakte…
+              </div>
+            )}
+
+            {!contactRowsLoading && contactRowsLoaded && contactRowsData.length === 0 && (
+              <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:8,color:"#9ca3af"}}>
+                <span style={{fontSize:32}}>👤</span>
+                <div style={{fontWeight:600,fontSize:14,color:"#6b7280"}}>Noch keine Kontakte</div>
+                <div style={{fontSize:12,color:"#9ca3af",textAlign:"center",maxWidth:340}}>
+                  Kontakte werden automatisch hier gespeichert, wenn du eine <strong>Entscheider</strong>-Spalte ausführst.
+                  Jeder gefundene Kontakt erscheint als eigene Zeile — neue Kontakte werden ergänzt, bestehende aktualisiert.
+                </div>
+              </div>
+            )}
+
+            {!contactRowsLoading && contactRowsData.length > 0 && (() => {
+              const CONTACT_COLS = ["company_name","first_name","last_name","position","email","email_extrapolated","phone","linkedin","domain","city","source"];
+              const extraCols = contactRowsData.length > 0
+                ? [...new Set(contactRowsData.flatMap(d => Object.keys(d)).filter(k => !k.startsWith("_") && !CONTACT_COLS.includes(k)))]
+                : [];
+              const allCols = [...CONTACT_COLS, ...extraCols].filter(k =>
+                contactRowsData.some(d => d[k] != null && d[k] !== "")
+              );
+              const COL_LABEL: Record<string,string> = {
+                company_name:"Firma", first_name:"Vorname", last_name:"Nachname",
+                position:"Position", email:"E-Mail", email_extrapolated:"E-Mail (extrapoliert)",
+                phone:"Telefon", linkedin:"LinkedIn", domain:"Domain", city:"Stadt", source:"Quelle",
+              };
+              return (
+                <div style={{flex:1,overflow:"auto"}}>
+                  <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                    <thead>
+                      <tr style={{background:"#f9fafb",position:"sticky",top:0,zIndex:10}}>
+                        <th style={{padding:"8px 10px",borderBottom:"2px solid #e5e7eb",textAlign:"left",fontWeight:600,color:"#6b7280",whiteSpace:"nowrap",width:32}}>#</th>
+                        {allCols.map(k => (
+                          <th key={k} style={{padding:"8px 10px",borderBottom:"2px solid #e5e7eb",textAlign:"left",fontWeight:600,color:"#1f2937",whiteSpace:"nowrap",background: ["email","email_extrapolated"].includes(k)?"#eff6ff":["first_name","last_name","position"].includes(k)?"#f5f3ff":"#f9fafb"}}>
+                            {COL_LABEL[k] ?? k}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {contactRowsData.map((row, i) => (
+                        <tr key={i} style={{borderBottom:"1px solid #f3f4f6",background: i%2===0?"#fff":"#fafafa"}}
+                          onMouseEnter={e=>(e.currentTarget.style.background="#f5f3ff")}
+                          onMouseLeave={e=>(e.currentTarget.style.background=i%2===0?"#fff":"#fafafa")}>
+                          <td style={{padding:"6px 10px",color:"#9ca3af",fontFamily:"monospace"}}>{i+1}</td>
+                          {allCols.map(k => {
+                            const v = row[k];
+                            const isEmpty = !v || v === "";
+                            const isEmail = k === "email" && !isEmpty;
+                            const isExtrapolated = k === "email_extrapolated" && !isEmpty;
+                            const isLinkedIn = k === "linkedin" && !isEmpty;
+                            return (
+                              <td key={k} style={{padding:"6px 10px",maxWidth:220,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                                {isEmpty ? <span style={{color:"#d1d5db"}}>—</span>
+                                  : isEmail ? <a href={`mailto:${v}`} style={{color:"#2563eb",textDecoration:"none"}} title={v!}>{v}</a>
+                                  : isExtrapolated ? <span style={{color:"#a855f7"}} title={v!}>⚡ {v}</span>
+                                  : isLinkedIn ? <a href={v!.startsWith("http")?v!:`https://${v}`} target="_blank" rel="noreferrer" style={{color:"#0a66c2",textDecoration:"none"}} title={v!}>🔗 LinkedIn</a>
+                                  : <span title={v!}>{v}</span>}
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              );
+            })()}
           </div>
         )}
 
