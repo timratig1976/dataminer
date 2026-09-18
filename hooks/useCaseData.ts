@@ -174,14 +174,24 @@ export function useCaseData(caseId: string): UseCaseDataReturn {
         }
         // Normal load: prefer savedOrder → prev → smart
         const base = savedOrder.length > 0 ? savedOrder : prev.length > 0 ? prev.filter((k: string) => !isHidden(k)) : smart;
-        const existing = new Set(base);
+        const missingAi = aiKeys.filter((k: string) => !base.includes(k));
+        const combined = [...base, ...missingAi];
+        const existing = new Set(combined);
         const toAdd = allVisibleKeys.filter((k: string) => !existing.has(k) && !isHidden(k));
-        return toAdd.length > 0 ? [...base, ...toAdd] : base;
+        return toAdd.length > 0 ? [...combined, ...toAdd] : combined;
       });
-    } else if (c.colOrder?.length) {
-      // No rows yet — still restore the saved colOrder so template base columns
+    } else if (c.colOrder?.length || c.aiColumns?.length) {
+      // No rows yet — still restore the saved colOrder and ensure all AI columns
       // are visible in the empty table
-      setColOrder(c.colOrder.filter((k: string) => !k.startsWith("_")));
+      const aiKeys = (c.aiColumns ?? []).map((col: AiColumn) => col.outputKey);
+      const isHidden = (k: string) => {
+        if (aiKeys.includes(k)) return false;
+        if (k.startsWith("_")) return true;
+        return false;
+      };
+      const base = (c.colOrder ?? []).filter((k: string) => !isHidden(k));
+      const missingAi = aiKeys.filter((k: string) => !base.includes(k));
+      setColOrder([...base, ...missingAi]);
     }
     setRangeBis(r.length);
     setRangeMax(r.length);

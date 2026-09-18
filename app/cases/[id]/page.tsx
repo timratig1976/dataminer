@@ -1434,7 +1434,34 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
   };
   const visibleColOrder = (() => {
     const seen = new Set<string>();
-    return colOrder.filter(k => !isHiddenCol(k) && !manuallyHiddenCols.has(k) && !seen.has(k) && seen.add(k));
+    const aiKeys = (caseData?.aiColumns ?? []).map(c => c.outputKey);
+    const base = colOrder.filter(k => !isHiddenCol(k) && !manuallyHiddenCols.has(k));
+    
+    // Ensure all AI columns from caseData are present in visible columns!
+    const missingAi = aiKeys.filter(k => !base.includes(k) && !manuallyHiddenCols.has(k));
+    let merged = [...base];
+    for (const aiKey of missingAi) {
+      const col = caseData?.aiColumns.find(c => c.outputKey === aiKey);
+      if (col?.tool === "batch_company") {
+        const domainIdx = merged.indexOf("domain");
+        if (domainIdx !== -1) {
+          merged.splice(domainIdx + 1, 0, aiKey);
+        } else {
+          merged.unshift(aiKey);
+        }
+      } else if (col?.tool === "batch_contact") {
+        const emailIdx = merged.indexOf("email");
+        if (emailIdx !== -1) {
+          merged.splice(emailIdx + 1, 0, aiKey);
+        } else {
+          merged.push(aiKey);
+        }
+      } else {
+        merged.push(aiKey);
+      }
+    }
+
+    return merged.filter(k => !seen.has(k) && seen.add(k));
   })();
 
   return (
