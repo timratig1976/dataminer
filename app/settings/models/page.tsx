@@ -107,6 +107,8 @@ export default function ModelsSettingsPage() {
     </AppShell>
   );
 
+  const effectiveList = allowlist.length > 0 ? allowlist : DEFAULT_MODELS.map((m) => m.id);
+
   return (
     <AppShell title="Modell-Auswahl" titleIcon={<Sliders className="w-4 h-4" style={{ color: "var(--orange)" }} />}>
       <div className="max-w-2xl mx-auto space-y-5 pb-12">
@@ -248,6 +250,65 @@ export default function ModelsSettingsPage() {
           </div>
         )}
 
+        {/* ── Firecrawl / Scraping-Kosten ── */}
+        <div
+          className="p-5 space-y-3"
+          style={{
+            background: "var(--surface)",
+            border: "1px solid var(--border)",
+            borderRadius: "var(--r)",
+            boxShadow: "var(--shadow-sm)",
+          }}
+        >
+          <div className="flex items-center gap-2">
+            <Search className="w-4 h-4" style={{ color: "var(--orange)" }} />
+            <p className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: "var(--text-3)" }}>Scraping &amp; Discovery (Firecrawl)</p>
+          </div>
+          <p className="text-xs" style={{ color: "var(--text-2)" }}>
+            Diese Kosten fallen bei Web-Suche, Seiten-Scraping und Katalog-Crawling an — unabhängig vom gewählten LLM-Modell.
+          </p>
+          <div className="grid grid-cols-2 gap-2">
+            {FIRECRAWL_COSTS.map((fc) => (
+              <div
+                key={fc.name}
+                className="p-3 rounded border text-xs"
+                style={{ background: "var(--bg)", borderColor: "var(--border-xs)" }}
+              >
+                <div className="font-medium" style={{ color: "var(--text-1)" }}>{fc.name}</div>
+                <div className="text-[11px]" style={{ color: "var(--text-3)" }}>{fc.desc}</div>
+                <div className="font-semibold mt-1" style={{ color: "var(--orange)" }}>{fc.costPerCall}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Preview */}
+        <div
+          className="p-5 text-xs space-y-2"
+          style={{
+            background: "var(--surface)",
+            border: "1px solid var(--border)",
+            borderRadius: "var(--r)",
+            boxShadow: "var(--shadow-sm)",
+          }}
+        >
+          <p className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: "var(--text-3)" }}>Vorschau — aktive Modelle im Dropdown</p>
+          <div className="flex flex-wrap gap-1.5">
+            {effectiveList.map((id) => {
+              const def = DEFAULT_MODELS.find((m) => m.id === id);
+              return (
+                <span
+                  key={id}
+                  className="text-xs font-mono px-2 py-0.5 rounded border"
+                  style={{ background: "var(--bg)", borderColor: "var(--border-xs)", color: "var(--text-1)" }}
+                >
+                  {def?.label ?? id}
+                </span>
+              );
+            })}
+          </div>
+        </div>
+
         {/* Save button */}
         <div className="flex items-center gap-3">
           <button
@@ -267,70 +328,6 @@ export default function ModelsSettingsPage() {
         </div>
 
         {error && <div className="text-xs p-2 rounded" style={{ background: "var(--danger-soft)", color: "var(--danger)" }}>{error}</div>}
-      </div>
-    </AppShell>
-  );
-                <Plus className="w-3.5 h-3.5" /> Hinzufügen
-              </button>
-            </div>
-          </div>
-        )}
-
-        {error && <p className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{error}</p>}
-
-        {/* ── Firecrawl / Scraping-Kosten ── */}
-        <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-3">
-          <div className="flex items-center gap-2">
-            <Search className="w-4 h-4 text-amber-500" />
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Scraping & Discovery (Firecrawl via Eden AI)</p>
-          </div>
-          <p className="text-xs text-gray-400">
-            Diese Kosten fallen bei Web-Suche, Seiten-Scraping und Katalog-Crawling an — unabhängig vom gewählten LLM-Modell.
-            Firecrawl ist nur auf dem <b>US-Endpunkt</b> verfügbar.
-          </p>
-          <div className="grid grid-cols-2 gap-2">
-            {FIRECRAWL_COSTS.map((fc) => (
-              <div key={fc.name} className="p-3 bg-amber-50 rounded-lg border border-amber-100">
-                <div className="text-sm font-medium text-gray-800">{fc.name}</div>
-                <div className="text-xs text-gray-500">{fc.desc}</div>
-                <div className="text-xs font-semibold text-amber-700 mt-1">{fc.costPerCall}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Actions */}
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => save(allowlist)}
-            disabled={saving}
-            className="flex items-center gap-2 bg-violet-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-violet-700 disabled:opacity-50"
-          >
-            {saved ? <Check className="w-3.5 h-3.5" /> : null}
-            {saving ? "Speichern…" : saved ? "Gespeichert ✓" : "Speichern"}
-          </button>
-          <button
-            onClick={() => { resetToDefault(); }}
-            className="flex items-center gap-1.5 border border-gray-200 text-gray-600 px-3 py-2 rounded-lg text-sm hover:bg-gray-50"
-          >
-            <RotateCcw className="w-3.5 h-3.5" /> Zurücksetzen
-          </button>
-        </div>
-
-        {/* Preview */}
-        <div className="bg-white rounded-xl border border-gray-200 p-5 text-sm space-y-2">
-          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Vorschau — aktive Modelle im Dropdown</p>
-          <div className="flex flex-wrap gap-1.5">
-            {effectiveList.map((id) => {
-              const def = DEFAULT_MODELS.find((m) => m.id === id);
-              return (
-                <span key={id} className="text-xs font-mono bg-gray-100 text-gray-700 px-2 py-0.5 rounded-full">
-                  {def?.label ?? id}
-                </span>
-              );
-            })}
-          </div>
-        </div>
       </div>
     </AppShell>
   );
