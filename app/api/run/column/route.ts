@@ -32,7 +32,6 @@ export async function POST(req: NextRequest) {
   const { caseId, columnId, rowIds, runMode: rawRunMode, concurrency: rawConcurrency } = await req.json();
   const runMode: RunMode = rawRunMode === "empty_only" ? "empty_only" : "all_force";
   const abortController = new AbortController();
-  const timeout = setTimeout(() => abortController.abort(), 600000); // 10 min timeout for batch
   if (req.signal) {
     req.signal.addEventListener('abort', () => abortController.abort());
   }
@@ -110,7 +109,7 @@ export async function POST(req: NextRequest) {
     const runAt = new Date().toISOString();
     let result;
     try {
-      result = await runAiColumn(effectiveColumn, row.data, apiKey, provider, abortController.signal, opId, edenRegion, apolloBudget);
+      result = await runAiColumn(effectiveColumn, { ...row.data, _case_id: caseId }, apiKey, provider, abortController.signal, opId, edenRegion, apolloBudget, row.id);
     } catch (error: any) {
       if (error.name === 'AbortError' || error.message?.includes('abort') || isOperationCancelled(opId)) {
         await updateRowCell(row.id, col.outputKey, "", "skipped");
@@ -126,7 +125,7 @@ export async function POST(req: NextRequest) {
       adaptiveDelayMs = Math.min(MAX_BACKOFF_MS, Math.max(MIN_BACKOFF_MS, adaptiveDelayMs > 0 ? adaptiveDelayMs * 2 : MIN_BACKOFF_MS));
       await sleep(adaptiveDelayMs + Math.floor(Math.random() * 200));
       try {
-        result = await runAiColumn(effectiveColumn, row.data, apiKey, provider, abortController.signal, opId, edenRegion, apolloBudget);
+        result = await runAiColumn(effectiveColumn, { ...row.data, _case_id: caseId }, apiKey, provider, abortController.signal, opId, edenRegion, apolloBudget, row.id);
       } catch (error: any) {
         if (error.name === 'AbortError' || error.message?.includes('abort') || isOperationCancelled(opId)) {
           await updateRowCell(row.id, col.outputKey, "", "skipped");
@@ -217,7 +216,6 @@ export async function POST(req: NextRequest) {
     operationId: opId,
   });
   } finally {
-    clearTimeout(timeout);
     removeOperation(opId);
   }
 }

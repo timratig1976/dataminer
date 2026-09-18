@@ -1,0 +1,961 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>DataMiner – Navigation Konzepte</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+
+:root{
+  --bg:#f7f6f4;--surface:#ffffff;--border:#e9e7e3;--border-xs:#f1efeb;
+  --text-1:#18181b;--text-2:#71717a;--text-3:#a1a1aa;
+  --orange:#e87c3e;--orange-soft:#fef3ec;--orange-mid:#fbdecb;
+  --green:#3a9e72;--green-soft:#eef8f3;--green-mid:#c4e8d8;
+  --blue:#3b82f6;--blue-soft:#eff6ff;--blue-mid:#bfdbfe;
+  --purple:#7c3aed;--purple-soft:#f5f3ff;--purple-mid:#ddd6fe;
+  --danger:#d94f4f;--danger-soft:#fdf2f2;
+  --warn-soft:#fdf7ee;--warn:#c98a2a;
+  --r:6px;--rs:4px;
+  --shadow-sm:0 1px 2px rgba(0,0,0,.05);
+  --shadow:0 1px 4px rgba(0,0,0,.08);
+  --f:'Inter',system-ui,sans-serif
+}
+
+body{font-family:var(--f);background:#eceae6;color:var(--text-1);font-size:13px;line-height:1.5;padding:32px 24px}
+
+/* ── page layout ─────────────────────────────────── */
+.page-header{text-align:center;margin-bottom:40px}
+.page-header h1{font-size:22px;font-weight:700;letter-spacing:-.5px;margin-bottom:6px}
+.page-header p{color:var(--text-2);font-size:13.5px;max-width:600px;margin:0 auto}
+.concept-badge{display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;margin-bottom:10px}
+.b-a{background:#fff3e0;color:#c05800}
+.b-b{background:#e8f5e9;color:#2e7d32}
+.b-c{background:#e8eaf6;color:#283593}
+
+.concept-section{margin-bottom:56px}
+.concept-title{display:flex;align-items:center;gap:12px;margin-bottom:6px}
+.concept-title h2{font-size:17px;font-weight:700;letter-spacing:-.3px}
+.concept-desc{color:var(--text-2);font-size:12.5px;margin-bottom:16px;max-width:700px;line-height:1.6}
+.concept-pros{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px}
+.pro{padding:3px 10px;border-radius:20px;font-size:11px;font-weight:500;background:#f0fdf4;color:#166534;border:1px solid #bbf7d0}
+.con{background:#fef2f2;color:#991b1b;border:1px solid #fecaca}
+
+/* ── shared shell ────────────────────────────────── */
+.shell{background:var(--surface);border:1px solid var(--border);border-radius:10px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,.07);display:flex;height:460px}
+
+.sidebar{width:190px;min-width:190px;background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;padding:14px 0}
+.logo{display:flex;align-items:center;gap:8px;padding:0 14px 14px;border-bottom:1px solid var(--border-xs)}
+.logo-mark{width:24px;height:24px;background:var(--orange);border-radius:5px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:10px;font-weight:700}
+.logo-name{font-size:13px;font-weight:600;letter-spacing:-.3px}
+.nav-section{padding:12px 14px 4px}
+.nav-label{font-size:10px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--text-3);margin-bottom:5px}
+.case-row{padding:6px 8px;border-radius:var(--rs);cursor:pointer}
+.case-row.active{background:var(--orange-soft)}
+.case-name{font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.case-row.active .case-name{color:var(--orange)}
+.case-meta{font-size:10.5px;color:var(--text-3);margin-top:1px}
+
+.main{flex:1;display:flex;flex-direction:column;overflow:hidden;background:var(--bg)}
+
+/* ── common atoms ────────────────────────────────── */
+.btn{display:inline-flex;align-items:center;gap:4px;padding:5px 10px;border-radius:var(--rs);font-size:12px;font-weight:500;cursor:pointer;border:1px solid var(--border);background:var(--surface);color:var(--text-1);transition:.1s;white-space:nowrap;font-family:var(--f)}
+.btn:hover{background:var(--bg)}
+.btn-run{background:var(--orange);color:#fff;border-color:var(--orange)}
+.btn-run:hover{background:#d46c2e}
+.btn-ai{background:var(--green-soft);color:var(--green);border-color:var(--green-mid)}
+.btn-ghost{border-color:transparent;background:transparent;color:var(--text-2);font-size:11.5px}
+.btn-ghost:hover{background:var(--border);color:var(--text-1)}
+.btn-sm{padding:3px 8px;font-size:11px}
+.badge{display:inline-flex;align-items:center;justify-content:center;min-width:16px;height:16px;padding:0 4px;border-radius:9px;font-size:10px;font-weight:600;background:var(--green);color:#fff}
+.badge-o{background:var(--orange)}
+.sep{width:1px;height:18px;background:var(--border);flex-shrink:0}
+.sep-h{height:1px;background:var(--border);width:100%}
+
+/* ── tab atoms ────────────────────────────────────── */
+.tab{padding:7px 12px;font-size:12.5px;color:var(--text-2);cursor:pointer;border-bottom:2px solid transparent;transition:.1s;white-space:nowrap}
+.tab:hover{color:var(--text-1)}
+.tab.active{color:var(--orange);border-bottom-color:var(--orange);font-weight:500}
+.tab.sec{font-size:11.5px;color:var(--text-3)}
+.tab.sec.active{color:var(--blue);border-bottom-color:var(--blue)}
+.tab.sec:hover{color:var(--text-2)}
+
+/* ── table placeholder ───────────────────────────── */
+.table-area{flex:1;overflow:hidden}
+.t-head{display:flex;background:var(--surface);border-bottom:1px solid var(--border);height:32px;align-items:center}
+.t-col{padding:0 10px;font-size:10px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--text-3);white-space:nowrap}
+.t-col.ai{color:var(--green);background:var(--green-soft)}
+.t-rows{padding:0}
+.t-row{display:flex;align-items:center;height:38px;border-bottom:1px solid var(--border-xs)}
+.t-row:hover{background:#faf9f7}
+.t-cell{padding:0 10px;font-size:12px;color:var(--text-1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.t-cell.dim{color:var(--text-3);font-size:11px}
+.t-cell.link{color:var(--orange);font-size:11.5px}
+.t-cell.ai{background:var(--green-soft);color:var(--green);font-size:11px}
+.chip{display:inline-flex;align-items:center;gap:3px;padding:2px 6px;border-radius:20px;font-size:10.5px;font-weight:500}
+.chip-g{background:var(--green-soft);color:var(--green)}
+.chip-o{background:var(--orange-soft);color:var(--orange)}
+.chip-w{background:var(--warn-soft);color:var(--warn)}
+
+/* ════════════════════════════════════════════════════
+   CONCEPT A  –  Command Bar + Split Tabs
+   ════════════════════════════════════════════════════ */
+
+/* header block */
+.a-header{background:var(--surface);border-bottom:1px solid var(--border);padding:14px 20px 0}
+.a-top{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:10px}
+.a-title{font-size:15px;font-weight:600;letter-spacing:-.4px}
+.a-meta{display:flex;gap:12px;margin-top:2px}
+.a-meta span{font-size:11px;color:var(--text-3)}
+.a-meta .hi{color:var(--green)}
+.view-toggle{display:flex;gap:2px;background:var(--bg);border:1px solid var(--border);border-radius:var(--rs);padding:2px}
+.vbtn{padding:3px 9px;border-radius:3px;font-size:11px;color:var(--text-2);cursor:pointer;border:none;background:transparent;transition:.1s}
+.vbtn.active{background:var(--surface);color:var(--text-1);box-shadow:var(--shadow-sm);font-weight:500}
+
+/* command bar */
+.a-cmd{background:#faf8f6;border-bottom:1px solid var(--border);padding:8px 20px;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.cmd-label{font-size:10px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--text-3);margin-right:2px}
+.a-cmd .sep{height:16px}
+
+/* split tab row */
+.a-tabs{display:flex;align-items:center;gap:0;height:36px}
+.tab-group-label{font-size:9.5px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--text-3);padding:0 10px 0 4px;border-right:1px solid var(--border-xs);margin-right:4px;white-space:nowrap;line-height:1;align-self:center}
+.a-tab-right{margin-left:auto;display:flex;align-items:center;gap:0;border-left:1px solid var(--border-xs);padding-left:4px}
+.tbl-actions{display:flex;align-items:center;gap:4px;padding:0 12px;border-right:1px solid var(--border-xs)}
+
+/* ════════════════════════════════════════════════════
+   CONCEPT B  –  Pill Category Toolbar
+   ════════════════════════════════════════════════════ */
+
+.b-header{background:var(--surface);border-bottom:1px solid var(--border);padding:14px 20px 0}
+.b-top{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:10px}
+
+/* category pill nav */
+.b-catbar{background:var(--surface);border-bottom:1px solid var(--border);padding:8px 20px;display:flex;align-items:center;gap:6px}
+.cat-pill{padding:4px 12px;border-radius:20px;font-size:11.5px;font-weight:500;cursor:pointer;border:1px solid var(--border);background:var(--bg);color:var(--text-2);transition:.1s;display:flex;align-items:center;gap:5px}
+.cat-pill:hover{border-color:var(--text-3);color:var(--text-1)}
+.cat-pill.active-data{background:var(--orange-soft);border-color:var(--orange-mid);color:var(--orange)}
+.cat-pill.active-enrich{background:var(--green-soft);border-color:var(--green-mid);color:var(--green)}
+.cat-pill.active-info{background:var(--blue-soft);border-color:var(--blue-mid);color:var(--blue)}
+.cat-pill.active-export{background:var(--purple-soft);border-color:var(--purple-mid);color:var(--purple)}
+.cat-icon{font-size:12px}
+
+/* context toolbar that changes per category */
+.b-ctx{background:#faf8f6;border-bottom:1px solid var(--border);padding:6px 20px;display:flex;align-items:center;gap:6px;min-height:38px}
+.ctx-label{font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--text-3);padding:0 6px 0 0;border-right:1px solid var(--border);margin-right:2px}
+
+/* tab row under context */
+.b-tabs{display:flex;align-items:center;background:var(--surface);border-bottom:1px solid var(--border);padding:0 20px}
+
+/* ════════════════════════════════════════════════════
+   CONCEPT C  –  Dropdown Command Menus
+   ════════════════════════════════════════════════════ */
+
+.c-header{background:var(--surface);border-bottom:1px solid var(--border);padding:14px 20px 0}
+.c-top{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:10px}
+
+/* mega action bar with dropdowns */
+.c-actionbar{background:var(--surface);border-bottom:2px solid var(--border);padding:0 20px;display:flex;align-items:center;height:40px;gap:2px}
+.c-menu-btn{display:inline-flex;align-items:center;gap:5px;padding:5px 12px;border-radius:var(--rs);font-size:12px;font-weight:500;cursor:pointer;border:none;background:transparent;color:var(--text-2);transition:.1s;height:32px;white-space:nowrap;font-family:var(--f);position:relative}
+.c-menu-btn:hover{background:var(--bg);color:var(--text-1)}
+.c-menu-btn.active-menu{background:var(--orange-soft);color:var(--orange)}
+.c-menu-btn svg{opacity:.5;transition:.1s}
+.c-menu-btn:hover svg{opacity:1}
+.c-run{margin-left:auto}
+
+/* flyout dropdown */
+.flyout{position:absolute;top:calc(100% + 2px);left:0;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);box-shadow:0 4px 16px rgba(0,0,0,.1);min-width:200px;z-index:100;overflow:hidden;display:none}
+.flyout.open{display:block}
+.fly-section{padding:6px 0}
+.fly-section+.fly-section{border-top:1px solid var(--border-xs)}
+.fly-label{padding:5px 13px 3px;font-size:10px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--text-3)}
+.fly-item{padding:7px 13px;font-size:12px;color:var(--text-1);cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:7px;transition:.1s}
+.fly-item:hover{background:var(--bg)}
+.fly-badge{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 5px;border-radius:9px;font-size:10px;font-weight:600}
+.fly-badge-o{background:var(--orange-soft);color:var(--orange)}
+.fly-badge-g{background:var(--green-soft);color:var(--green)}
+
+/* tab row */
+.c-tabs{background:var(--surface);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 20px}
+.c-tab-data{display:flex;align-items:center}
+.c-tab-info{margin-left:auto;display:flex;align-items:center;border-left:1px solid var(--border-xs);padding-left:8px}
+.ctab{padding:7px 11px;font-size:12px;color:var(--text-2);cursor:pointer;border-bottom:2px solid transparent;transition:.1s}
+.ctab:hover{color:var(--text-1)}
+.ctab.act-d{color:var(--orange);border-bottom-color:var(--orange);font-weight:500}
+.ctab.act-i{color:var(--text-3);font-size:11.5px}
+.ctab.act-i:hover{color:var(--text-2)}
+.c-tbl-actions{display:flex;align-items:center;gap:4px;padding:0 12px;border-left:1px solid var(--border-xs);margin-left:4px}
+
+/* ════════════════════════════════════════════════════
+   CONCEPT D  –  Minimal / Focus Mode  (Bonus)
+   ════════════════════════════════════════════════════ */
+
+.d-header{background:var(--surface);border-bottom:1px solid var(--border);padding:0 20px;display:flex;align-items:center;height:52px;gap:16px}
+.d-title{font-size:14px;font-weight:600;letter-spacing:-.3px}
+.d-meta{font-size:11px;color:var(--text-3)}
+.d-divider{width:1px;height:24px;background:var(--border)}
+
+.d-tabs{display:flex;align-items:center;flex:1;height:100%}
+.dtab{padding:0 12px;height:100%;display:flex;align-items:center;font-size:12.5px;color:var(--text-2);cursor:pointer;border-bottom:2px solid transparent;transition:.1s;white-space:nowrap}
+.dtab:hover{color:var(--text-1)}
+.dtab.act{color:var(--orange);border-bottom-color:var(--orange);font-weight:500}
+.dtab.secondary{font-size:11.5px;color:var(--text-3);position:relative}
+.dtab.secondary::before{content:'';width:1px;height:18px;background:var(--border-xs);position:absolute;left:0}
+.dtab.secondary:hover{color:var(--text-2)}
+
+.d-actions{display:flex;align-items:center;gap:5px;margin-left:auto}
+.action-cluster{display:flex;align-items:center;gap:4px;padding:0 10px;border-left:1px solid var(--border)}
+
+/* tooltip annotations */
+.annotation{position:relative;display:inline-block}
+.ann-arrow{position:absolute;top:-28px;left:50%;transform:translateX(-50%);background:var(--text-1);color:#fff;font-size:10px;padding:3px 8px;border-radius:4px;white-space:nowrap;pointer-events:none;z-index:50}
+.ann-arrow::after{content:'';position:absolute;top:100%;left:50%;transform:translateX(-50%);border:4px solid transparent;border-top-color:var(--text-1)}
+
+/* comparison table */
+.compare-table{width:100%;border-collapse:collapse;font-size:12.5px;margin-top:24px;background:var(--surface);border-radius:8px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.06)}
+.compare-table th{background:#f4f3f1;padding:9px 16px;text-align:left;font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--text-2);border-bottom:1px solid var(--border)}
+.compare-table td{padding:10px 16px;border-bottom:1px solid var(--border-xs);vertical-align:top}
+.compare-table tr:last-child td{border-bottom:none}
+.compare-table tr:hover td{background:#faf9f7}
+.tick{color:var(--green)}
+.cross{color:var(--danger)}
+.half{color:var(--warn)}
+</style>
+</head>
+<body>
+
+<div class="page-header">
+  <h1>DataMiner – Navigation Konzepte</h1>
+  <p>Vier Ideen für eine klarere Trennung von Daten-Tabs, Info-Tabs und Aktionen. Jedes Konzept ist vollständig als funktionaler Mockup dargestellt.</p>
+</div>
+
+
+<!-- ╔══════════════════════════════════════════════════════╗
+     ║  KONZEPT A  –  Command Bar + Split Tabs              ║
+     ╚══════════════════════════════════════════════════════╝ -->
+<div class="concept-section">
+  <div class="concept-title">
+    <span class="concept-badge b-a">Konzept A</span>
+    <h2>Command Bar + Split Tab Row</h2>
+  </div>
+  <p class="concept-desc">
+    Aktionen wandern in eine dedizierte <strong>Command Bar</strong> (grauer Streifen, klar abgesetzt).
+    Die Tab-Zeile ist zweigeteilt: Links stehen die <strong>primären Daten-Tabs</strong> (Firmen / Kontakte),
+    rechts — durch einen Divider getrennt — die <strong>sekundären Info-Tabs</strong> (Suchen, Quellen, Log, Export) in kleinerer Schrift.
+    Tabellen-Tools (Reset, Dedupe, CSV) sitzen ganz rechts in der Tab-Zeile.
+  </p>
+  <div class="concept-pros">
+    <span class="pro">Aktionen klar von Navigation getrennt</span>
+    <span class="pro">Primär/Sekundär-Hierarchie sichtbar</span>
+    <span class="pro">Wenig Platzverbrauch</span>
+    <span class="con con">Mehr Zeilen als bisher</span>
+  </div>
+
+  <div class="shell">
+    <!-- Sidebar -->
+    <nav class="sidebar">
+      <div class="logo"><div class="logo-mark">D</div><span class="logo-name">DataMiner</span></div>
+      <div class="nav-section">
+        <div class="nav-label">Cases</div>
+        <div class="case-row active"><div class="case-name">Hausbauunternehmen MV</div><div class="case-meta">547 Zeilen · 6 Kataloge</div></div>
+        <div class="case-row"><div class="case-name">IT-Dienstleister Berlin</div><div class="case-meta">212 Zeilen</div></div>
+        <div class="case-row"><div class="case-name">Sanitär Hamburg</div><div class="case-meta">88 Zeilen</div></div>
+      </div>
+    </nav>
+
+    <!-- Main A -->
+    <div class="main">
+
+      <!-- 1. Header: Titel + Meta -->
+      <div class="a-header">
+        <div class="a-top">
+          <div>
+            <div class="a-title">Hausbauunternehmen MV</div>
+            <div class="a-meta">
+              <span>547 Zeilen</span><span>6 Kataloge</span><span>24 Quellspalten</span>
+              <span class="hi">2 KI-Spalten</span><span>$0.00991</span>
+            </div>
+          </div>
+          <div class="view-toggle">
+            <button class="vbtn active">Flach</button>
+            <button class="vbtn">Gruppiert</button>
+          </div>
+        </div>
+
+        <!-- 2. Split Tab Row (directly in header, above border) -->
+        <div class="a-tabs">
+          <!-- Data tabs label -->
+          <div class="tab-group-label">Daten</div>
+          <div class="tab active">Firmen</div>
+          <div class="tab">Kontakte</div>
+
+          <!-- Table tools (only visible when data tab active) -->
+          <div class="tbl-actions">
+            <button class="btn btn-ghost btn-sm">+ Spalte</button>
+            <button class="btn btn-ghost btn-sm">Reset</button>
+            <button class="btn btn-ghost btn-sm">Dedupe</button>
+            <button class="btn btn-ghost btn-sm">CSV ↓</button>
+          </div>
+
+          <!-- Secondary info tabs -->
+          <div class="a-tab-right">
+            <div class="tab sec">Suchen</div>
+            <div class="tab sec">Quellen</div>
+            <div class="tab sec">Log</div>
+            <div class="tab sec">Export</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 3. Command Bar: all actions -->
+      <div class="a-cmd">
+        <span class="cmd-label">Aktionen</span>
+        <button class="btn btn-sm">📥 Import</button>
+        <button class="btn btn-sm">🔍 Suchen &amp; Crawlen</button>
+        <button class="btn btn-sm">🎯 Ziel-Suche</button>
+        <button class="btn btn-sm">✉️ Emails</button>
+        <div class="sep"></div>
+        <button class="btn btn-sm">🗂 Kataloge scrapen <span class="badge badge-o">6</span></button>
+        <button class="btn btn-ai btn-sm">👥 Kontakte vervollständigen <span class="badge">228</span></button>
+        <div class="sep"></div>
+        <button class="btn btn-run btn-sm">▶ Ausführen</button>
+        <span style="font-size:11px;color:var(--text-3);margin-left:4px">553 Zeilen · 12 ausstehend</span>
+      </div>
+
+      <!-- Table placeholder -->
+      <div class="table-area">
+        <div class="t-head">
+          <div class="t-col" style="width:32px;padding:0 10px"><input type="checkbox" style="accent-color:var(--orange)"/></div>
+          <div class="t-col" style="width:36px">#</div>
+          <div class="t-col" style="width:70px">Status</div>
+          <div class="t-col" style="flex:2">Firma</div>
+          <div class="t-col" style="flex:1.5">Domain</div>
+          <div class="t-col" style="flex:1">Stadt</div>
+          <div class="t-col ai" style="flex:1.5">● Beschreibung KI</div>
+          <div class="t-col ai" style="flex:1">● Qualifizierung</div>
+        </div>
+        <div class="t-rows">
+          <div class="t-row">
+            <div class="t-cell" style="width:32px;padding:0 10px"><input type="checkbox" style="accent-color:var(--orange)"/></div>
+            <div class="t-cell dim" style="width:36px">1</div>
+            <div class="t-cell" style="width:70px"><span class="chip chip-g">✓ Fertig</span></div>
+            <div class="t-cell" style="flex:2;font-weight:500">Bau & Grund GmbH</div>
+            <div class="t-cell link" style="flex:1.5">baugrund.de</div>
+            <div class="t-cell" style="flex:1">Rostock</div>
+            <div class="t-cell ai" style="flex:1.5">Schlüsselfertig-Anbieter</div>
+            <div class="t-cell ai" style="flex:1"><span class="chip chip-g">Hoch</span></div>
+          </div>
+          <div class="t-row">
+            <div class="t-cell" style="width:32px;padding:0 10px"><input type="checkbox" style="accent-color:var(--orange)"/></div>
+            <div class="t-cell dim" style="width:36px">2</div>
+            <div class="t-cell" style="width:70px"><span class="chip chip-w">⏳ Offen</span></div>
+            <div class="t-cell" style="flex:2;font-weight:500">Nordhaus Bau AG</div>
+            <div class="t-cell link" style="flex:1.5">nordhaus-bau.de</div>
+            <div class="t-cell" style="flex:1">Schwerin</div>
+            <div class="t-cell ai" style="flex:1.5">—</div>
+            <div class="t-cell ai" style="flex:1">—</div>
+          </div>
+          <div class="t-row">
+            <div class="t-cell" style="width:32px;padding:0 10px"><input type="checkbox" style="accent-color:var(--orange)"/></div>
+            <div class="t-cell dim" style="width:36px">3</div>
+            <div class="t-cell" style="width:70px"><span class="chip chip-g">✓ Fertig</span></div>
+            <div class="t-cell" style="flex:2;font-weight:500">Küstenwerk Bau GmbH</div>
+            <div class="t-cell link" style="flex:1.5">kuestenwerk.de</div>
+            <div class="t-cell" style="flex:1">Greifswald</div>
+            <div class="t-cell ai" style="flex:1.5">Regionales Bauunternehmen</div>
+            <div class="t-cell ai" style="flex:1"><span class="chip chip-o">Mittel</span></div>
+          </div>
+          <div class="t-row">
+            <div class="t-cell" style="width:32px;padding:0 10px"><input type="checkbox" style="accent-color:var(--orange)"/></div>
+            <div class="t-cell dim" style="width:36px">4</div>
+            <div class="t-cell" style="width:70px"><span class="chip chip-g">✓ Fertig</span></div>
+            <div class="t-cell" style="flex:2;font-weight:500">MV Wohnbau GmbH & Co. KG</div>
+            <div class="t-cell link" style="flex:1.5">mv-wohnbau.de</div>
+            <div class="t-cell" style="flex:1">Stralsund</div>
+            <div class="t-cell ai" style="flex:1.5">Projektentwickler</div>
+            <div class="t-cell ai" style="flex:1"><span class="chip chip-g">Hoch</span></div>
+          </div>
+          <div class="t-row">
+            <div class="t-cell" style="width:32px;padding:0 10px"><input type="checkbox" style="accent-color:var(--orange)"/></div>
+            <div class="t-cell dim" style="width:36px">5</div>
+            <div class="t-cell" style="width:70px"><span class="chip chip-w">⏳ Offen</span></div>
+            <div class="t-cell" style="flex:2;font-weight:500">Baltic Construction GmbH</div>
+            <div class="t-cell link" style="flex:1.5">baltic-construction.eu</div>
+            <div class="t-cell" style="flex:1">Neubrandenburg</div>
+            <div class="t-cell ai" style="flex:1.5">—</div>
+            <div class="t-cell ai" style="flex:1">—</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+
+<!-- ╔══════════════════════════════════════════════════════╗
+     ║  KONZEPT B  –  Kategorie-Pillen + Kontext-Toolbar   ║
+     ╚══════════════════════════════════════════════════════╝ -->
+<div class="concept-section">
+  <div class="concept-title">
+    <span class="concept-badge b-b">Konzept B</span>
+    <h2>Kategorie-Pillen + Kontext-Toolbar</h2>
+  </div>
+  <p class="concept-desc">
+    Statt Tabs eine <strong>Kategorie-Pille-Leiste</strong>: Daten · Anreichern · Infos · Export.
+    Je nach aktiver Kategorie ändert sich die <strong>Kontext-Toolbar darunter</strong> dynamisch —
+    bei „Daten" erscheinen Import & Table-Tools, bei „Anreichern" die KI-Aktionen usw.
+    Darunter erst die eigentliche Tab-Leiste (Firmen/Kontakte).
+  </p>
+  <div class="concept-pros">
+    <span class="pro">Kontextuelle Aktionen — keine Button-Überladung</span>
+    <span class="pro">Skaliert gut bei mehr Features</span>
+    <span class="pro">Klare visuelle Hierarchie</span>
+    <span class="con">Zwei extra Zeilen Overhead</span>
+    <span class="con">Lernkurve — neue Metapher</span>
+  </div>
+
+  <div class="shell">
+    <nav class="sidebar">
+      <div class="logo"><div class="logo-mark">D</div><span class="logo-name">DataMiner</span></div>
+      <div class="nav-section">
+        <div class="nav-label">Cases</div>
+        <div class="case-row active"><div class="case-name">Hausbauunternehmen MV</div><div class="case-meta">547 Zeilen · 6 Kataloge</div></div>
+        <div class="case-row"><div class="case-name">IT-Dienstleister Berlin</div><div class="case-meta">212 Zeilen</div></div>
+      </div>
+    </nav>
+
+    <div class="main">
+
+      <!-- 1. Header -->
+      <div class="b-header">
+        <div class="b-top">
+          <div>
+            <div class="a-title">Hausbauunternehmen MV</div>
+            <div class="a-meta">
+              <span>547 Zeilen</span><span>6 Kataloge</span><span class="hi">2 KI-Spalten</span><span>$0.00991</span>
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <div class="view-toggle"><button class="vbtn active">Flach</button><button class="vbtn">Gruppiert</button></div>
+            <button class="btn btn-run btn-sm">▶ Ausführen</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 2. Category pills -->
+      <div class="b-catbar">
+        <div class="cat-pill active-data"><span class="cat-icon">📋</span> Daten</div>
+        <div class="cat-pill active-enrich" style="background:transparent;border-color:var(--border);color:var(--text-2)"><span class="cat-icon">✨</span> Anreichern <span class="badge" style="background:var(--green-mid);color:var(--green)">3</span></div>
+        <div class="cat-pill" style="color:var(--text-2)"><span class="cat-icon">🔍</span> Suchen &amp; Quellen</div>
+        <div class="cat-pill"><span class="cat-icon">📤</span> Export &amp; Log</div>
+      </div>
+
+      <!-- 3. Context toolbar (changes per category) -->
+      <div class="b-ctx">
+        <span class="ctx-label">Daten</span>
+        <button class="btn btn-sm">📥 Import</button>
+        <button class="btn btn-sm">+ Spalte</button>
+        <div class="sep"></div>
+        <button class="btn btn-ghost btn-sm">Reset</button>
+        <button class="btn btn-ghost btn-sm">Dedupe</button>
+        <button class="btn btn-ghost btn-sm">CSV ↓</button>
+        <button class="btn btn-ghost btn-sm">Spalten</button>
+        <span style="font-size:11px;color:var(--text-3);margin-left:8px">553 Zeilen · 12 ausstehend</span>
+      </div>
+
+      <!-- 4. Data tabs -->
+      <div class="b-tabs">
+        <div class="tab active">Firmen</div>
+        <div class="tab">Kontakte</div>
+      </div>
+
+      <!-- Table -->
+      <div class="table-area">
+        <div class="t-head">
+          <div class="t-col" style="width:32px;padding:0 10px"><input type="checkbox" style="accent-color:var(--orange)"/></div>
+          <div class="t-col" style="width:36px">#</div>
+          <div class="t-col" style="width:70px">Status</div>
+          <div class="t-col" style="flex:2">Firma</div>
+          <div class="t-col" style="flex:1.5">Domain</div>
+          <div class="t-col" style="flex:1">Stadt</div>
+          <div class="t-col ai" style="flex:1.5">● Beschreibung KI</div>
+          <div class="t-col ai" style="flex:1">● Qualifizierung</div>
+        </div>
+        <div class="t-rows">
+          <div class="t-row">
+            <div class="t-cell" style="width:32px;padding:0 10px"><input type="checkbox" style="accent-color:var(--orange)"/></div>
+            <div class="t-cell dim" style="width:36px">1</div>
+            <div class="t-cell" style="width:70px"><span class="chip chip-g">✓ Fertig</span></div>
+            <div class="t-cell" style="flex:2;font-weight:500">Bau & Grund GmbH</div>
+            <div class="t-cell link" style="flex:1.5">baugrund.de</div>
+            <div class="t-cell" style="flex:1">Rostock</div>
+            <div class="t-cell ai" style="flex:1.5">Schlüsselfertig-Anbieter</div>
+            <div class="t-cell ai" style="flex:1"><span class="chip chip-g">Hoch</span></div>
+          </div>
+          <div class="t-row">
+            <div class="t-cell" style="width:32px;padding:0 10px"><input type="checkbox" style="accent-color:var(--orange)"/></div>
+            <div class="t-cell dim" style="width:36px">2</div>
+            <div class="t-cell" style="width:70px"><span class="chip chip-w">⏳ Offen</span></div>
+            <div class="t-cell" style="flex:2;font-weight:500">Nordhaus Bau AG</div>
+            <div class="t-cell link" style="flex:1.5">nordhaus-bau.de</div>
+            <div class="t-cell" style="flex:1">Schwerin</div>
+            <div class="t-cell ai" style="flex:1.5">—</div>
+            <div class="t-cell ai" style="flex:1">—</div>
+          </div>
+          <div class="t-row">
+            <div class="t-cell" style="width:32px;padding:0 10px"><input type="checkbox" style="accent-color:var(--orange)"/></div>
+            <div class="t-cell dim" style="width:36px">3</div>
+            <div class="t-cell" style="width:70px"><span class="chip chip-g">✓ Fertig</span></div>
+            <div class="t-cell" style="flex:2;font-weight:500">Küstenwerk Bau GmbH</div>
+            <div class="t-cell link" style="flex:1.5">kuestenwerk.de</div>
+            <div class="t-cell" style="flex:1">Greifswald</div>
+            <div class="t-cell ai" style="flex:1.5">Regionales Bauunternehmen</div>
+            <div class="t-cell ai" style="flex:1"><span class="chip chip-o">Mittel</span></div>
+          </div>
+          <div class="t-row">
+            <div class="t-cell" style="width:32px;padding:0 10px"><input type="checkbox" style="accent-color:var(--orange)"/></div>
+            <div class="t-cell dim" style="width:36px">4</div>
+            <div class="t-cell" style="width:70px"><span class="chip chip-g">✓ Fertig</span></div>
+            <div class="t-cell" style="flex:2;font-weight:500">MV Wohnbau GmbH & Co. KG</div>
+            <div class="t-cell link" style="flex:1.5">mv-wohnbau.de</div>
+            <div class="t-cell" style="flex:1">Stralsund</div>
+            <div class="t-cell ai" style="flex:1.5">Projektentwickler</div>
+            <div class="t-cell ai" style="flex:1"><span class="chip chip-g">Hoch</span></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+
+<!-- ╔══════════════════════════════════════════════════════╗
+     ║  KONZEPT C  –  Menüleiste mit Flyout-Dropdowns      ║
+     ╚══════════════════════════════════════════════════════╝ -->
+<div class="concept-section">
+  <div class="concept-title">
+    <span class="concept-badge b-c">Konzept C</span>
+    <h2>Menüleiste mit Flyout-Dropdowns</h2>
+  </div>
+  <p class="concept-desc">
+    Alle Aktionen werden hinter einer <strong>kompakten Menüleiste</strong> versteckt:
+    „Daten", „Anreichern", „Suche", „Export" — je ein Dropdown mit gruppierten Aktionen.
+    Darunter eine saubere Tab-Zeile mit klarer Links/Rechts-Trennung (Daten / Infos).
+    Maximale Platzersparnis, da Aktionen nur bei Bedarf sichtbar sind.
+  </p>
+  <div class="concept-pros">
+    <span class="pro">Kompakteste Lösung</span>
+    <span class="pro">Keine visuelle Überladung</span>
+    <span class="pro">Gut skalierbar</span>
+    <span class="con">Aktionen nicht auf einen Blick sichtbar</span>
+  </div>
+
+  <div class="shell">
+    <nav class="sidebar">
+      <div class="logo"><div class="logo-mark">D</div><span class="logo-name">DataMiner</span></div>
+      <div class="nav-section">
+        <div class="nav-label">Cases</div>
+        <div class="case-row active"><div class="case-name">Hausbauunternehmen MV</div><div class="case-meta">547 Zeilen · 6 Kataloge</div></div>
+        <div class="case-row"><div class="case-name">IT-Dienstleister Berlin</div><div class="case-meta">212 Zeilen</div></div>
+      </div>
+    </nav>
+
+    <div class="main">
+
+      <!-- 1. Header with title only -->
+      <div class="c-header">
+        <div class="c-top">
+          <div>
+            <div class="a-title">Hausbauunternehmen MV</div>
+            <div class="a-meta">
+              <span>547 Zeilen</span><span>6 Kataloge</span><span class="hi">2 KI-Spalten</span><span>$0.00991</span>
+            </div>
+          </div>
+          <div class="view-toggle"><button class="vbtn active">Flach</button><button class="vbtn">Gruppiert</button></div>
+        </div>
+      </div>
+
+      <!-- 2. Menu bar with dropdowns -->
+      <div class="c-actionbar">
+        <div style="position:relative">
+          <button class="c-menu-btn active-menu" onclick="toggleFly('fly-data')">
+            📋 Daten
+            <svg width="10" height="10" viewBox="0 0 16 16"><path fill="currentColor" d="M8 10l-4-4h8z"/></svg>
+          </button>
+          <div class="flyout open" id="fly-data">
+            <div class="fly-section">
+              <div class="fly-label">Importieren</div>
+              <div class="fly-item">📥 CSV / Excel importieren</div>
+              <div class="fly-item">🔗 URL-Liste importieren</div>
+            </div>
+            <div class="fly-section">
+              <div class="fly-label">Verwalten</div>
+              <div class="fly-item">+ Spalte hinzufügen</div>
+              <div class="fly-item">🔀 Spalten konfigurieren</div>
+              <div class="fly-item">🧹 Duplikate entfernen</div>
+              <div class="fly-item">↩ Reset</div>
+            </div>
+          </div>
+        </div>
+
+        <div style="position:relative">
+          <button class="c-menu-btn" onclick="toggleFly('fly-enrich')">
+            ✨ Anreichern
+            <svg width="10" height="10" viewBox="0 0 16 16"><path fill="currentColor" d="M8 10l-4-4h8z"/></svg>
+          </button>
+          <div class="flyout" id="fly-enrich">
+            <div class="fly-section">
+              <div class="fly-label">Suche & Crawl</div>
+              <div class="fly-item">🔍 Suchen &amp; Crawlen</div>
+              <div class="fly-item">🎯 Ziel-Suche</div>
+            </div>
+            <div class="fly-section">
+              <div class="fly-label">KI-Anreicherung</div>
+              <div class="fly-item">✉️ Emails extrapolieren <span class="fly-badge fly-badge-g">228</span></div>
+              <div class="fly-item">🗂 Kataloge scrapen <span class="fly-badge fly-badge-o">6</span></div>
+              <div class="fly-item">👥 Kontakte vervollständigen <span class="fly-badge fly-badge-g">228</span></div>
+            </div>
+          </div>
+        </div>
+
+        <div style="position:relative">
+          <button class="c-menu-btn" onclick="toggleFly('fly-search')">
+            🔎 Suche
+            <svg width="10" height="10" viewBox="0 0 16 16"><path fill="currentColor" d="M8 10l-4-4h8z"/></svg>
+          </button>
+          <div class="flyout" id="fly-search">
+            <div class="fly-section">
+              <div class="fly-item">Neue Suche erstellen</div>
+              <div class="fly-item">Quellen anzeigen</div>
+              <div class="fly-item">Suchverlauf</div>
+            </div>
+          </div>
+        </div>
+
+        <div style="position:relative">
+          <button class="c-menu-btn" onclick="toggleFly('fly-export')">
+            📤 Export
+            <svg width="10" height="10" viewBox="0 0 16 16"><path fill="currentColor" d="M8 10l-4-4h8z"/></svg>
+          </button>
+          <div class="flyout" id="fly-export">
+            <div class="fly-section">
+              <div class="fly-item">CSV herunterladen</div>
+              <div class="fly-item">Excel exportieren</div>
+              <div class="fly-item">JSON exportieren</div>
+              <div class="fly-item">Aktivitäts-Log</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="c-run" style="display:flex;align-items:center;gap:8px">
+          <span style="font-size:11px;color:var(--text-3)">12 ausstehend</span>
+          <button class="btn btn-run btn-sm">▶ Ausführen</button>
+        </div>
+      </div>
+
+      <!-- 3. Tabs: Data left, Info right -->
+      <div class="c-tabs">
+        <div class="c-tab-data">
+          <div class="ctab act-d">Firmen</div>
+          <div class="ctab">Kontakte</div>
+        </div>
+        <div class="c-tbl-actions">
+          <button class="btn btn-ghost btn-sm">Reset</button>
+          <button class="btn btn-ghost btn-sm">Dedupe</button>
+          <button class="btn btn-ghost btn-sm">CSV ↓</button>
+        </div>
+        <div class="c-tab-info">
+          <div class="ctab act-i">Suchen</div>
+          <div class="ctab act-i">Quellen</div>
+          <div class="ctab act-i">Log</div>
+          <div class="ctab act-i">Export</div>
+        </div>
+      </div>
+
+      <!-- Table -->
+      <div class="table-area">
+        <div class="t-head">
+          <div class="t-col" style="width:32px;padding:0 10px"><input type="checkbox" style="accent-color:var(--orange)"/></div>
+          <div class="t-col" style="width:36px">#</div>
+          <div class="t-col" style="width:70px">Status</div>
+          <div class="t-col" style="flex:2">Firma</div>
+          <div class="t-col" style="flex:1.5">Domain</div>
+          <div class="t-col" style="flex:1">Stadt</div>
+          <div class="t-col ai" style="flex:1.5">● Beschreibung KI</div>
+          <div class="t-col ai" style="flex:1">● Qualifizierung</div>
+        </div>
+        <div class="t-rows">
+          <div class="t-row">
+            <div class="t-cell" style="width:32px;padding:0 10px"><input type="checkbox" style="accent-color:var(--orange)"/></div>
+            <div class="t-cell dim" style="width:36px">1</div>
+            <div class="t-cell" style="width:70px"><span class="chip chip-g">✓ Fertig</span></div>
+            <div class="t-cell" style="flex:2;font-weight:500">Bau & Grund GmbH</div>
+            <div class="t-cell link" style="flex:1.5">baugrund.de</div>
+            <div class="t-cell" style="flex:1">Rostock</div>
+            <div class="t-cell ai" style="flex:1.5">Schlüsselfertig-Anbieter</div>
+            <div class="t-cell ai" style="flex:1"><span class="chip chip-g">Hoch</span></div>
+          </div>
+          <div class="t-row">
+            <div class="t-cell" style="width:32px;padding:0 10px"><input type="checkbox" style="accent-color:var(--orange)"/></div>
+            <div class="t-cell dim" style="width:36px">2</div>
+            <div class="t-cell" style="width:70px"><span class="chip chip-w">⏳ Offen</span></div>
+            <div class="t-cell" style="flex:2;font-weight:500">Nordhaus Bau AG</div>
+            <div class="t-cell link" style="flex:1.5">nordhaus-bau.de</div>
+            <div class="t-cell" style="flex:1">Schwerin</div>
+            <div class="t-cell ai" style="flex:1.5">—</div>
+            <div class="t-cell ai" style="flex:1">—</div>
+          </div>
+          <div class="t-row">
+            <div class="t-cell" style="width:32px;padding:0 10px"><input type="checkbox" style="accent-color:var(--orange)"/></div>
+            <div class="t-cell dim" style="width:36px">3</div>
+            <div class="t-cell" style="width:70px"><span class="chip chip-g">✓ Fertig</span></div>
+            <div class="t-cell" style="flex:2;font-weight:500">Küstenwerk Bau GmbH</div>
+            <div class="t-cell link" style="flex:1.5">kuestenwerk.de</div>
+            <div class="t-cell" style="flex:1">Greifswald</div>
+            <div class="t-cell ai" style="flex:1.5">Regionales Bauunternehmen</div>
+            <div class="t-cell ai" style="flex:1"><span class="chip chip-o">Mittel</span></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+
+<!-- ╔══════════════════════════════════════════════════════╗
+     ║  KONZEPT D  –  Unified Header Bar  (Bonus)          ║
+     ╚══════════════════════════════════════════════════════╝ -->
+<div class="concept-section">
+  <div class="concept-title">
+    <span class="concept-badge" style="background:#fce7f3;color:#9d174d">Konzept D</span>
+    <h2>Unified Header Bar <span style="font-size:12px;font-weight:400;color:var(--text-3)">(Bonus – kompakteste Variante)</span></h2>
+  </div>
+  <p class="concept-desc">
+    Alles in <strong>einer einzigen Header-Zeile</strong>: Titel → Daten-Tabs → sekundäre Tabs → Tabellen-Tools → Aktionen → Run.
+    Die Trennlinie zwischen Daten-Tabs und Info-Tabs ist eine subtile Linie.
+    Aktionen kommen als Icon-Buttons mit Tooltip. Maximale Kompaktheit für erfahrene Nutzer.
+  </p>
+  <div class="concept-pros">
+    <span class="pro">Minimaler vertikaler Platzbedarf</span>
+    <span class="pro">Alles sofort erreichbar</span>
+    <span class="con">Eng bei vielen Buttons</span>
+    <span class="con">Weniger Struktur auf einen Blick</span>
+  </div>
+
+  <div class="shell">
+    <nav class="sidebar">
+      <div class="logo"><div class="logo-mark">D</div><span class="logo-name">DataMiner</span></div>
+      <div class="nav-section">
+        <div class="nav-label">Cases</div>
+        <div class="case-row active"><div class="case-name">Hausbauunternehmen MV</div><div class="case-meta">547 Zeilen · 6 Kataloge</div></div>
+        <div class="case-row"><div class="case-name">IT-Dienstleister Berlin</div><div class="case-meta">212 Zeilen</div></div>
+      </div>
+    </nav>
+
+    <div class="main">
+
+      <!-- Single unified header bar -->
+      <div style="background:var(--surface);border-bottom:1px solid var(--border);padding:0 16px;display:flex;flex-direction:column">
+
+        <!-- Top row: title + meta + view toggle -->
+        <div style="display:flex;align-items:center;gap:12px;padding:10px 0 6px;border-bottom:1px solid var(--border-xs)">
+          <div>
+            <div style="font-size:14px;font-weight:600;letter-spacing:-.3px">Hausbauunternehmen MV</div>
+            <div style="display:flex;gap:10px;margin-top:1px">
+              <span style="font-size:10.5px;color:var(--text-3)">547 Zeilen</span>
+              <span style="font-size:10.5px;color:var(--text-3)">6 Kataloge</span>
+              <span style="font-size:10.5px;color:var(--green)">2 KI-Spalten</span>
+              <span style="font-size:10.5px;color:var(--text-3)">$0.00991</span>
+            </div>
+          </div>
+          <div style="margin-left:auto;display:flex;align-items:center;gap:6px">
+            <div class="view-toggle"><button class="vbtn active">Flach</button><button class="vbtn">Gruppiert</button></div>
+          </div>
+        </div>
+
+        <!-- Tab + actions row (unified) -->
+        <div style="display:flex;align-items:center;height:38px;gap:0">
+
+          <!-- PRIMARY data tabs -->
+          <div class="dtab act">Firmen</div>
+          <div class="dtab">Kontakte</div>
+
+          <!-- Divider + secondary info tabs -->
+          <div class="dtab secondary">Suchen</div>
+          <div class="dtab secondary">Quellen</div>
+          <div class="dtab secondary">Log</div>
+          <div class="dtab secondary">Export</div>
+
+          <!-- Table actions cluster -->
+          <div class="action-cluster">
+            <button class="btn btn-ghost btn-sm" title="Spalte hinzufügen">+ Spalte</button>
+            <button class="btn btn-ghost btn-sm" title="Duplikate entfernen">Dedupe</button>
+            <button class="btn btn-ghost btn-sm" title="CSV exportieren">CSV ↓</button>
+          </div>
+
+          <!-- Enrich actions cluster -->
+          <div class="action-cluster">
+            <button class="btn btn-sm" title="CSV importieren">📥</button>
+            <button class="btn btn-sm" title="Suchen & Crawlen">🔍</button>
+            <button class="btn btn-sm" title="Emails">✉️</button>
+            <button class="btn btn-sm" title="Kataloge scrapen" style="position:relative">
+              🗂<span class="badge badge-o" style="position:absolute;top:-4px;right:-4px;font-size:9px;min-width:14px;height:14px">6</span>
+            </button>
+            <button class="btn btn-ai btn-sm" title="Kontakte vervollständigen" style="position:relative">
+              👥<span class="badge" style="position:absolute;top:-4px;right:-4px;font-size:9px;min-width:14px;height:14px">228</span>
+            </button>
+          </div>
+
+          <!-- Run -->
+          <div class="action-cluster">
+            <span style="font-size:10.5px;color:var(--text-3)">12 offen</span>
+            <button class="btn btn-run btn-sm">▶ Ausführen</button>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- Table -->
+      <div class="table-area">
+        <div class="t-head">
+          <div class="t-col" style="width:32px;padding:0 10px"><input type="checkbox" style="accent-color:var(--orange)"/></div>
+          <div class="t-col" style="width:36px">#</div>
+          <div class="t-col" style="width:70px">Status</div>
+          <div class="t-col" style="flex:2">Firma</div>
+          <div class="t-col" style="flex:1.5">Domain</div>
+          <div class="t-col" style="flex:1">Stadt</div>
+          <div class="t-col ai" style="flex:1.5">● Beschreibung KI</div>
+          <div class="t-col ai" style="flex:1">● Qualifizierung</div>
+        </div>
+        <div class="t-rows">
+          <div class="t-row">
+            <div class="t-cell" style="width:32px;padding:0 10px"><input type="checkbox" style="accent-color:var(--orange)"/></div>
+            <div class="t-cell dim" style="width:36px">1</div>
+            <div class="t-cell" style="width:70px"><span class="chip chip-g">✓ Fertig</span></div>
+            <div class="t-cell" style="flex:2;font-weight:500">Bau & Grund GmbH</div>
+            <div class="t-cell link" style="flex:1.5">baugrund.de</div>
+            <div class="t-cell" style="flex:1">Rostock</div>
+            <div class="t-cell ai" style="flex:1.5">Schlüsselfertig-Anbieter</div>
+            <div class="t-cell ai" style="flex:1"><span class="chip chip-g">Hoch</span></div>
+          </div>
+          <div class="t-row">
+            <div class="t-cell" style="width:32px;padding:0 10px"><input type="checkbox" style="accent-color:var(--orange)"/></div>
+            <div class="t-cell dim" style="width:36px">2</div>
+            <div class="t-cell" style="width:70px"><span class="chip chip-w">⏳ Offen</span></div>
+            <div class="t-cell" style="flex:2;font-weight:500">Nordhaus Bau AG</div>
+            <div class="t-cell link" style="flex:1.5">nordhaus-bau.de</div>
+            <div class="t-cell" style="flex:1">Schwerin</div>
+            <div class="t-cell ai" style="flex:1.5">—</div>
+            <div class="t-cell ai" style="flex:1">—</div>
+          </div>
+          <div class="t-row">
+            <div class="t-cell" style="width:32px;padding:0 10px"><input type="checkbox" style="accent-color:var(--orange)"/></div>
+            <div class="t-cell dim" style="width:36px">3</div>
+            <div class="t-cell" style="width:70px"><span class="chip chip-g">✓ Fertig</span></div>
+            <div class="t-cell" style="flex:2;font-weight:500">Küstenwerk Bau GmbH</div>
+            <div class="t-cell link" style="flex:1.5">kuestenwerk.de</div>
+            <div class="t-cell" style="flex:1">Greifswald</div>
+            <div class="t-cell ai" style="flex:1.5">Regionales Bauunternehmen</div>
+            <div class="t-cell ai" style="flex:1"><span class="chip chip-o">Mittel</span></div>
+          </div>
+          <div class="t-row">
+            <div class="t-cell" style="width:32px;padding:0 10px"><input type="checkbox" style="accent-color:var(--orange)"/></div>
+            <div class="t-cell dim" style="width:36px">4</div>
+            <div class="t-cell" style="width:70px"><span class="chip chip-g">✓ Fertig</span></div>
+            <div class="t-cell" style="flex:2;font-weight:500">MV Wohnbau GmbH & Co. KG</div>
+            <div class="t-cell link" style="flex:1.5">mv-wohnbau.de</div>
+            <div class="t-cell" style="flex:1">Stralsund</div>
+            <div class="t-cell ai" style="flex:1.5">Projektentwickler</div>
+            <div class="t-cell ai" style="flex:1"><span class="chip chip-g">Hoch</span></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+
+<!-- ── Comparison Table ─────────────────────────────── -->
+<table class="compare-table">
+  <thead>
+    <tr>
+      <th>Kriterium</th>
+      <th>A – Command Bar</th>
+      <th>B – Kategorie-Pillen</th>
+      <th>C – Flyout-Menüs</th>
+      <th>D – Unified Bar</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>Aktionen sichtbar</strong></td>
+      <td><span class="tick">✓ Alle immer sichtbar</span></td>
+      <td><span class="half">~ Nur aktive Kategorie</span></td>
+      <td><span class="cross">✗ Versteckt in Dropdowns</span></td>
+      <td><span class="half">~ Icons (Tooltip nötig)</span></td>
+    </tr>
+    <tr>
+      <td><strong>Daten/Info-Trennung</strong></td>
+      <td><span class="tick">✓ Klar getrennt</span></td>
+      <td><span class="tick">✓ Sehr klar</span></td>
+      <td><span class="tick">✓ Klar getrennt</span></td>
+      <td><span class="half">~ Subtile Linie</span></td>
+    </tr>
+    <tr>
+      <td><strong>Vertikaler Platzbedarf</strong></td>
+      <td><span class="half">~ 3 Zeilen</span></td>
+      <td><span class="cross">✗ 4 Zeilen</span></td>
+      <td><span class="tick">✓ 3 Zeilen</span></td>
+      <td><span class="tick">✓ 2 Zeilen</span></td>
+    </tr>
+    <tr>
+      <td><strong>Lernkurve</strong></td>
+      <td><span class="tick">✓ Minimal</span></td>
+      <td><span class="half">~ Neue Metapher</span></td>
+      <td><span class="half">~ Menü-Entdeckung nötig</span></td>
+      <td><span class="tick">✓ Minimal</span></td>
+    </tr>
+    <tr>
+      <td><strong>Skalierbarkeit</strong> (mehr Aktionen)</td>
+      <td><span class="half">~ Overflow möglich</span></td>
+      <td><span class="tick">✓ Gut — Kategorien erweiterbar</span></td>
+      <td><span class="tick">✓ Gut — Dropdown wächst</span></td>
+      <td><span class="cross">✗ Eng</span></td>
+    </tr>
+    <tr>
+      <td><strong>Empfehlung</strong></td>
+      <td style="background:#fff8f3"><strong style="color:var(--orange)">⭐ Sofort umsetzbar</strong></td>
+      <td><strong>Langfristig beste UX</strong></td>
+      <td>Gut für Power-User</td>
+      <td>Nur bei wenigen Aktionen</td>
+    </tr>
+  </tbody>
+</table>
+
+<script>
+function toggleDD(id){
+  const el=document.getElementById(id);
+  const wasOpen=el.classList.contains('open');
+  document.querySelectorAll('.dropdown').forEach(d=>d.classList.remove('open'));
+  if(!wasOpen)el.classList.add('open');
+}
+
+function toggleFly(id){
+  const el=document.getElementById(id);
+  const wasOpen=el.classList.contains('open');
+  document.querySelectorAll('.flyout').forEach(d=>d.classList.remove('open'));
+  if(!wasOpen)el.classList.add('open');
+}
+
+document.addEventListener('click',e=>{
+  if(!e.target.closest('[onclick]')){
+    document.querySelectorAll('.flyout,.dropdown').forEach(d=>d.classList.remove('open'));
+  }
+});
+</script>
+</body>
+</html>

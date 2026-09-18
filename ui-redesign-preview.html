@@ -1,0 +1,644 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>DataMiner — Redesign Preview</title>
+<style>
+  /* ── Reset & Base ─────────────────────────────────────────── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:        #f9f9f8;
+    --surface:   #ffffff;
+    --border:    #e8e7e4;
+    --border-sm: #f0efec;
+    --text-1:    #1a1a1a;
+    --text-2:    #6b6b6b;
+    --text-3:    #a8a8a8;
+    --accent:    #4f6ef7;
+    --accent-bg: #f0f3fe;
+    --danger:    #e05252;
+    --success:   #3d9e6c;
+    --warn:      #c98b2e;
+    --radius:    8px;
+    --radius-sm: 5px;
+    --shadow:    0 1px 3px rgba(0,0,0,.06), 0 1px 2px rgba(0,0,0,.04);
+    --font:      'Inter', system-ui, -apple-system, sans-serif;
+  }
+
+  body {
+    font-family: var(--font);
+    background: var(--bg);
+    color: var(--text-1);
+    font-size: 13px;
+    line-height: 1.5;
+    display: flex;
+    height: 100vh;
+    overflow: hidden;
+  }
+
+  /* ── Sidebar ──────────────────────────────────────────────── */
+  .sidebar {
+    width: 220px;
+    min-width: 220px;
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    padding: 20px 0;
+  }
+
+  .sidebar-logo {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 0 20px 20px;
+    border-bottom: 1px solid var(--border-sm);
+  }
+
+  .logo-mark {
+    width: 28px; height: 28px;
+    background: var(--text-1);
+    border-radius: 7px;
+    display: flex; align-items: center; justify-content: center;
+    color: #fff;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: -.5px;
+  }
+
+  .logo-name {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-1);
+    letter-spacing: -.3px;
+  }
+
+  .sidebar-section {
+    padding: 16px 20px 8px;
+  }
+
+  .sidebar-label {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--text-3);
+    margin-bottom: 6px;
+  }
+
+  .new-case-btn {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 7px 10px;
+    border: 1px dashed var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text-2);
+    cursor: pointer;
+    font-size: 12px;
+    background: transparent;
+    width: 100%;
+    transition: all .15s;
+    margin-bottom: 10px;
+  }
+  .new-case-btn:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-bg); }
+
+  .case-item {
+    padding: 8px 10px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: background .12s;
+  }
+  .case-item:hover { background: var(--bg); }
+  .case-item.active { background: var(--accent-bg); }
+
+  .case-item-name {
+    font-size: 12.5px;
+    font-weight: 500;
+    color: var(--text-1);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .case-item.active .case-item-name { color: var(--accent); }
+
+  .case-item-meta {
+    font-size: 11px;
+    color: var(--text-3);
+    margin-top: 1px;
+  }
+
+  /* ── Main ─────────────────────────────────────────────────── */
+  .main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* ── Header ───────────────────────────────────────────────── */
+  .header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 16px 24px 0;
+  }
+
+  .header-top {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    margin-bottom: 14px;
+  }
+
+  .page-title {
+    font-size: 17px;
+    font-weight: 600;
+    color: var(--text-1);
+    letter-spacing: -.4px;
+  }
+
+  .header-stats {
+    display: flex;
+    gap: 20px;
+    margin-top: 4px;
+  }
+
+  .stat-chip {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 11.5px;
+    color: var(--text-2);
+  }
+
+  .stat-chip .dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--text-3);
+  }
+
+  .header-view-toggle {
+    display: flex;
+    gap: 2px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 3px;
+  }
+
+  .view-btn {
+    padding: 4px 10px;
+    border-radius: 4px;
+    font-size: 12px;
+    color: var(--text-2);
+    cursor: pointer;
+    border: none;
+    background: transparent;
+    transition: all .12s;
+  }
+  .view-btn.active {
+    background: var(--surface);
+    color: var(--text-1);
+    box-shadow: var(--shadow);
+    font-weight: 500;
+  }
+
+  .header-tabs {
+    display: flex;
+    gap: 0;
+    margin-top: 2px;
+  }
+
+  .tab {
+    padding: 9px 14px;
+    font-size: 12.5px;
+    color: var(--text-2);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: all .12s;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .tab:hover { color: var(--text-1); }
+  .tab.active {
+    color: var(--text-1);
+    border-bottom-color: var(--text-1);
+    font-weight: 500;
+  }
+  .tab-icon { font-size: 13px; opacity: .7; }
+
+  /* ── Toolbar ──────────────────────────────────────────────── */
+  .toolbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 24px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    flex-wrap: wrap;
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border-radius: var(--radius-sm);
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text-1);
+    transition: all .12s;
+    white-space: nowrap;
+  }
+  .btn:hover { background: var(--bg); border-color: #d0cfc9; }
+
+  .btn-primary {
+    background: var(--text-1);
+    color: #fff;
+    border-color: var(--text-1);
+  }
+  .btn-primary:hover { background: #2d2d2d; border-color: #2d2d2d; }
+
+  .btn-ghost {
+    border-color: transparent;
+    background: transparent;
+    color: var(--text-2);
+  }
+  .btn-ghost:hover { background: var(--bg); color: var(--text-1); }
+
+  .toolbar-sep {
+    width: 1px;
+    height: 20px;
+    background: var(--border);
+    flex-shrink: 0;
+  }
+
+  .toolbar-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 5px;
+    border-radius: 9px;
+    font-size: 10px;
+    font-weight: 600;
+    background: var(--text-1);
+    color: #fff;
+  }
+
+  .toolbar-right {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .row-count {
+    font-size: 11.5px;
+    color: var(--text-3);
+  }
+
+  /* ── Table ────────────────────────────────────────────────── */
+  .table-wrap {
+    flex: 1;
+    overflow: auto;
+    padding: 0;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12.5px;
+  }
+
+  thead tr {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: var(--surface);
+  }
+
+  th {
+    padding: 0 12px;
+    height: 36px;
+    text-align: left;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    color: var(--text-3);
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+    user-select: none;
+  }
+
+  th:first-child, td:first-child { padding-left: 24px; width: 36px; }
+  th:nth-child(2), td:nth-child(2) { width: 32px; color: var(--text-3); font-size: 11px; }
+
+  th .sort-icon { opacity: .4; margin-left: 3px; font-size: 10px; }
+
+  td {
+    padding: 0 12px;
+    height: 44px;
+    border-bottom: 1px solid var(--border-sm);
+    color: var(--text-1);
+    vertical-align: middle;
+    max-width: 200px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  tr:hover td { background: #fafaf9; }
+
+  /* Status pill */
+  .status {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 8px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 500;
+  }
+  .status::before {
+    content: '';
+    width: 5px; height: 5px;
+    border-radius: 50%;
+  }
+  .status-done   { background: #f0faf5; color: var(--success); }
+  .status-done::before { background: var(--success); }
+  .status-pending { background: #fdf8f0; color: var(--warn); }
+  .status-pending::before { background: var(--warn); }
+  .status-error  { background: #fdf2f2; color: var(--danger); }
+  .status-error::before { background: var(--danger); }
+
+  /* Source tag */
+  .source-tag {
+    display: inline-block;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 10.5px;
+    font-weight: 600;
+    background: var(--bg);
+    color: var(--text-3);
+    letter-spacing: .03em;
+  }
+
+  .domain-link {
+    color: var(--accent);
+    text-decoration: none;
+    font-size: 12px;
+  }
+  .domain-link:hover { text-decoration: underline; }
+
+  input[type="checkbox"] {
+    accent-color: var(--text-1);
+    width: 14px; height: 14px;
+    cursor: pointer;
+  }
+
+  .row-num { color: var(--text-3); font-size: 11px; }
+
+  /* ── Empty state ──────────────────────────────────────────── */
+  .empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 80px 20px;
+    color: var(--text-3);
+    gap: 8px;
+  }
+  .empty-icon { font-size: 32px; opacity: .4; }
+  .empty-text { font-size: 13px; }
+</style>
+</head>
+<body>
+
+<!-- ── Sidebar ── -->
+<nav class="sidebar">
+  <div class="sidebar-logo">
+    <div class="logo-mark">D</div>
+    <span class="logo-name">DataMiner</span>
+  </div>
+
+  <div class="sidebar-section">
+    <button class="new-case-btn">
+      <span>＋</span> Neuer Case
+    </button>
+
+    <div class="sidebar-label">Cases</div>
+
+    <div class="case-item active">
+      <div class="case-item-name">Hausbauunternehmen MV</div>
+      <div class="case-item-meta">547 Zeilen · 6 Kataloge</div>
+    </div>
+    <div class="case-item">
+      <div class="case-item-name">IT-Dienstleister Berlin</div>
+      <div class="case-item-meta">212 Zeilen · 3 Kataloge</div>
+    </div>
+    <div class="case-item">
+      <div class="case-item-name">Sanitär Hamburg</div>
+      <div class="case-item-meta">88 Zeilen · 1 Katalog</div>
+    </div>
+  </div>
+</nav>
+
+<!-- ── Main ── -->
+<div class="main">
+
+  <!-- Header -->
+  <div class="header">
+    <div class="header-top">
+      <div>
+        <div class="page-title">Hausbauunternehmen MV</div>
+        <div class="header-stats">
+          <div class="stat-chip"><div class="dot"></div>547 Zeilen</div>
+          <div class="stat-chip"><div class="dot"></div>6 Kataloge</div>
+          <div class="stat-chip"><div class="dot"></div>24 Quellspalten</div>
+          <div class="stat-chip"><div class="dot"></div>2 KI-Spalten</div>
+          <div class="stat-chip"><div class="dot" style="background:#a3b3f9"></div>58.578 Tokens</div>
+          <div class="stat-chip"><div class="dot" style="background:#7ecda0"></div>$0.00991</div>
+        </div>
+      </div>
+      <div class="header-view-toggle">
+        <button class="view-btn active">Flach</button>
+        <button class="view-btn">Gruppiert</button>
+      </div>
+    </div>
+
+    <div class="header-tabs">
+      <div class="tab active"><span class="tab-icon">🏢</span> Firmen</div>
+      <div class="tab"><span class="tab-icon">👤</span> Kontakte</div>
+      <div class="tab"><span class="tab-icon">🔍</span> Suchen</div>
+      <div class="tab"><span class="tab-icon">📚</span> Quellen</div>
+      <div class="tab"><span class="tab-icon">📋</span> Log</div>
+      <div class="tab"><span class="tab-icon">⬆</span> Export</div>
+    </div>
+  </div>
+
+  <!-- Toolbar -->
+  <div class="toolbar">
+    <button class="btn">⬇ Import</button>
+    <button class="btn">🔍 Suchen &amp; Crawlen</button>
+    <button class="btn">🎯 Ziel-Suche</button>
+    <button class="btn">✉ Emails</button>
+    <button class="btn">🗂 Kataloge scrapen <span class="toolbar-badge">6</span></button>
+    <button class="btn">🔗 Kontakte vervollständigen <span class="toolbar-badge">228</span></button>
+    <button class="btn">＋ Spalte</button>
+
+    <div class="toolbar-sep"></div>
+
+    <button class="btn btn-primary">▶ Ausführen</button>
+
+    <div class="toolbar-right">
+      <span class="row-count">553 Zeilen · 12 ausstehend</span>
+      <div class="toolbar-sep"></div>
+      <button class="btn btn-ghost">Zurücksetzen</button>
+      <button class="btn btn-ghost">Duplikate</button>
+      <button class="btn btn-ghost">↓ CSV</button>
+      <button class="btn btn-ghost">⊞ Spalten</button>
+    </div>
+  </div>
+
+  <!-- Table -->
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th><input type="checkbox" /></th>
+          <th>#</th>
+          <th>Status <span class="sort-icon">↕</span></th>
+          <th>Firma <span class="sort-icon">↕</span></th>
+          <th>Domain <span class="sort-icon">↕</span></th>
+          <th>Telefon</th>
+          <th>Adresse</th>
+          <th>Stadt <span class="sort-icon">↕</span></th>
+          <th>PLZ</th>
+          <th>Branche</th>
+          <th>Beschreibung</th>
+          <th>Mitarbeiter <span class="sort-icon">↕</span></th>
+          <th>Gründungsjahr <span class="sort-icon">↕</span></th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><input type="checkbox" /></td>
+          <td class="row-num">1</td>
+          <td><span class="status status-done">Fertig</span></td>
+          <td><strong>ARGE-HAUS Massivbau GmbH</strong></td>
+          <td><a class="domain-link" href="#">arge-haus-rostock.de</a></td>
+          <td>+49 381 8172730</td>
+          <td>Am Kreuzgraben 5</td>
+          <td>Rostock</td>
+          <td>18146</td>
+          <td>Hausbau</td>
+          <td style="color:var(--text-2)">ARGE-HAUS Rostock plant u…</td>
+          <td>—</td>
+          <td>—</td>
+        </tr>
+        <tr>
+          <td><input type="checkbox" /></td>
+          <td class="row-num">2</td>
+          <td><span class="status status-pending">Ausstehend</span></td>
+          <td><strong>ML BAU: Bauunternehmen fü…</strong></td>
+          <td><a class="domain-link" href="#">mlbau.de</a></td>
+          <td>—</td>
+          <td>—</td>
+          <td>Schwerin</td>
+          <td>19053</td>
+          <td>Hochbau</td>
+          <td style="color:var(--text-2)">Regionaler Anbieter mit…</td>
+          <td>12</td>
+          <td>2003</td>
+        </tr>
+        <tr>
+          <td><input type="checkbox" /></td>
+          <td class="row-num">3</td>
+          <td><span class="status status-done">Fertig</span></td>
+          <td><strong>Bauhaus Greifswald GmbH</strong></td>
+          <td><a class="domain-link" href="#">bauhaus-greifswald.de</a></td>
+          <td>+49 3834 770</td>
+          <td>Bahnhofstr. 12</td>
+          <td>Greifswald</td>
+          <td>17489</td>
+          <td>Hausbau</td>
+          <td style="color:var(--text-2)">Spezialist für Massivbau…</td>
+          <td>34</td>
+          <td>1998</td>
+        </tr>
+        <tr>
+          <td><input type="checkbox" /></td>
+          <td class="row-num">4</td>
+          <td><span class="status status-error">Fehler</span></td>
+          <td><strong>Nord-Bau Stralsund KG</strong></td>
+          <td><a class="domain-link" href="#">nordbau-stralsund.de</a></td>
+          <td>+49 3831 2090</td>
+          <td>Tribseer Damm 2</td>
+          <td>Stralsund</td>
+          <td>18437</td>
+          <td>Tiefbau</td>
+          <td style="color:var(--text-2)">Infrastruktur und Tief…</td>
+          <td>67</td>
+          <td>1991</td>
+        </tr>
+        <tr>
+          <td><input type="checkbox" /></td>
+          <td class="row-num">5</td>
+          <td><span class="status status-done">Fertig</span></td>
+          <td><strong>Küstenbau Wismar GmbH &amp; Co.</strong></td>
+          <td><a class="domain-link" href="#">kuestenbau-wismar.de</a></td>
+          <td>+49 3841 6630</td>
+          <td>Lübsche Str. 44</td>
+          <td>Wismar</td>
+          <td>23966</td>
+          <td>Hochbau</td>
+          <td style="color:var(--text-2)">Wohn- und Gewerbebau an…</td>
+          <td>28</td>
+          <td>2007</td>
+        </tr>
+        <tr>
+          <td><input type="checkbox" /></td>
+          <td class="row-num">6</td>
+          <td><span class="status status-pending">Ausstehend</span></td>
+          <td><strong>Mecklenburg Bau AG</strong></td>
+          <td><a class="domain-link" href="#">mecklenburgbau.de</a></td>
+          <td>—</td>
+          <td>Marktplatz 3</td>
+          <td>Neubrandenburg</td>
+          <td>17033</td>
+          <td>Generalunternehmer</td>
+          <td style="color:var(--text-2)">Komplettlösungen für…</td>
+          <td>145</td>
+          <td>1985</td>
+        </tr>
+        <tr>
+          <td><input type="checkbox" /></td>
+          <td class="row-num">7</td>
+          <td><span class="status status-done">Fertig</span></td>
+          <td><strong>Hanseatic Homes GmbH</strong></td>
+          <td><a class="domain-link" href="#">hanseatic-homes.de</a></td>
+          <td>+49 381 9900</td>
+          <td>Doberaner Str. 8</td>
+          <td>Rostock</td>
+          <td>18057</td>
+          <td>Schlüsselfertig</td>
+          <td style="color:var(--text-2)">Schlüsselfertiges Bauen…</td>
+          <td>52</td>
+          <td>2012</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+</div>
+</body>
+</html>

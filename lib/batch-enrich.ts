@@ -177,7 +177,7 @@ export async function batchEnrichRow(
     serpApiKey,
     braveApiKey,
     requestedFields = [...BATCH_FIELDS],
-    searchContacts = false,  // default off — batch_contacts column handles contacts separately
+    searchContacts = false,  // default off — batch_contact column handles contacts separately
     cachedScrape,
     customSystemPrompt,
     signal,
@@ -200,13 +200,15 @@ export async function batchEnrichRow(
   let searchError: string | undefined;
 
   // 2. Scrape homepage + impressum/kontakt page for company email
-  if (domain) {
+  // IMPORTANT: skip scrape if domain is a non-company URL (Google Maps, social media, etc.)
+  const isRealDomain = domain && !NON_COMPANY_DOMAINS.has(domain) && !isNonCompanyUrl(domain);
+  if (isRealDomain) {
     if (cachedScrape) {
       scrapeMarkdown = filterScrapedContent(cachedScrape);
     } else {
       try {
         const base = domain.startsWith("http") ? domain : `https://${domain}`;
-        const result = await edenScrapeUrl({ apiKey: edenApiKey, url: base });
+        const result = await edenScrapeUrl({ apiKey: edenApiKey, url: base, signal });
         scrapeMarkdown = filterScrapedContent(result.markdown?.slice(0, 6000) ?? "");
       } catch (e) {
         scrapeError = (e as Error).message;
@@ -221,8 +223,9 @@ export async function batchEnrichRow(
       const base = domain.startsWith("http") ? domain : `https://${domain}`;
       const impressumPaths = ["/impressum", "/kontakt", "/impressum.html", "/kontakt.html", "/about", "/ueber-uns"];
       for (const path of impressumPaths) {
+        if (signal?.aborted) break;
         try {
-          const result = await edenScrapeUrl({ apiKey: edenApiKey, url: `${base}${path}` });
+          const result = await edenScrapeUrl({ apiKey: edenApiKey, url: `${base}${path}`, signal });
           if (result.markdown && result.markdown.length > 150) {
             impressumMarkdown = filterScrapedContent(result.markdown.slice(0, 3000));
             contextParts.push(`## Impressum/Kontakt (${path})\n${impressumMarkdown}`);
@@ -367,16 +370,61 @@ export async function batchEnrichRow(
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+/** Domains we must never treat as a company's own website (Maps, social media, catalogs, etc.) */
+const NON_COMPANY_DOMAINS = new Set([
+  "google.com", "maps.google.com", "google.de", "google.at", "google.ch",
+  "facebook.com", "instagram.com", "linkedin.com", "xing.com",
+  "twitter.com", "x.com", "youtube.com", "tiktok.com",
+  "yelp.com", "yelp.de", "tripadvisor.com", "tripadvisor.de",
+  "wikipedia.org", "wikidata.org",
+  "yellowpages.com", "gelbeseiten.de", "dasoertliche.de", "11880.com",
+  "wlw.de", "cylex.de", "kompass.com",
+]);
+
+/** Returns true if the URL is a Google Maps link or another known aggregator URL (not a company website). */
+function isNonCompanyUrl(url: string): boolean {
+  try {
+    const u = new URL(url.includes("://") ? url : `https://${url}`);
+    // Google Maps URLs: google.com/maps/..., maps.google.com/...
+    if ((u.hostname === "google.com" || u.hostname.endsWith(".google.com") ||
+         u.hostname === "google.de" || u.hostname.endsWith(".google.de")) &&
+        u.pathname.startsWith("/maps")) {
+      return true;
+    }
+    // Apple Maps
+    if (u.hostname === "maps.apple.com") return true;
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Resolve the best domain from row data.
  * Priority: domain > source_domain > source_url > website
+ *
+ * IMPORTANT: source_url is only used if it's NOT a Google Maps / known non-company URL.
+ * GMB results without a website have source_url = google.com/maps/... — treating that
+ * as a domain would scrape google.com instead of the actual company site.
  */
 function resolveDomain(data: Record<string, string | null | undefined>): string {
-  const candidates = ["domain", "source_domain", "source_url", "website"];
+  const candidates = ["domain", "source_domain"];
   for (const key of candidates) {
     const val = data[key];
     if (!val) continue;
     const d = normalizeDomainSimple(val);
+    if (d) return d;
+  }
+  // source_url is last resort — only if it's not a known non-company URL
+  const sourceUrl = data["source_url"];
+  if (sourceUrl && !isNonCompanyUrl(sourceUrl)) {
+    const d = normalizeDomainSimple(sourceUrl);
+    if (d && !NON_COMPANY_DOMAINS.has(d)) return d;
+  }
+  // website field
+  const website = data["website"];
+  if (website) {
+    const d = normalizeDomainSimple(website);
     if (d) return d;
   }
   return "";

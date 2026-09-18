@@ -29,12 +29,24 @@ export interface AiColumn {
   reasoning?: "none" | "low" | "medium" | "high";
 
   // ── Deterministic tool columns (no LLM) ──────────────────────────────────
-  /** "apollo_contacts": look up decision makers via Apollo.io (MCP/REST) */
-  tool?: "apollo_contacts" | "batch_enrich" | "batch_contacts";
+  /** tool columns */
+  tool?: "apollo_contacts" | "batch_company" | "batch_contact" | "places_summary" | "places_audit" | "gmb_check";
   /** Optional Apollo title filter keywords */
   toolApolloTitles?: string[];
   /** Max contacts to fetch (default 10) */
   toolApolloLimit?: number;
+
+  // ── crawlSources: pre-LLM data fetching ──────────────────────────────────
+  /**
+   * Additional data sources to fetch BEFORE the LLM call.
+   * Results are injected into the prompt as context blocks.
+   *   "domain"       → scrape the company website (same as evidenceMode: "page")
+   *   "maps_details" → Apify Google Maps deep scrape (photos, hours, posts, Q&A)
+   *   "maps_reviews" → SerpAPI google_maps_reviews (last N reviews + owner replies)
+   */
+  crawlSources?: Array<"domain" | "maps_details" | "maps_reviews">;
+  /** Max reviews to fetch when crawlSources includes "maps_reviews" (default: 10) */
+  crawlReviewsMax?: number;
 
   // ── Batch enrichment (tool: "batch_enrich") ───────────────────────────────
   /** Source field containing the domain/URL to scrape (default: "domain") */
@@ -79,6 +91,24 @@ export interface RowData {
   rowIndex: number;
   data: Record<string, string | null>;
   cellStatuses: Record<string, CellStatus>;
+  cellErrors: Record<string, string>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * A contact row — linked to a company row via companyRowId.
+ * Clay-pattern: contacts are separate rows, not flat fields on the company.
+ * data fields: first_name, last_name, position, email, email_extrapolated,
+ *              phone, linkedin, source, company_name, domain, + AI columns
+ */
+export interface ContactRow {
+  id: string;
+  caseId: string;
+  companyRowId: string | null;
+  rowIndex: number;
+  data: Record<string, string | null>;
+  cellStatuses: Record<string, string>;
   cellErrors: Record<string, string>;
   createdAt: string;
   updatedAt: string;

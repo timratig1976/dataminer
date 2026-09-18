@@ -8,7 +8,7 @@ const VALID_SOURCES = new Set<string>([
   "maps-serpapi", "maps-serper", "maps-apify", "maps-scrapling",
 ]);
 
-const DISCOVERY_MAX_LIMIT = 100;
+const DISCOVERY_MAX_LIMIT = 200;
 
 function clamp(raw: unknown, fallback: number): number {
   const n = Number(raw);
@@ -80,7 +80,7 @@ async function runDiscovery(
 
   const srcRaw = typeof source === "string" ? source : "auto";
   const src = VALID_SOURCES.has(srcRaw) ? (srcRaw as DiscoverySource) : "auto";
-  const lim = clamp(limit, src.startsWith("maps") ? 20 : 30);
+  const lim = clamp(limit, src.startsWith("maps") ? 100 : 100);
 
   // Merge client-provided exclusions with domains already stored in the case
   const exclusions = new Set<string>();

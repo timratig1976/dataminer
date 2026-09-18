@@ -5,7 +5,7 @@ import { Play, Loader2, CheckCircle, AlertCircle, CheckCircle2, Sparkles } from 
 import type { AiColumn, RowData, CellStatus } from "@/lib/types";
 import { DEFAULT_MODEL_OPTIONS, mergeModelOptions } from "@/lib/model-options";
 
-type Tab = "result" | "sources" | "llm" | "raw" | "reasoning";
+type Tab = "result" | "sources" | "llm" | "raw" | "crawl" | "data" | "reasoning";
 
 export default function RunDetailModal({ col, row: initialRow, caseId, onClose, onRowUpdate }: {
   col: AiColumn;
@@ -45,7 +45,7 @@ export default function RunDetailModal({ col, row: initialRow, caseId, onClose, 
     }
   }
 
-  const isBatchTool = col.tool === "batch_enrich" || col.tool === "batch_contacts";
+  const isBatchTool = col.tool === "batch_company" || col.tool === "batch_contact";
   const multiKeys = col.multiKeys ?? [];
   const extraOutputKeys = col.validateDomain
     ? [...multiKeys.map(mk => mk.outputKey), "domain_validated"]
@@ -77,6 +77,11 @@ export default function RunDetailModal({ col, row: initialRow, caseId, onClose, 
   const contactsGoogleSnip   = row.data[`_contacts_google_snip_${col.outputKey}`] ?? "";
   const contactsLinkedinSnip = row.data[`_contacts_linkedin_snip_${col.outputKey}`] ?? "";
 
+  // Crawl data (Apify/SerpAPI results stored before LLM call)
+  const crawlMapsDetails = row.data[`_crawl_maps_details_${col.outputKey}`] ?? "";
+  const crawlMapsReviews = row.data[`_crawl_maps_reviews_${col.outputKey}`] ?? "";
+  const hasCrawlData = !!(crawlMapsDetails || crawlMapsReviews);
+
   const companyName = row.data["company_name"] ?? row.data["Unternehmensname"] ?? "";
   const inputMappings = col.inputMappings ?? {};
   const requiredFields = col.requiredFields ?? [];
@@ -93,7 +98,7 @@ export default function RunDetailModal({ col, row: initialRow, caseId, onClose, 
   const batchFields = isBatchTool
     ? Object.entries(row.data).filter(([k, v]) =>
         !k.startsWith("_") && v && v !== "" &&
-        (col.tool === "batch_enrich"
+        (col.tool === "batch_company"
           ? ["company_name","domain","phone","email","city","zip","industry","description"].includes(k)
           : ["contacts","contact_email","contact_phone","linkedin","first_name","last_name","position"].includes(k)))
     : [];
@@ -129,11 +134,15 @@ export default function RunDetailModal({ col, row: initialRow, caseId, onClose, 
   const s = { fontFamily:"monospace" } as React.CSSProperties;
 
   // Tab definitions
+  const hasPlacesData = !!(row.data["maps_rating"] || row.data["maps_reviews"] || row.data["category"] || row.data["maps_url"]);
+  const hasCrawlSources = !!(col.crawlSources?.length);
   const TABS: { id: Tab; label: string; show: boolean }[] = [
     { id:"result"  as Tab, label:"📊 Ergebnis",  show:true },
+    { id:"data"    as Tab, label:"🗂 Datenbasis", show:hasPlacesData || hasCrawlSources || hasCrawlData },
     { id:"sources" as Tab, label:"🔍 Quellen",   show:isBatchTool },
+    { id:"crawl"   as Tab, label:"📡 Crawl-Daten", show:hasCrawlData },
     { id:"llm"     as Tab, label:"🤖 LLM-Call",  show:!!(exactPrompt || previewPrompt) },
-    { id:"raw"     as Tab, label:"{ } Rohdaten", show:!!(rawResponse || allContactFields.length > 0) },
+    { id:"raw"     as Tab, label:"{ } LLM-Antwort", show:!!(rawResponse || allContactFields.length > 0) },
     { id:"reasoning" as Tab, label:"🧠 Reasoning", show:!!reasoningVal },
   ].filter(t => t.show) as { id: Tab; label: string; show: boolean }[];
 
@@ -148,6 +157,24 @@ export default function RunDetailModal({ col, row: initialRow, caseId, onClose, 
           <div style={{flex:1,minWidth:0}}>
             <span style={{fontWeight:700,fontSize:13,color:"#111"}}>{col.name}</span>
             {companyName && <span style={{fontSize:12,color:"#9ca3af",marginLeft:8}}>— {companyName}</span>}
+            {row.data["maps_url"] && (() => {
+              // Convert place_id URL to proper search URL that opens the entry
+              const rawUrl = row.data["maps_url"]!;
+              const placeIdMatch = rawUrl.match(/place_id[=:](\d+)/);
+              const name = row.data["company_name"] ?? row.data["Unternehmensname"] ?? "";
+              const city = row.data["city"] ?? row.data["Stadt"] ?? "";
+              const query = [name, city].filter(Boolean).join(" ");
+              const mapsHref = placeIdMatch
+                ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}&query_place_id=${placeIdMatch[1]}`
+                : rawUrl;
+              return (
+                <a href={mapsHref} target="_blank" rel="noreferrer"
+                  style={{fontSize:11,color:"#0369a1",background:"#e0f2fe",padding:"2px 8px",borderRadius:6,textDecoration:"none",display:"inline-flex",alignItems:"center",gap:3,marginLeft:6,flexShrink:0}}
+                  onClick={e => e.stopPropagation()}>
+                  📍 Maps öffnen ↗
+                </a>
+              );
+            })()}
           </div>
           {/* Status + cost */}
           <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
@@ -185,7 +212,7 @@ export default function RunDetailModal({ col, row: initialRow, caseId, onClose, 
             {runError && <div style={{marginBottom:10,padding:"8px 12px",background:"#fef2f2",border:"1px solid #fecaca",borderRadius:6,fontSize:12,color:"#dc2626"}}>{runError}</div>}
 
             {/* Batch contacts — cards */}
-            {col.tool === "batch_contacts" && contactsJson && (() => {
+            {col.tool === "batch_contact" && contactsJson && (() => {
               try {
                 const cs: Array<{first_name:string|null; last_name:string|null; position:string|null; email:string|null; email_extrapolated?:string|null; phone:string|null; linkedin:string|null; source?:string}> = JSON.parse(contactsJson);
                 const companyEmailVal = row.data["company_email"] ?? row.data["email_fallback"] ?? "";
@@ -286,7 +313,7 @@ export default function RunDetailModal({ col, row: initialRow, caseId, onClose, 
             })()}
 
             {/* Batch enrich — output fields */}
-            {col.tool === "batch_enrich" && batchFields.length > 0 && (
+            {col.tool === "batch_company" && batchFields.length > 0 && (
               <div>
                 <div style={{fontSize:10,fontWeight:700,color:"#64748b",textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:8}}>Angereicherte Felder</div>
                 <div style={{border:"1px solid #e2e8f0",borderRadius:8,overflow:"hidden"}}>
@@ -351,8 +378,8 @@ export default function RunDetailModal({ col, row: initialRow, caseId, onClose, 
               const srcs = batchSources.split(",").map(s=>s.trim()).filter(Boolean);
               const urls = sourceUrlsRaw ? sourceUrlsRaw.split("\n").filter(Boolean) : [];
 
-              // Website Scrape (nur batch_enrich)
-              if (col.tool === "batch_enrich") {
+              // Website Scrape (nur batch_company)
+              if (col.tool === "batch_company") {
                 if (srcs.some(s=>s==="scrape") || batchScrapeMd || batchScrapeErr) {
                   const url = urls.find(u=>!u.includes("linkedin") && !u.includes("google")) ?? (row.data["domain"] ? `https://${row.data["domain"]}` : undefined);
                   entries.push({ id:"scrape", icon:"🔥", label:"Homepage (Firecrawl)", url, content: batchScrapeMd || undefined, error: batchScrapeErr || undefined });
@@ -553,6 +580,120 @@ export default function RunDetailModal({ col, row: initialRow, caseId, onClose, 
             )}
 
             {!rawResponse && allContactFields.length===0 && <div style={{textAlign:"center",padding:"32px 0",color:"#9ca3af",fontSize:13}}>Kein Raw-Output vorhanden (noch nicht ausgeführt)</div>}
+          </>)}
+
+          {/* ═══ DATA BASIS TAB ═══ */}
+          {activeTab === "data" && (() => {
+            const d = row.data as Record<string, string|null>;
+
+            // Parse Apify+SerpAPI enriched profile if available
+            const crawlJson = crawlMapsDetails ? (() => { try { return JSON.parse(crawlMapsDetails) as Record<string,unknown>; } catch { return null; } })() : null;
+
+            // Profile completeness fields — from crawl (ground truth) or row fallback
+            type ProfileField = { label: string; icon: string; value: string | null; fromCrawl?: boolean; important?: boolean };
+            const fields: ProfileField[] = [
+              { label: "Firmenname",       icon: "🏢", value: (typeof crawlJson?.name === "string" ? crawlJson.name : null) ?? d.company_name, fromCrawl: !!crawlJson?.name, important: true },
+              { label: "Adresse",          icon: "📍", value: (typeof crawlJson?.address === "string" ? crawlJson.address : null) ?? d.address, fromCrawl: !!crawlJson?.address, important: true },
+              { label: "Stadt",            icon: "🏙", value: (typeof crawlJson?.city === "string" ? crawlJson.city : null) ?? d.city, fromCrawl: !!crawlJson?.city },
+              { label: "PLZ",              icon: "📮", value: (typeof crawlJson?.postalCode === "string" ? crawlJson.postalCode : null) ?? d.zip, fromCrawl: !!crawlJson?.postalCode },
+              { label: "Telefon",          icon: "📞", value: (typeof crawlJson?.phone === "string" ? crawlJson.phone : null) ?? d.phone, fromCrawl: !!crawlJson?.phone, important: true },
+              { label: "Website",          icon: "🌐", value: (typeof crawlJson?.website === "string" ? crawlJson.website : null) ?? d.domain, fromCrawl: !!crawlJson?.website, important: true },
+              { label: "Kategorien",       icon: "🏷", value: (Array.isArray(crawlJson?.categories) ? (crawlJson?.categories as string[]).join(", ") : null) ?? d.category, fromCrawl: !!(crawlJson?.categories), important: true },
+              { label: "Bewertung ★",      icon: "⭐", value: crawlJson?.rating != null ? String(crawlJson.rating) : d.maps_rating, fromCrawl: crawlJson?.rating != null, important: true },
+              { label: "Anz. Bewertungen", icon: "💬", value: crawlJson?.reviews != null ? String(crawlJson.reviews) : d.maps_reviews, fromCrawl: crawlJson?.reviews != null },
+              { label: "Bewertungsvert.",  icon: "📊", value: typeof crawlJson?.ratingDistribution === "string" ? crawlJson.ratingDistribution : null, fromCrawl: true },
+              { label: "Status",           icon: "🕐", value: typeof crawlJson?.openState === "string" ? crawlJson.openState : null, fromCrawl: true, important: true },
+              { label: "Öffnungszeiten",   icon: "🗓", value: typeof crawlJson?.openingHours === "string" ? crawlJson.openingHours : Array.isArray(crawlJson?.openingHours) ? (crawlJson?.openingHours as string[]).join(", ") : null, fromCrawl: true, important: true },
+              { label: "Beschreibung",     icon: "📝", value: (typeof crawlJson?.description === "string" ? crawlJson.description : null) ?? d.description, fromCrawl: !!crawlJson?.description, important: true },
+              { label: "Fotos",            icon: "📸", value: crawlJson?.photosCount != null ? String(crawlJson.photosCount) : null, fromCrawl: true, important: true },
+              { label: "Inhaber verifiziert", icon: "✔", value: crawlJson?.claimedByOwner != null ? (crawlJson.claimedByOwner ? "Ja" : "Nein — Profil nicht beansprucht!") : null, fromCrawl: true, important: true },
+              { label: "Antwortet auf Reviews", icon: "💭", value: crawlJson?.hasOwnerResponse != null ? (crawlJson.hasOwnerResponse ? "Ja" : "Nein") : null, fromCrawl: true, important: true },
+            ];
+
+            const present = fields.filter(f => f.value && f.value !== "");
+            const missing = fields.filter(f => (!f.value || f.value === "") && f.important);
+
+            return (
+              <div style={{display:"flex",flexDirection:"column",gap:12}}>
+                {/* Source indicator */}
+                <div style={{display:"flex",alignItems:"center",gap:6,fontSize:11,padding:"6px 10px",borderRadius:6,background: crawlJson ? "#f0fdf4" : "#fffbf5",border:`1px solid ${crawlJson ? "#bbf7d0" : "#fed7aa"}`}}>
+                  {crawlJson ? "✅ Echte Profildaten von Apify + SerpAPI" : "⚠ Noch keine Crawl-Daten — zeigt Row-Daten. Run ausführen für echtes Profil."}
+                </div>
+
+                {/* Profile fields */}
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"5px 12px"}}>
+                  {present.map(f => {
+                    const strVal = String(f.value ?? "");
+                    return (
+                      <div key={f.label} style={{display:"flex",gap:6,alignItems:"flex-start",fontSize:12,padding:"4px 6px",borderRadius:4,background: f.fromCrawl ? "#f0fdf4" : "#fff"}}>
+                        <span style={{flexShrink:0}}>{f.icon}</span>
+                        <div style={{minWidth:0}}>
+                          <div style={{fontSize:10,color:"#9ca3af"}}>{f.label}{f.fromCrawl && crawlJson ? " 📡" : ""}</div>
+                          <div style={{color:"#1f2937",fontSize:11,wordBreak:"break-word"}} title={strVal}>{strVal.length > 80 ? strVal.slice(0,80) + "…" : strVal}</div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Missing important fields */}
+                {missing.length > 0 && (
+                  <div>
+                    <div style={{fontSize:11,fontWeight:700,color:"#dc2626",textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:6}}>
+                      ❌ Im Profil fehlend / leer ({missing.length}) — Optimierungspotenzial für ViLocal
+                    </div>
+                    <div style={{display:"flex",flexWrap:"wrap",gap:4}}>
+                      {missing.map(f => (
+                        <span key={f.label} style={{fontSize:11,color:"#dc2626",background:"#fef2f2",border:"1px solid #fecaca",padding:"2px 8px",borderRadius:4}}>
+                          {f.icon} {f.label}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Sample reviews from SerpAPI */}
+                {typeof crawlJson?.userReviewSamples === "string" && (
+                  <div style={{borderTop:"1px solid #f3f4f6",paddingTop:8}}>
+                    <div style={{fontSize:11,fontWeight:700,color:"#6b7280",marginBottom:6}}>💬 Beispiel-Bewertungen</div>
+                    <pre style={{fontSize:11,background:"#f9fafb",padding:"8px",borderRadius:4,whiteSpace:"pre-wrap",wordBreak:"break-word",margin:0,color:"#374151"}}>{crawlJson.userReviewSamples}</pre>
+                  </div>
+                )}
+
+                {/* crawlSources status */}
+                {hasCrawlSources && (
+                  <div style={{borderTop:"1px solid #f3f4f6",paddingTop:8}}>
+                    <div style={{fontSize:10,color:"#9ca3af",marginBottom:4}}>🕷 Crawl-Quellen</div>
+                    <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                      {col.crawlSources?.map(src => {
+                        const done = src === "maps_details" ? !!crawlMapsDetails : src === "maps_reviews" ? !!crawlMapsReviews : false;
+                        const label = {domain:"Website",maps_details:"Maps Details (Apify+SerpAPI)",maps_reviews:"Reviews (Apify)"}[src] ?? src;
+                        return <span key={src} style={{fontSize:10,padding:"2px 8px",borderRadius:99,background: done ? "#dcfce7" : "#fef3c7",color: done ? "#166534" : "#92400e",border:`1px solid ${done?"#bbf7d0":"#fcd34d"}`}}>{done?"✓":"⏳"} {label}</span>;
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
+          {/* ═══ CRAWL DATA TAB ═══ */}
+          {activeTab === "crawl" && (<>
+            {crawlMapsDetails && (
+              <div style={{marginBottom:16}}>
+                <div style={{fontSize:11,fontWeight:700,color:"#0369a1",textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:8}}>📍 Google Maps Details (Apify)</div>
+                <pre style={{background:"#f0f9ff",border:"1px solid #bae6fd",borderRadius:6,padding:"10px 12px",fontSize:12,whiteSpace:"pre-wrap",wordBreak:"break-word",color:"#0c4a6e",margin:0}}>{crawlMapsDetails}</pre>
+              </div>
+            )}
+            {crawlMapsReviews && (
+              <div>
+                <div style={{fontSize:11,fontWeight:700,color:"#0369a1",textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:8}}>⭐ Google Maps Reviews</div>
+                <pre style={{background:"#f0f9ff",border:"1px solid #bae6fd",borderRadius:6,padding:"10px 12px",fontSize:12,whiteSpace:"pre-wrap",wordBreak:"break-word",color:"#0c4a6e",margin:0}}>{crawlMapsReviews}</pre>
+              </div>
+            )}
+            {!crawlMapsDetails && !crawlMapsReviews && (
+              <div style={{textAlign:"center",padding:"32px 0",color:"#9ca3af",fontSize:13}}>Keine Crawl-Daten vorhanden</div>
+            )}
           </>)}
 
           {activeTab === "reasoning" && (<>

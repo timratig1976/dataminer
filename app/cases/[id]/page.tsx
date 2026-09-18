@@ -19,6 +19,7 @@ import GroupedTableView from "@/components/GroupedTableView";
 import { DEFAULT_MODEL_OPTIONS, mergeModelOptions } from "@/lib/model-options";
 import RunDetailModal from "@/components/case/RunDetailModal";
 import EditPromptModal from "@/components/case/EditPromptModal";
+import { ExportModal } from "@/components/ExportModal";
 import CostDashboard from "@/components/case/CostDashboard";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { useCaseData } from "@/hooks/useCaseData";
@@ -726,12 +727,15 @@ function agentRunStatusLabel(s: string) {
   }
 }
 
-function AgentRunRow({ run, isActive, activeRunUniqueCount, onOpenModal, onNewSearch, caseId }: {
+function AgentRunRow({ run, isActive, activeRunUniqueCount, onOpenModal, onNewSearch, onReload, onReloadAndOpen, onReloadRun, caseId }: {
   run: AgentRunItem;
   isActive: boolean;
   activeRunUniqueCount: number;
   onOpenModal: () => void;
   onNewSearch: () => void;
+  onReload: () => void;
+  onReloadAndOpen: (runId: string) => void;
+  onReloadRun: (runId: string) => void;
   caseId: string;
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -740,6 +744,13 @@ function AgentRunRow({ run, isActive, activeRunUniqueCount, onOpenModal, onNewSe
   const [stepResults, setStepResults] = useState<Array<{stepId:string;uniqueInserted:number;error?:string}>>([]);
   const [logLoading, setLogLoading] = useState(false);
   const [resuming, setResuming] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
+  // ── Erweitern-Formular ────────────────────────────────────────────────────
+  const [showExtend, setShowExtend] = useState(false);
+  const [extendContext, setExtendContext] = useState("");
+  const [extending, setExtending] = useState(false);
+  const [extendResult, setExtendResult] = useState<{steps: number} | null>(null);
+  const [extendError, setExtendError] = useState<string|null>(null);
 
   const { label, color, bg } = agentRunStatusLabel(run.status);
   const isTerminal = AGENT_RUN_TERMINAL.has(run.status);
@@ -753,14 +764,49 @@ function AgentRunRow({ run, isActive, activeRunUniqueCount, onOpenModal, onNewSe
     setStepResults(data?.stepResults ?? []);
   }, [caseId, run.id]);
 
+  const handleCancel = async () => {
+    setCancelling(true);
+    try {
+      await fetch(`/api/cases/${caseId}/agent/${run.id}`, { method: "PUT" });
+      onReload();
+    } catch { /* ignore */ }
+    setCancelling(false);
+  };
+
   const handleResume = async () => {
     setResuming(true);
     try {
       await fetch(`/api/cases/${caseId}/agent/${run.id}`, { method: "PATCH" });
-      // Open the modal so the step loop picks it up
-      onOpenModal();
+      onReload();
+      onReloadRun(run.id); // start step loop without opening modal
     } catch { /* ignore */ }
     setResuming(false);
+  };
+
+  const handleExtend = async () => {
+    if (!extendContext.trim()) return;
+    setExtending(true);
+    setExtendError(null);
+    setExtendResult(null);
+    try {
+      const res = await fetch(`/api/cases/${caseId}/agent/${run.id}/extend`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ context: extendContext.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
+      setExtendResult({ steps: data.newSteps });
+      setExtendContext("");
+      // Reload run list + start step loop in background (no modal)
+      onReload();
+      onReloadRun(run.id);
+      // Give the user a moment to see the success message, then close
+      setTimeout(() => { setShowExtend(false); setExtendResult(null); }, 2500);
+    } catch (e) {
+      setExtendError((e as Error).message);
+    }
+    setExtending(false);
   };
 
   const toggleLog = async () => {
@@ -780,7 +826,7 @@ function AgentRunRow({ run, isActive, activeRunUniqueCount, onOpenModal, onNewSe
   }, [isActive, activeRunUniqueCount]);
 
   return (
-    <div style={{ background: "#fff", borderRadius: 10, border: `1px solid ${isActive ? "#bfdbfe" : "#e2e8f0"}`, overflow: "hidden" }}>
+    <div style={{ background: "#fff", borderRadius: 10, border: `1px solid ${isActive ? "#bfdbfe" : showExtend ? "#a5b4fc" : "#e2e8f0"}`, overflow: "hidden" }}>
       {/* Header row */}
       <div style={{ padding: "12px 16px", display: "flex", alignItems: "flex-start", gap: 12 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
@@ -807,16 +853,16 @@ function AgentRunRow({ run, isActive, activeRunUniqueCount, onOpenModal, onNewSe
         </div>
 
         <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
-          <button onClick={toggleLog}
-            style={{ fontSize: 11, padding: "4px 10px", border: "1px solid #e2e8f0", borderRadius: 6, background: expanded ? "#f1f5f9" : "#fff", cursor: "pointer", color: "#374151" }}>
-            {expanded ? "▲ Log" : "▼ Log"}
-          </button>
           {isActive && !isTerminal ? (
             <button onClick={onOpenModal}
               style={{ fontSize: 11, padding: "4px 10px", border: "1px solid #bfdbfe", borderRadius: 6, background: "#eff6ff", cursor: "pointer", color: "#1d4ed8", fontWeight: 600 }}>
               Öffnen
             </button>
           ) : null}
+          <button onClick={toggleLog}
+            style={{ fontSize: 11, padding: "4px 10px", border: "1px solid #e2e8f0", borderRadius: 6, background: expanded ? "#f1f5f9" : "#fff", cursor: "pointer", color: "#374151" }}>
+            {expanded ? "▲ Details" : "▼ Details"}
+          </button>
         </div>
       </div>
 
@@ -869,14 +915,62 @@ function AgentRunRow({ run, isActive, activeRunUniqueCount, onOpenModal, onNewSe
         </div>
       )}
 
+      {/* ── Erweitern-Formular ── */}
+      {showExtend && (
+        <div style={{ borderTop: "1px solid #e0e7ff", background: "#f5f3ff", padding: "14px 16px", display: "flex", flexDirection: "column", gap: 10 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: "#5b21b6" }}>➕ Suche erweitern</div>
+          <div style={{ fontSize: 11, color: "#7c3aed", lineHeight: 1.5 }}>
+            Beschreibe was noch gesucht werden soll — die KI plant neue Schritte und startet sie automatisch.
+          </div>
+          <textarea
+            value={extendContext}
+            onChange={e => setExtendContext(e.target.value)}
+            onKeyDown={e => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) handleExtend(); }}
+            placeholder={`z. B. "Noch alle Städte in MV abdecken die fehlen" oder "Zusätzlich nach Hausverwaltungen suchen"`}
+            rows={3}
+            autoFocus
+            style={{ fontSize: 12, padding: "8px 10px", border: "1px solid #c4b5fd", borderRadius: 8, background: "#fff", resize: "vertical", fontFamily: "inherit", color: "#1e293b", lineHeight: 1.5 }}
+          />
+          {extendResult && (
+            <div style={{ fontSize: 11, color: "#166534", background: "#dcfce7", border: "1px solid #bbf7d0", borderRadius: 6, padding: "6px 10px" }}>
+              ✓ {extendResult.steps} neue Steps geplant — Suche läuft im Hintergrund.
+            </div>
+          )}
+          {extendError && <div style={{ fontSize: 11, color: "#ef4444" }}>⚠ {extendError}</div>}
+          <div style={{ display: "flex", gap: 6, justifyContent: "flex-end", alignItems: "center" }}>
+            <span style={{ fontSize: 10, color: "#a78bfa", flex: 1 }}>⌘↵ zum Absenden</span>
+            <button onClick={() => { setShowExtend(false); setExtendContext(""); setExtendError(null); setExtendResult(null); }}
+              style={{ fontSize: 11, padding: "5px 12px", border: "1px solid #e2e8f0", borderRadius: 6, background: "#fff", cursor: "pointer", color: "#374151" }}>
+              Schließen
+            </button>
+            <button onClick={handleExtend} disabled={extending || !extendContext.trim()}
+              style={{ fontSize: 11, padding: "5px 14px", border: "1px solid #7c3aed", borderRadius: 6, background: extending ? "#ede9fe" : "#7c3aed", cursor: extending ? "default" : "pointer", color: extending ? "#7c3aed" : "#fff", fontWeight: 600, opacity: !extendContext.trim() ? 0.5 : 1, display: "flex", alignItems: "center", gap: 5 }}>
+              {extending ? <><span style={{ animation: "spin 1s linear infinite", display: "inline-block" }}>⟳</span> Plane…</> : "🤖 KI planen & starten"}
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Actions row */}
-      <div style={{ borderTop: "1px solid #f1f5f9", padding: "8px 16px", display: "flex", gap: 8, justifyContent: "flex-end" }}>
+      <div style={{ borderTop: "1px solid #f1f5f9", padding: "8px 16px", display: "flex", gap: 8, justifyContent: "flex-end", alignItems: "center" }}>
         {isTerminal && (
           <button onClick={handleResume} disabled={resuming}
             style={{ fontSize: 11, padding: "4px 12px", border: "1px solid #c4b5fd", borderRadius: 6, background: "#f5f3ff", cursor: "pointer", color: "#7c3aed", fontWeight: 600 }}>
             {resuming ? "…" : "▶ Fortsetzen"}
           </button>
         )}
+        {isActive && !isTerminal && (
+          <button onClick={handleCancel} disabled={cancelling}
+            style={{ fontSize: 11, padding: "4px 12px", border: "1px solid #fca5a5", borderRadius: 6, background: "#fef2f2", cursor: cancelling ? "default" : "pointer", color: "#dc2626", fontWeight: 600 }}>
+            {cancelling ? "…" : "■ Stoppen"}
+          </button>
+        )}
+        <button
+          onClick={() => { setShowExtend(e => !e); }}
+          style={{ fontSize: 11, padding: "4px 12px", border: `1px solid ${showExtend ? "#7c3aed" : "#c4b5fd"}`, borderRadius: 6, background: showExtend ? "#ede9fe" : "#f5f3ff", cursor: "pointer", color: "#7c3aed", fontWeight: 600 }}
+          title="KI plant und startet neue Suchschritte">
+          ➕ Erweitern
+        </button>
         {isActive && !isTerminal ? (
           <button onClick={onOpenModal}
             style={{ fontSize: 11, padding: "4px 12px", border: "1px solid #bfdbfe", borderRadius: 6, background: "#eff6ff", cursor: "pointer", color: "#1d4ed8", fontWeight: 600 }}>
@@ -885,17 +979,19 @@ function AgentRunRow({ run, isActive, activeRunUniqueCount, onOpenModal, onNewSe
         ) : null}
         <button onClick={toggleLog}
           style={{ fontSize: 11, padding: "4px 12px", border: "1px solid #e2e8f0", borderRadius: 6, background: expanded ? "#f1f5f9" : "#fff", cursor: "pointer", color: "#374151" }}>
-          {expanded ? "▲ Weniger" : "▼ Details"}
+          {expanded ? "▲ Details" : "▼ Details"}
         </button>
       </div>
     </div>
   );
 }
 
-function AgentRunsTab({ caseId, onOpenModal, onNewSearch, activeRunId, activeRunStatus, activeRunUniqueCount, activeRunning }: {
+function AgentRunsTab({ caseId, onOpenModal, onNewSearch, onReloadAndOpen, onReloadRun, activeRunId, activeRunStatus, activeRunUniqueCount, activeRunning }: {
   caseId: string;
   onOpenModal: () => void;
   onNewSearch: () => void;
+  onReloadAndOpen: (runId: string) => void;
+  onReloadRun: (runId: string) => void;
   activeRunId: string | null;
   activeRunStatus: string | null;
   activeRunUniqueCount: number;
@@ -972,6 +1068,9 @@ function AgentRunsTab({ caseId, onOpenModal, onNewSearch, activeRunId, activeRun
           activeRunUniqueCount={activeRunUniqueCount}
           onOpenModal={onOpenModal}
           onNewSearch={onNewSearch}
+          onReload={load}
+          onReloadAndOpen={onReloadAndOpen}
+          onReloadRun={onReloadRun}
         />
       ))}
     </div>
@@ -1030,6 +1129,7 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
   const [reasoningModal, setReasoningModal] = useState<{content: string; title: string} | null>(null);
   const [viewMode, setViewMode] = useState<"flat" | "grouped">("flat");
   const [showRunOptions, setShowRunOptions] = useState(false);
+  const [showExport, setShowExport] = useState(false);
   const [runConfirm, setRunConfirm] = useState<{mode: "all_force" | "empty_only"} | null>(null);
 
   // ── Agent goal run — lifted to page so it survives modal close & page reload ──
@@ -1063,13 +1163,21 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
   // Step loop — runs at page level, independent of modal visibility
   useEffect(() => {
     const { run, running } = agentHook;
-    const paused = !showAgentGoal ? false : undefined; // when modal closed, never pause
     if (!running || !run || AGENT_TERMINAL.has(run.status)) {
       agentStepLoopRef.current = false;
       return;
     }
     if (agentStepLoopRef.current) return;
     agentStepLoopRef.current = true;
+
+    // Heartbeat: let the global worker know this run is being driven by this tab
+    const heartbeatKey = run ? `agentLoop:${run.id}` : null;
+    const writeHeartbeat = () => {
+      if (heartbeatKey) localStorage.setItem(heartbeatKey, Date.now().toString());
+    };
+    writeHeartbeat();
+    const heartbeatInterval = setInterval(writeHeartbeat, 1000);
+
     let active = true;
     async function loop() {
       while (active && agentStepLoopRef.current) {
@@ -1088,7 +1196,12 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
       }
     }
     loop();
-    return () => { active = false; agentStepLoopRef.current = false; };
+    return () => {
+      active = false;
+      agentStepLoopRef.current = false;
+      clearInterval(heartbeatInterval);
+      if (heartbeatKey) localStorage.removeItem(heartbeatKey);
+    };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agentHook.running]);
 
@@ -1499,36 +1612,42 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
                     👤 Kontakte
                   </button>
                 </>) : (
-                  <div style={{position:"relative"}}>
-                    <button onClick={() => setRunConfirm({ mode: "all_force" })}
-                      title="KI-Spalten ausführen"
-                      style={{display:"flex",alignItems:"center",gap:5,padding:"4px 12px",background:"#7c3aed",color:"#fff",border:"none",borderRadius:6,cursor:"pointer",fontSize:12,fontWeight:600}}>
-                      ▶ Ausführen
-                    </button>
+                  <div style={{position:"relative",display:"flex",alignItems:"center"}}>
+                    <div style={{display:"flex",borderRadius:6,overflow:"hidden",boxShadow:"0 1px 2px rgba(0,0,0,0.05)"}}>
+                      <button onClick={() => setRunConfirm({ mode: "empty_only" })}
+                        title="Nur leere Zellen füllen (bereits befüllte werden übersprungen)"
+                        style={{display:"flex",alignItems:"center",gap:5,padding:"4px 12px",background:"#7c3aed",color:"#fff",border:"none",borderRight:"1px solid rgba(255,255,255,0.2)",cursor:"pointer",fontSize:12,fontWeight:600}}>
+                        ▶ Ausführen (Nur Leere)
+                      </button>
+                      <button onClick={() => setShowRunOptions(v => !v)}
+                        title="Ausführungs-Optionen öffnen"
+                        style={{display:"flex",alignItems:"center",justifyContent:"center",padding:"4px 8px",background:"#6d28d9",color:"#fff",border:"none",cursor:"pointer",fontSize:11}}>
+                        ▾
+                      </button>
+                    </div>
                     {showRunOptions && (
-                      <div style={{position:"absolute",top:"calc(100% + 4px)",right:0,background:"#fff",border:"1px solid #e5e7eb",borderRadius:8,padding:"12px 14px",boxShadow:"0 4px 16px rgba(0,0,0,0.12)",zIndex:100,minWidth:200}}>
+                      <div style={{position:"absolute",top:"calc(100% + 4px)",left:0,background:"#fff",border:"1px solid #e5e7eb",borderRadius:8,padding:"12px 14px",boxShadow:"0 4px 16px rgba(0,0,0,0.12)",zIndex:100,minWidth:220}}>
                         <div style={{fontSize:11,fontWeight:600,color:"#6b7280",textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:10}}>Ausführungs-Optionen</div>
-                        {/* Option 2: Empty only */}
-                        {/* Option 1: All cells (overwrite) */}
-                        <button onClick={() => { setShowRunOptions(false); setRunConfirm({ mode: "all_force" }); }}
-                          style={{width:"100%",textAlign:"left",padding:"7px 10px",border:"1px solid #e9d5ff",borderRadius:6,background:"#faf5ff",cursor:"pointer",fontSize:12,color:"#6d28d9",marginBottom:6,display:"flex",alignItems:"center",gap:6}}>
-                          <span style={{fontSize:14}}>▶</span>
-                          <div>
-                            <div style={{fontWeight:600}}>Alle Zellen ausführen</div>
-                            <div style={{fontSize:10,color:"#9ca3af",marginTop:1}}>Überschreibt vorhandene Werte</div>
-                          </div>
-                        </button>
-                        {/* Option 2: Empty only */}
+                        {/* Option 1: Empty only (empfohlen) */}
                         <button onClick={() => { setShowRunOptions(false); setRunConfirm({ mode: "empty_only" }); }}
-                          style={{width:"100%",textAlign:"left",padding:"7px 10px",border:"1px solid #e9d5ff",borderRadius:6,background:"#faf5ff",cursor:"pointer",fontSize:12,color:"#6d28d9",marginBottom:8,display:"flex",alignItems:"center",gap:6}}>
+                          style={{width:"100%",textAlign:"left",padding:"7px 10px",border:"1px solid #e9d5ff",borderRadius:6,background:"#faf5ff",cursor:"pointer",fontSize:12,color:"#6d28d9",marginBottom:6,display:"flex",alignItems:"center",gap:6}}>
                           <span style={{fontSize:14}}>◐</span>
                           <div>
                             <div style={{fontWeight:600}}>Nur leere Zellen füllen</div>
-                            <div style={{fontSize:10,color:"#9ca3af",marginTop:1}}>Bereits befüllte Werte bleiben unberührt</div>
+                            <div style={{fontSize:10,color:"#9ca3af",marginTop:1}}>Überspringt bereits befüllte Zeilen</div>
+                          </div>
+                        </button>
+                        {/* Option 2: All cells (overwrite) */}
+                        <button onClick={() => { setShowRunOptions(false); setRunConfirm({ mode: "all_force" }); }}
+                          style={{width:"100%",textAlign:"left",padding:"7px 10px",border:"1px solid #fee2e2",borderRadius:6,background:"#fff5f5",cursor:"pointer",fontSize:12,color:"#dc2626",marginBottom:8,display:"flex",alignItems:"center",gap:6}}>
+                          <span style={{fontSize:14}}>⚡</span>
+                          <div>
+                            <div style={{fontWeight:600}}>Alle Zellen neu ausführen</div>
+                            <div style={{fontSize:10,color:"#9ca3af",marginTop:1}}>Überschreibt auch vorhandene Werte</div>
                           </div>
                         </button>
                         {/* Concurrency slider */}
-                        <div style={{padding:"4px 2px"}}>
+                        <div style={{padding:"4px 2px",borderTop:"1px solid #f3f4f6",marginTop:6,paddingTop:8}}>
                           <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:6}}>
                             <span style={{fontSize:11,color:"#6b7280",fontWeight:600}}>Parallelität</span>
                             <span style={{fontSize:12,fontFamily:"monospace",color:"#7c3aed",fontWeight:700}}>{concurrency}x</span>
@@ -1557,6 +1676,13 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
                   title="Auswahl aufheben"
                   style={{fontSize:11,fontWeight:600,color:"#7c3aed",background:"#ede9fe",padding:"1px 7px",borderRadius:8,border:"none",cursor:"pointer"}}>
                   ✕ {selectedRows.size} abwählen
+                </button>
+              )}
+              {selectedRows.size > 0 && (
+                <button onClick={deleteSelectedRows}
+                  title="Ausgewählte Zeilen löschen"
+                  style={{fontSize:11,fontWeight:600,color:"#dc2626",background:"#fee2e2",padding:"1px 7px",borderRadius:8,border:"none",cursor:"pointer",display:"flex",alignItems:"center",gap:3}}>
+                  <Trash2 style={{width:10,height:10}}/> {selectedRows.size} löschen
                 </button>
               )}
               {doneCount > 0 && <span style={{fontSize:11,fontWeight:600,color:"#15803d",background:"#dcfce7",padding:"1px 7px",borderRadius:8}}>✓ {doneCount}</span>}
@@ -1718,6 +1844,7 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
                       {col.tool === "batch_contact" && <span style={{fontSize:10,color:"#7c3aed",background:"#ede9fe",padding:"1px 5px",borderRadius:4}}>👤 Kontakt-Suche</span>}
                       {col.tool === "places_summary" && <span style={{fontSize:10,color:"#0369a1",background:"#e0f2fe",padding:"1px 5px",borderRadius:4}}>📍 Maps-Analyse</span>}
                       {col.tool === "places_summary" && <span style={{fontSize:10,color:"#0369a1",background:"#e0f2fe",padding:"1px 5px",borderRadius:4}}>📍 Maps-Analyse</span>}
+                      {col.tool === "gmb_check" && <span style={{fontSize:10,color:"#065f46",background:"#d1fae5",padding:"1px 5px",borderRadius:4}}>🗺️ GMB Check</span>}
                     </div>
                   ) : null;
                 })()}
@@ -1792,12 +1919,12 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
           ) : (<>
 
           {/* ── TABLE ── */}
-          <div style={{flex:1,overflow:"auto",background:"#f9fafb",padding:"16px"}}>
-          <div style={{background:"#fff",borderRadius:8,border:"1px solid #e5e7eb",overflow:"hidden",minWidth:"max-content"}}>
-            <table style={{borderCollapse:"collapse",fontSize:13,minWidth:"max-content",width:"100%"}}>
-              <thead style={{position:"sticky",top:0,zIndex:20}}>
+          <div style={{flex:1,overflow:"auto",background:"#f9fafb",position:"relative"}}>
+          <div style={{padding:16,minWidth:"max-content"}}>
+            <table className="case-detail-table" style={{borderCollapse:"collapse",fontSize:13,minWidth:"max-content",width:"100%"}}>
+              <thead style={{position:"sticky",top:0,zIndex:20,background:"#f9fafb"}}>
                 <tr style={{background:"#f9fafb",borderBottom:"1px solid #e5e7eb"}}>
-                  <th style={{width:32,padding:"6px 8px",borderRight:"1px solid #e5e7eb"}}>
+                  <th style={{width:32,padding:"6px 8px",borderRight:"1px solid #e5e7eb",background:"#f9fafb"}}>
                     <input type="checkbox" checked={allSelected}
                       ref={el => { if (el) el.indeterminate = selectedRows.size > 0 && !allSelected; }}
                       onChange={() => {
@@ -2225,6 +2352,22 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
                                         } catch { /* fall through to normal render */ }
                                       }
 
+                                      // ── gmb_check: colored status badge ──
+                                      if (aiCol.tool === "gmb_check") {
+                                        const cfg =
+                                          val === "Kein Eintrag"   ? { bg: "#fee2e2", color: "#991b1b", icon: "✗" } :
+                                          val === "Vorhanden"       ? { bg: "#dcfce7", color: "#166534", icon: "✓" } :
+                                          val === "Unbeansprucht"   ? { bg: "#fef9c3", color: "#854d0e", icon: "⚠" } :
+                                          null;
+                                        if (cfg) {
+                                          return (
+                                            <span style={{fontSize:11,fontWeight:600,background:cfg.bg,color:cfg.color,padding:"1px 7px",borderRadius:99,flexShrink:0}} title={val}>
+                                              {cfg.icon} {val}
+                                            </span>
+                                          );
+                                        }
+                                      }
+
                                       // ── normal AI col ──
                                       return <span style={{fontSize:12,color:"#1f2937",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={val}>{val}</span>;
                                     })()}
@@ -2277,8 +2420,7 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
 
                         // ── Contacts aggregation cell ─────────────────────
                         // Matches both the "contacts" source col and batch_contact AI cols (e.g. _batch_kontakte)
-                        const isContactsCell = (key === "contacts" && isSrc) ||
-                          (aiCol?.tool === "batch_contact");
+                        const isContactsCell = key === "contacts" && isSrc;
                         if (isContactsCell) {
                           const d = row.data as Record<string, string|null>;
                           type ContactEntry = {name:string; position:string; email:string; phone:string; linkedin:string; extrapolated?:string};
@@ -2458,6 +2600,26 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
                                         >📚</button>
                                       )}
                                       <a href={href} target="_blank" rel="noopener noreferrer" style={{...textStyle,flex:1}} title={isFallback?`Firmen-E-Mail (Fallback): ${displayVal}`:displayVal} onClick={e => e.stopPropagation()}>{content}</a>
+                                      {isDomainCol && (
+                                        <button
+                                          onClick={async (e) => {
+                                            e.stopPropagation();
+                                            e.preventDefault();
+                                            const newData = { ...(row.data as Record<string,string|null>) };
+                                            newData[key] = null;
+                                            await fetch(`/api/rows/${row.id}`, {
+                                              method: "PATCH",
+                                              headers: { "Content-Type": "application/json" },
+                                              body: JSON.stringify({ data: newData }),
+                                            });
+                                            setRows(prev => prev.map(r => r.id === row.id ? { ...r, data: newData } : r));
+                                          }}
+                                          title="Wert löschen"
+                                          style={{border:"none",background:"none",cursor:"pointer",padding:"0 2px",fontSize:11,color:"#d1d5db",flexShrink:0,lineHeight:1}}
+                                          onMouseEnter={e => (e.currentTarget.style.color = "#dc2626")}
+                                          onMouseLeave={e => (e.currentTarget.style.color = "#d1d5db")}
+                                        >✕</button>
+                                      )}
                                     </div>
                                   : <span style={textStyle} title={isFallback?`Firmen-E-Mail (Fallback): ${displayVal}`:displayVal}>{content}{isFallback && <span style={{fontSize:9,marginLeft:3,color:"#d1d5db"}}>🏢</span>}</span>;
                               })()}
@@ -2496,6 +2658,8 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
             caseId={caseId}
             onOpenModal={() => setShowAgentGoal(true)}
             onNewSearch={() => { agentHook.reset(); setShowAgentGoal(true); }}
+            onReloadAndOpen={async (runId) => { await agentHook.reload(runId); setShowAgentGoal(true); }}
+            onReloadRun={(runId) => { agentHook.reload(runId); }}
             activeRunId={agentHook.run?.id ?? null}
             activeRunStatus={agentHook.run?.status ?? null}
             activeRunUniqueCount={agentHook.run?.uniqueCount ?? 0}
@@ -2834,11 +2998,11 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
             {/* CSV export */}
             <div style={{maxWidth:480,background:"#fff",borderRadius:10,border:"1px solid #e5e7eb",padding:24}}>
               <div style={{fontSize:15,fontWeight:700,marginBottom:4}}>📊 CSV exportieren</div>
-              <div style={{fontSize:13,color:"#6b7280",marginBottom:16}}>{rows.length} Zeilen · {sourceColumns.length + caseData.aiColumns.length} Spalten — nur Datenwerte, kein Setup</div>
-              <a href={`/api/export?caseId=${caseId}`}
-                style={{display:"inline-flex",alignItems:"center",gap:8,padding:"8px 20px",background:"#6d28d9",color:"#fff",borderRadius:8,fontSize:13,fontWeight:600,textDecoration:"none"}}>
-                <Download style={{width:15,height:15}} /> CSV herunterladen
-              </a>
+              <div style={{fontSize:13,color:"#6b7280",marginBottom:16}}>{rows.length} Zeilen · {sourceColumns.length + caseData.aiColumns.length} Spalten — wähle Export-Modus und Spalten aus.</div>
+              <button onClick={() => setShowExport(true)}
+                style={{display:"inline-flex",alignItems:"center",gap:8,padding:"8px 20px",background:"#6d28d9",color:"#fff",borderRadius:8,fontSize:13,fontWeight:600,textDecoration:"none",border:"none",cursor:"pointer"}}>
+                <Download style={{width:15,height:15}} /> CSV exportieren
+              </button>
             </div>
 
             {/* Full snapshot export */}
@@ -2983,6 +3147,7 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
         />
       </div>
       {showAppend && <AppendModal caseId={caseId} onRowsAdded={(n)=>{if(n>0)refresh();}} onClose={()=>setShowAppend(false)} />}
+      {showExport && <ExportModal caseId={caseId} caseData={caseData} sourceColumns={sourceColumns} colOrder={colOrder} onClose={()=>setShowExport(false)} />}
       {showImport && <ImportModal caseId={caseId} onImported={()=>{setShowImport(false);refresh();}} onClose={()=>setShowImport(false)} />}
       {(editingPromptCol || editingPromptCell) && caseData && (
         <EditPromptModal
@@ -3050,12 +3215,23 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
         </div>
       )}
     </div>
+    <StickyTableStyles />
     </CaseContext.Provider>
-    ) : (
-      <div style={{display:"flex",height:"100vh",alignItems:"center",justifyContent:"center"}}>
-        <Loader2 className="animate-spin" style={{width:24,height:24,color:"#7c3aed"}} />
-      </div>
-    )}
-    </ErrorBoundary>
+  ) : (
+    <div style={{display:"flex",height:"100vh",alignItems:"center",justifyContent:"center"}}>
+      <Loader2 className="animate-spin" style={{width:24,height:24,color:"#7c3aed"}} />
+    </div>
+  )}
+  </ErrorBoundary>
+);
+}
+
+function StickyTableStyles() {
+  return (
+    <style jsx global>{`
+      .case-detail-table thead th {
+        background-color: #f9fafb !important;
+      }
+    `}</style>
   );
 }

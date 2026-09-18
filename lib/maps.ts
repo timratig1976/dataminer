@@ -248,6 +248,7 @@ export async function mapsSearchViaSerper(params: {
   // Serper Places has limited DE coverage — if empty, fall back to organic search
   // Use site-exclusion operators to prefer actual company websites over directories/articles
   if (places.length === 0) {
+    const fullQuery = [query, location].filter(Boolean).join(" ");
     const localQuery = `${fullQuery} -site:wikipedia.org -site:statista.com -site:linkedin.com -site:xing.com -site:kununu.com`;
     const searchRes = await fetch("https://google.serper.dev/search", {
       method: "POST",

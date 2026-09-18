@@ -27,7 +27,7 @@ export async function POST(req: NextRequest) {
     const systemPromptOverride: string | null =
       "systemPrompt" in body
         ? (body.systemPrompt === null || body.systemPrompt === "" ? null : String(body.systemPrompt))
-        : (globalSettings.plannerSystemPrompt ?? null);
+        : (globalSettings.plannerPrompt ?? null);
 
     const t0 = Date.now();
     const plan = await createDiscoveryPlan(prompt, {
@@ -65,7 +65,7 @@ export async function GET() {
     });
     return NextResponse.json({
       defaultPrompt,
-      currentOverride: globalSettings.plannerSystemPrompt ?? null,
+      currentOverride: globalSettings.plannerPrompt ?? null,
     });
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 500 });

@@ -422,6 +422,99 @@ export async function runAiColumn(
     };
   }
 
+  // ── GMB Check — Google Places Text Search → "Kein Eintrag" | "Vorhanden" | "Unbeansprucht" ──
+  // Uses: company_name + city/address. Falls back to serpapi google_maps search if no Places key.
+  if (column.tool === "gmb_check") {
+    const companyName = rowData["company_name"] ?? rowData["name"] ?? "";
+    const city = rowData["city"] ?? rowData["zip"] ?? rowData["address"] ?? "";
+    const domain = rowData["domain"] ?? rowData["source_domain"] ?? "";
+    if (!companyName.trim()) {
+      return { value: "", skipped: true, skipReason: "Kein Firmenname vorhanden" };
+    }
+
+    const query = city.trim() ? `${companyName.trim()} ${city.trim()}` : companyName.trim();
+    const googlePlacesApiKey = process.env.GOOGLE_PLACES_API_KEY?.trim();
+    const serpApiKey = process.env.SERP_API_KEY?.trim();
+
+    // ── Strategy A: Google Places New API (Text Search) ──────────────────────
+    if (googlePlacesApiKey) {
+      try {
+        const url = "https://places.googleapis.com/v1/places:searchText";
+        const resp = await fetch(url, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Goog-Api-Key": googlePlacesApiKey,
+            "X-Goog-FieldMask": "places.displayName,places.businessStatus,places.id,places.websiteUri",
+          },
+          body: JSON.stringify({ textQuery: query, languageCode: "de", maxResultCount: 3 }),
+          signal,
+        });
+
+        if (resp.ok) {
+          const data = await resp.json() as { places?: Array<{ displayName?: { text?: string }; businessStatus?: string; websiteUri?: string }> };
+          const places = data.places ?? [];
+
+          if (places.length === 0) {
+            return { value: "Kein Eintrag" };
+          }
+
+          // Check if any result matches the company domain
+          const domainBase = domain.replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0].toLowerCase();
+          const matchedPlace = domainBase
+            ? places.find(p => (p.websiteUri ?? "").toLowerCase().includes(domainBase))
+            : places[0];
+
+          const place = matchedPlace ?? places[0];
+          const status = (place.businessStatus ?? "").toUpperCase();
+
+          if (status === "CLOSED_PERMANENTLY" || status === "CLOSED_TEMPORARILY") {
+            return { value: "Kein Eintrag" };
+          }
+
+          // Google Places API doesn't expose "claimed" status directly.
+          // Heuristic: if website is missing and name is generic → likely unclaimed.
+          const hasWebsite = !!(place.websiteUri ?? "").trim();
+          return { value: hasWebsite ? "Vorhanden" : "Unbeansprucht" };
+        }
+      } catch { /* fall through to serpapi */ }
+    }
+
+    // ── Strategy B: SerpApi google_maps (fallback) ──────────────────────────
+    if (serpApiKey) {
+      try {
+        const sp = new URLSearchParams({
+          engine: "google_maps",
+          q: query,
+          type: "search",
+          hl: "de",
+          api_key: serpApiKey,
+          num: "3",
+        });
+        const serpResp = await fetch(`https://serpapi.com/search.json?${sp}`, { signal });
+        if (serpResp.ok) {
+          const serpData = await serpResp.json() as {
+            local_results?: Array<{ title?: string; website?: string; claimed?: boolean }>;
+          };
+          const results = serpData.local_results ?? [];
+          if (results.length === 0) return { value: "Kein Eintrag" };
+
+          const domainBase = domain.replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0].toLowerCase();
+          const match = domainBase
+            ? results.find(r => (r.website ?? "").toLowerCase().includes(domainBase))
+            : results[0];
+
+          const r = match ?? results[0];
+          if (r.claimed === false) return { value: "Unbeansprucht" };
+          if (!r.website) return { value: "Unbeansprucht" };
+          return { value: "Vorhanden" };
+        }
+      } catch { /* fall through */ }
+    }
+
+    return { value: "", error: "Kein GOOGLE_PLACES_API_KEY oder SERP_API_KEY konfiguriert" };
+  }
+
   // ── Places summary — interpret Maps/Places data via LLM or structured output ──
   // Reads address, phone, category, maps_rating, maps_reviews directly from rowData.
   // No extra API call needed — data is already in the row from the Maps step.

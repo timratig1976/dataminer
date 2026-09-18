@@ -795,13 +795,13 @@ export function AgentGoalModal({ caseId, rowsCount, onClose, onImported, externa
                 onChange={e => setExtraContext(e.target.value)}
                 placeholder="Weitere Details oder Einschränkungen für die Suche…"
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-rose-400"
-                disabled={running && !TERMINAL_STATUSES.has(run?.status ?? "")}
+                disabled={isRunning}
               />
             </div>
 
             <button
               onClick={handlePlan}
-              disabled={!description.trim() || subIndustryLoading || (running && !TERMINAL_STATUSES.has(run?.status ?? "")) || (keyStatus && !keyStatus.anySearchConfigured)}
+              disabled={!description.trim() || subIndustryLoading || isRunning || Boolean(keyStatus && !keyStatus.anySearchConfigured)}
               className="w-full bg-rose-600 text-white px-4 py-2.5 rounded-lg text-sm font-medium hover:bg-rose-700 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
               {subIndustryLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : running && paused ? <Loader2 className="w-4 h-4 animate-spin" /> : <Target className="w-4 h-4" />}

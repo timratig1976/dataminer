@@ -12,11 +12,11 @@ export const runtime = "nodejs";
  * Body: { provider: "serper" | "serper-places" | "serp" | "brave" | "apify", apiKey?: string }
  */
 export async function POST(req: NextRequest) {
-  const { provider, apiKey: bodyKey } = await req.json().catch(() => ({}));
+  const { provider, apiKey: bodyKey, query: bodyQuery } = await req.json().catch(() => ({}));
 
   // Resolve key: body > DB > env
   const dbKeys = await resolveSearchKeys();
-  const TEST_QUERY = "Handwerker Berlin";
+  const TEST_QUERY = bodyQuery?.trim() || "Handwerker Berlin";
 
   try {
     if (provider === "serper") {
@@ -35,11 +35,17 @@ export async function POST(req: NextRequest) {
     if (provider === "serper-places") {
       const key = bodyKey?.trim() || dbKeys.serperApiKey;
       if (!key) return NextResponse.json({ ok: false, error: "Kein Serper-Key konfiguriert" });
-      const places = await mapsSearchViaSerper({ query: TEST_QUERY, limit: 3, serperApiKey: key });
+      // Split "Heizungsbauer München" → query:"Heizungsbauer" + location:"München"
+      const parts = TEST_QUERY.split(" ");
+      const serperQuery = parts.slice(0, -1).join(" ") || TEST_QUERY;
+      const serperLocation = parts.length > 1 ? parts[parts.length - 1] : undefined;
+      const places = await mapsSearchViaSerper({ query: serperQuery, location: serperLocation, limit: 3, serperApiKey: key });
       return NextResponse.json({
         ok: places.length > 0,
         provider: "serper-places",
         hits: places.length,
+        count: places.length,
+        results: places.slice(0, 3),
         sample: places[0]?.name?.slice(0, 60) ?? "",
         note: "Google Places via Serper.dev",
       });

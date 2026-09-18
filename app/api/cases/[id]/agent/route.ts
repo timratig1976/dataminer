@@ -45,7 +45,7 @@ export async function POST(
       serpApiKey: searchKeys.serpApiKey || process.env.SERP_API_KEY?.trim() || undefined,
       serperApiKey: searchKeys.serperApiKey || process.env.SERPER_API_KEY?.trim() || undefined,
       braveApiKey: searchKeys.braveApiKey || process.env.BRAVE_API_KEY?.trim() || undefined,
-      systemPromptOverride: globalSettings.plannerSystemPrompt ?? null,
+      systemPromptOverride: globalSettings.plannerPrompt ?? null,
     });
     return NextResponse.json(run);
   } catch (e: unknown) {

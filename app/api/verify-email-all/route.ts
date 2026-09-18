@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { extrapolateAndVerifyAll } from "@/lib/email-extrapolator";
-import { getDb } from "@/lib/db";
-import { rows } from "@/lib/db/schema";
+import { getRow, upsertRow } from "@/lib/db";
 import { eq } from "drizzle-orm";
 
 /**
@@ -25,8 +24,7 @@ export async function POST(req: NextRequest) {
 
     // Optionally write best email back to the row
     if (rowId && result.bestEmail) {
-      const db = getDb();
-      const row = await db.query.rows.findFirst({ where: eq(rows.id, rowId) });
+      const row = await getRow(rowId);
       if (row) {
         const data = (row.data as Record<string, string | null>) ?? {};
         const statuses = (row.cellStatuses as Record<string, string>) ?? {};
@@ -41,9 +39,9 @@ export async function POST(req: NextRequest) {
           statuses[`${fieldPrefix}_email_verified`] = "done";
         }
 
-        await db.update(rows)
-          .set({ data, cellStatuses: statuses, updatedAt: new Date().toISOString() })
-          .where(eq(rows.id, rowId));
+        row.data = data;
+        row.cellStatuses = statuses as Record<string, import("@/lib/types").CellStatus>;
+        await upsertRow(row);
       }
     }
 

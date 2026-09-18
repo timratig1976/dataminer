@@ -50,7 +50,7 @@ export default function EditPromptModal({ col, caseId, onSave, onClose, cellCont
   const promptRef = useRef<HTMLTextAreaElement>(null);
   const requiredFields = draft.requiredFields ?? [];
 
-  const isBatch = draft.tool === "batch_enrich" || draft.tool === "batch_contacts";
+  const isBatch = draft.tool === "batch_company" || draft.tool === "batch_contact";
 
   /** Build the default batch system prompt for display/reset */
   function getDefaultBatchPrompt(): string {

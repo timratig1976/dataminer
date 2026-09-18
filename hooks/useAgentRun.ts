@@ -12,6 +12,7 @@ export interface UseAgentRunReturn {
   start: (goal: AgentGoal) => Promise<void>;
   step: () => Promise<AgentRunState | null>;
   cancel: () => Promise<void>;
+  reset: () => void;
   reload: (runId: string) => Promise<void>;
 }
 
@@ -120,6 +121,14 @@ export function useAgentRun(caseId: string): UseAgentRunReturn {
     setRunning(false);
   }, [caseId]);
 
+  const reset = useCallback(() => {
+    abortRef.current = true;
+    runIdRef.current = null;
+    setRun(null);
+    setRunning(false);
+    setError(null);
+  }, []);
+
   const reload = useCallback(async (runId: string) => {
     try {
       const res = await fetch(`/api/cases/${caseId}/agent/${runId}`);
@@ -135,5 +144,5 @@ export function useAgentRun(caseId: string): UseAgentRunReturn {
     }
   }, [caseId]);
 
-  return { run, running, error, start, step, cancel, reload };
+  return { run, running, error, start, step, cancel, reset, reload };
 }

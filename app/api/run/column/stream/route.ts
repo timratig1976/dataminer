@@ -13,7 +13,19 @@ type RunMode = "all_force" | "empty_only";
 
 function sleep(ms: number) { return new Promise((r) => setTimeout(r, ms)); }
 function isRateLimitError(m?: string) { return !!m && /\b429\b|rate\s*limit|too many requests/i.test(m); }
-function isEmptyOrNotFound(v: unknown) {
+function isEmptyOrNotFound(v: unknown, col?: any, rowData?: Record<string, string | null>) {
+  if (col && (col.tool === "batch_company" || col.tool === "batch_contact")) {
+    if (col.tool === "batch_company" && rowData) {
+      const fields: string[] = col.batchOutputFields ?? ["company_name", "domain", "phone", "company_email", "city", "industry"];
+      const hasAnyField = fields.some(f => rowData[f] && String(rowData[f]).trim() !== "" && !/^notfound$/i.test(String(rowData[f]).trim()));
+      if (hasAnyField) return false;
+    }
+    if (col.tool === "batch_contact" && rowData) {
+      const prefix = col.batchContactsPrefix ?? "contact_";
+      const hasContact = !!(rowData[`_contacts_json_${col.outputKey}`] || rowData[`${prefix}1_first_name`] || rowData[`${prefix}1_last_name`]);
+      if (hasContact) return false;
+    }
+  }
   const t = typeof v === "string" ? v.trim() : String(v ?? "").trim();
   return t === "" || /^notfound$/i.test(t);
 }
@@ -44,7 +56,9 @@ export async function POST(req: NextRequest) {
       };
 
       const abortController = new AbortController();
-      const timeout = setTimeout(() => abortController.abort(), 600_000);
+      if (req.signal) {
+        req.signal.addEventListener("abort", () => abortController.abort());
+      }
       const opId = registerOperation({ type: "column", caseId, columnId, startTime: Date.now() });
 
       try {
@@ -64,7 +78,7 @@ export async function POST(req: NextRequest) {
         const allRows = await listRows(caseId);
         const selectedRows = rowIds ? allRows.filter((r) => rowIds.includes(r.id)) : allRows;
         const targetRows = runMode === "empty_only"
-          ? selectedRows.filter((row) => isEmptyOrNotFound(row.data[column.outputKey]))
+          ? selectedRows.filter((row) => isEmptyOrNotFound(row.data[column.outputKey], column, row.data))
           : selectedRows;
 
         push({ type: "start", columnId, columnName: column.name, total: targetRows.length, operationId: opId });
@@ -84,7 +98,7 @@ export async function POST(req: NextRequest) {
 
           let result;
           try {
-            result = await runAiColumn(effectiveColumn, row.data, apiKey, provider, abortController.signal, opId, edenRegion, apolloBudget);
+            result = await runAiColumn(effectiveColumn, { ...row.data, _case_id: caseId }, apiKey, provider, abortController.signal, opId, edenRegion, apolloBudget, row.id);
           } catch (err: unknown) {
             const msg = (err as Error).message ?? "";
             if ((err as Error).name === "AbortError" || msg.includes("abort") || isOperationCancelled(opId)) {
@@ -101,7 +115,7 @@ export async function POST(req: NextRequest) {
             adaptiveDelayMs = Math.min(MAX_BACKOFF_MS, Math.max(MIN_BACKOFF_MS, adaptiveDelayMs > 0 ? adaptiveDelayMs * 2 : MIN_BACKOFF_MS));
             await sleep(adaptiveDelayMs + Math.floor(Math.random() * 200));
             try {
-              result = await runAiColumn(effectiveColumn, row.data, apiKey, provider, abortController.signal, opId, edenRegion, apolloBudget);
+              result = await runAiColumn(effectiveColumn, { ...row.data, _case_id: caseId }, apiKey, provider, abortController.signal, opId, edenRegion, apolloBudget, row.id);
             } catch (err: unknown) {
               const msg = (err as Error).message ?? "";
               if ((err as Error).name === "AbortError" || msg.includes("abort") || isOperationCancelled(opId)) {
@@ -147,10 +161,15 @@ export async function POST(req: NextRequest) {
           }
 
           if (result.error) {
-            await updateRowCell(row.id, col.outputKey, "", "error", result.error);
+            const isAborted = result.error.includes("abort") || result.error.includes("AbortError") || isOperationCancelled(opId);
+            const finalStatus = isAborted ? "skipped" : "error";
+            const finalErr = isAborted ? "" : result.error;
+            await updateRowCell(row.id, col.outputKey, "", finalStatus, finalErr);
             for (const [k, v] of Object.entries(metaData)) await updateRowCell(row.id, k, v, "done");
-            await appendLog(caseId, `❌ [${col.name}] ${company} — error: ${result.error}`);
-            push({ type: "row_done", rowId: row.id, status: "error", error: result.error, metaData });
+            if (!isAborted) {
+              await appendLog(caseId, `❌ [${col.name}] ${company} — error: ${result.error}`);
+            }
+            push({ type: "row_done", rowId: row.id, status: finalStatus, error: finalErr, metaData });
             processed++;
             return;
           }
@@ -158,9 +177,8 @@ export async function POST(req: NextRequest) {
           for (const [k, v] of Object.entries(metaData)) await updateRowCell(row.id, k, v, "done");
           if (result.multiValues) {
             for (const [k, v] of Object.entries(result.multiValues)) await updateRowCell(row.id, k, v, "done");
-          } else {
-            await updateRowCell(row.id, col.outputKey, result.value, "done");
           }
+          await updateRowCell(row.id, col.outputKey, result.value, "done");
 
           const tokensInfo = result.tokens ? ` · ${result.tokens.total}tok` : "";
           const costInfo = result.costUsd ? ` · $${result.costUsd.toFixed(5)}` : "";
@@ -193,7 +211,6 @@ export async function POST(req: NextRequest) {
         const msg = (err as Error).message ?? "Unknown error";
         push({ type: "error", message: msg });
       } finally {
-        clearTimeout(timeout);
         removeOperation(opId);
         controller.close();
       }

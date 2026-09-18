@@ -44,6 +44,8 @@ export function AddColumnModal({ caseId, onClose, onAdded, availableFields = [] 
   const [searchForceLayer, setSearchForceLayer] = useState<"" | "serpapi" | "duckduckgo" | "playwright">("" );
   const [evidenceMode, setEvidenceMode] = useState<"snippet" | "page" | "auto">("snippet");
   const [captureReasoning, setCaptureReasoning] = useState(false);
+  const [crawlSources, setCrawlSources] = useState<Array<"domain"|"maps_details"|"maps_reviews">>([]);
+  const [crawlReviewsMax, setCrawlReviewsMax] = useState(10);
   // Batch enrichment fields
   const [batchTool, setBatchTool] = useState<string | undefined>(undefined);
   const [batchOutputFields, setBatchOutputFields] = useState<string[]>([]);
@@ -88,6 +90,8 @@ export function AddColumnModal({ caseId, onClose, onAdded, availableFields = [] 
     setContactsMax((p as { batchContactsMax?: number }).batchContactsMax ?? 3);
     setContactsLinkedIn((p as { batchContactsLinkedIn?: boolean }).batchContactsLinkedIn ?? true);
     setContactsImpressum((p as { batchContactsImpressum?: boolean }).batchContactsImpressum ?? true);
+    setCrawlSources((p as { crawlSources?: Array<"domain"|"maps_details"|"maps_reviews"> }).crawlSources ?? []);
+    setCrawlReviewsMax((p as { crawlReviewsMax?: number }).crawlReviewsMax ?? 10);
     const nextRequired = p.requiredFields || [];
     setRequiredFields(nextRequired);
     const nextMappings: Record<string, string> = {};
@@ -148,9 +152,11 @@ Regeln:
   const [showBatchPrompt, setShowBatchPrompt] = useState(false);
 
   const isBatch = batchTool === "batch_enrich" || batchTool === "batch_contacts";
+  const isPlacesSummary = batchTool === "places_summary";
+  const isGmbCheck = batchTool === "gmb_check";
   const isPlain = colType === "text" || colType === "number";
   const hasMissingRequiredMappings = colType === "ai" && requiredFields.some((field) => !(inputMappings[field] || "").trim());
-  const canSave = name.trim() !== "" && outputKey.trim() !== "" && (isPlain || isBatch || prompt.trim() !== "") && !hasMissingRequiredMappings;
+  const canSave = name.trim() !== "" && outputKey.trim() !== "" && (isPlain || isBatch || isPlacesSummary || isGmbCheck || prompt.trim() !== "") && !hasMissingRequiredMappings;
 
   async function save() {
     if (!canSave) return;
@@ -168,7 +174,7 @@ Regeln:
         return;
       }
 
-      if (!prompt.trim()) return;
+      if (!prompt.trim() && !batchTool) return;
       const newCol: AiColumn = {
         id: randomUUID(),
         name: name.trim(),
@@ -191,6 +197,8 @@ Regeln:
         searchForceLayer: useWebSearch && searchForceLayer ? searchForceLayer : undefined,
         evidenceMode: useWebSearch && evidenceMode !== "snippet" ? evidenceMode : undefined,
         captureReasoning: captureReasoning || undefined,
+        crawlSources: crawlSources.length > 0 ? crawlSources : undefined,
+        crawlReviewsMax: crawlSources.includes("maps_reviews") ? crawlReviewsMax : undefined,
         // Batch enrichment fields
         ...(batchTool ? {
           tool: batchTool as AiColumn["tool"],
@@ -237,7 +245,7 @@ Regeln:
           {/* Primary type selection */}
           <div>
             <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Spaltentyp wählen</div>
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-2 gap-3">
               {/* Batch column */}
               <button
                 onClick={() => { setColType("ai"); setBatchTool("batch_enrich"); setMode("preset"); }}
@@ -256,10 +264,46 @@ Regeln:
                 </div>
               </button>
 
+              {/* Places summary column */}
+              <button
+                onClick={() => { setColType("ai"); setBatchTool("places_summary"); setMode("preset"); }}
+                className={`flex flex-col gap-2 p-4 rounded-xl border-2 text-left transition-colors ${colType === "ai" && batchTool === "places_summary" ? "border-sky-500 bg-sky-50" : "border-gray-200 hover:border-sky-300 hover:bg-sky-50/30"}`}>
+                <div className="flex items-center gap-2">
+                  <span className="text-xl">📍</span>
+                  <span className="font-semibold text-sm text-gray-900">Places-Auswertung</span>
+                </div>
+                <p className="text-xs text-gray-500 leading-relaxed">
+                  Wertet Maps-Daten aus dem Row aus — Adresse, Telefon, Kategorie, Rating. Per Prompt zu <strong>Fließtext oder JSON</strong>.
+                </p>
+                <div className="flex gap-1 flex-wrap mt-1">
+                  <span className="text-[10px] bg-sky-100 text-sky-700 px-2 py-0.5 rounded-full">Kein Scraping</span>
+                  <span className="text-[10px] bg-sky-100 text-sky-700 px-2 py-0.5 rounded-full">Maps-Daten</span>
+                  <span className="text-[10px] bg-sky-100 text-sky-700 px-2 py-0.5 rounded-full">Fließtext/JSON</span>
+                </div>
+              </button>
+
+              {/* GMB Check column */}
+              <button
+                onClick={() => { setColType("ai"); setBatchTool("gmb_check"); setMode("preset"); if (!name) { setName("GMB Check"); setOutputKey("gmb_status"); } }}
+                className={`flex flex-col gap-2 p-4 rounded-xl border-2 text-left transition-colors ${colType === "ai" && batchTool === "gmb_check" ? "border-emerald-500 bg-emerald-50" : "border-gray-200 hover:border-emerald-300 hover:bg-emerald-50/30"}`}>
+                <div className="flex items-center gap-2">
+                  <span className="text-xl">🗺️</span>
+                  <span className="font-semibold text-sm text-gray-900">GMB Check</span>
+                </div>
+                <p className="text-xs text-gray-500 leading-relaxed">
+                  Prüft via Google Places, ob ein Maps-Profil existiert. Ergebnis: <strong>Kein Eintrag</strong>, <strong>Vorhanden</strong> oder <strong>Unbeansprucht</strong>.
+                </p>
+                <div className="flex gap-1 flex-wrap mt-1">
+                  <span className="text-[10px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">Google Places</span>
+                  <span className="text-[10px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">Kein LLM</span>
+                  <span className="text-[10px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">1 Feld</span>
+                </div>
+              </button>
+
               {/* AI column */}
               <button
                 onClick={() => { setColType("ai"); setBatchTool(undefined); setMode("preset"); }}
-                className={`flex flex-col gap-2 p-4 rounded-xl border-2 text-left transition-colors ${colType === "ai" && !isBatch ? "border-green-500 bg-green-50" : "border-gray-200 hover:border-green-300 hover:bg-green-50/30"}`}>
+                className={`flex flex-col gap-2 p-4 rounded-xl border-2 text-left transition-colors ${colType === "ai" && !isBatch && batchTool !== "places_summary" ? "border-green-500 bg-green-50" : "border-gray-200 hover:border-green-300 hover:bg-green-50/30"}`}>
                 <div className="flex items-center gap-2">
                   <Sparkles className="w-5 h-5 text-green-600" />
                   <span className="font-semibold text-sm text-gray-900">KI-Spalte</span>
@@ -374,6 +418,46 @@ Regeln:
               ) : (
                 <div className="space-y-4">
 
+                  {/* Places summary config */}
+                  {isPlacesSummary && (
+                    <div className="rounded-xl border-2 border-sky-200 bg-sky-50 p-4 space-y-3">
+                      <div className="flex items-center gap-2">
+                        <span className="text-lg">📍</span>
+                        <div>
+                          <div className="font-semibold text-sky-900 text-sm">Places-Auswertung</div>
+                          <div className="text-xs text-sky-600">Liest Adresse, Telefon, Kategorie, Rating aus dem Row — kein Scraping nötig</div>
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-xs font-semibold text-sky-700 mb-1">Ausgabe-Format</div>
+                        <div className="flex gap-2">
+                          {(["text", "json"] as const).map(m => (
+                            <button key={m} onClick={() => setOutputMode(m)}
+                              className={`px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors ${outputMode === m ? "border-sky-500 bg-sky-100 text-sky-800" : "border-gray-200 text-gray-500 hover:border-sky-300"}`}>
+                              {m === "text" ? "📝 Fließtext" : "{ } JSON"}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-xs font-semibold text-sky-700 mb-1">Prompt / Aufgabe</div>
+                        <textarea
+                          value={prompt}
+                          onChange={e => setPrompt(e.target.value)}
+                          rows={3}
+                          placeholder={outputMode === "json"
+                            ? 'z.B. "Extrahiere PLZ, Stadt und Telefon als JSON: {plz, city, phone}"'
+                            : 'z.B. "Schreibe ein 2-Satz Firmenprofil auf Deutsch"'}
+                          className="w-full border border-sky-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400 bg-white"
+                        />
+                        <div className="text-xs text-sky-600 mt-1">Leer lassen für Standard-Auswertung. Verfügbare Felder: address, phone, category, maps_rating, maps_reviews, city, zip</div>
+                      </div>
+                      <div className="text-xs text-sky-700 bg-sky-100 rounded-lg p-2">
+                        <strong>Ausgabe-Felder:</strong> {outputMode === "json" ? `${outputKey || "places_data"} → JSON-Objekt` : `${outputKey || "places_summary"} → Fließtext`}
+                      </div>
+                    </div>
+                  )}
+
                   {/* Batch contacts config */}
                   {batchTool === "batch_contacts" && (
                     <div className="rounded-xl border-2 border-blue-200 bg-blue-50 p-4 space-y-3">
@@ -410,6 +494,35 @@ Regeln:
                         <div className="font-mono ml-2">contact_email, contact_phone, linkedin → Direkte Kontaktdaten</div>
                         <div className="font-mono ml-2">contact_1_*, contact_2_*, contact_3_* → Alle Kontakte indiziert</div>
                         <div className="mt-1 text-blue-500">💡 Generische Emails (info@, kontakt@) werden ignoriert — nur persönliche Emails werden gespeichert.</div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* GMB Check config */}
+                  {batchTool === "gmb_check" && (
+                    <div className="rounded-xl border-2 border-emerald-200 bg-emerald-50 p-4 space-y-3">
+                      <div className="flex items-center gap-2">
+                        <span className="text-lg">🗺️</span>
+                        <div>
+                          <div className="font-semibold text-emerald-900 text-sm">GMB Check — Google Maps Profil prüfen</div>
+                          <div className="text-xs text-emerald-700">Sucht über Google Places API nach dem Firmeneintrag und gibt den Status zurück.</div>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-3 gap-2 text-center">
+                        {[
+                          { label: "Kein Eintrag", desc: "Keine Ergebnisse gefunden", color: "bg-red-100 text-red-700 border-red-200" },
+                          { label: "Vorhanden", desc: "Eintrag mit Website", color: "bg-green-100 text-green-700 border-green-200" },
+                          { label: "Unbeansprucht", desc: "Eintrag ohne Website", color: "bg-amber-100 text-amber-700 border-amber-200" },
+                        ].map(s => (
+                          <div key={s.label} className={`rounded-lg border p-2 ${s.color}`}>
+                            <div className="font-semibold text-xs">{s.label}</div>
+                            <div className="text-[10px] mt-0.5 opacity-80">{s.desc}</div>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="text-xs text-emerald-700 bg-white rounded-lg border border-emerald-200 p-2">
+                        <strong>Benötigte Felder:</strong> <code className="font-mono">company_name</code> + optional <code className="font-mono">city</code> / <code className="font-mono">domain</code><br />
+                        <strong>API:</strong> <code className="font-mono">GOOGLE_PLACES_API_KEY</code> (bevorzugt) oder <code className="font-mono">SERP_API_KEY</code> als Fallback
                       </div>
                     </div>
                   )}
@@ -670,6 +783,41 @@ Regeln:
                         LLM gibt eine kurze Begründung zurück (welche Quelle, warum, was abgelehnt). Gespeichert als <code className="bg-purple-100 px-1 rounded">_reasoning_{outputKey || "…"}</code>.
                       </div>
                     )}
+                  </div>
+
+                  {/* ── Crawl Sources ── */}
+                  <div className="border border-orange-200 rounded-lg overflow-hidden">
+                    <div className="px-3 py-1.5 flex items-center gap-2" style={{background:"#fff7ed"}}>
+                      <span className="text-sm">🕷</span>
+                      <span className="text-[11px] font-bold uppercase tracking-wide text-orange-700 flex-1">Crawl-Quellen vor LLM</span>
+                      <span className="text-[10px] text-orange-500">Optional — Apify + SerpAPI Kosten</span>
+                    </div>
+                    <div className="p-3 flex flex-col gap-2" style={{background:"#fffbf5"}}>
+                      {(["domain", "maps_details", "maps_reviews"] as const).map(src => {
+                        const labels: Record<string, string> = {
+                          domain: "🌐 Website scrapen (domain-Feld)",
+                          maps_details: "📍 Google Maps Details (Apify) — Öffnungszeiten, Fotos, Posts",
+                          maps_reviews: "⭐ Google Maps Reviews (SerpAPI) — letzte Bewertungen + Inhaber-Antworten",
+                        };
+                        const active = crawlSources.includes(src);
+                        return (
+                          <label key={src} className="flex items-center gap-2 cursor-pointer text-[12px] text-gray-700">
+                            <input type="checkbox" checked={active}
+                              onChange={() => setCrawlSources(prev => active ? prev.filter(s => s !== src) : [...prev, src])}
+                              style={{accentColor:"#ea580c"}}/>
+                            {labels[src]}
+                          </label>
+                        );
+                      })}
+                      {crawlSources.includes("maps_reviews") && (
+                        <div className="flex items-center gap-2 mt-1">
+                          <label className="text-[11px] text-orange-700">Max. Reviews:</label>
+                          <input type="number" min={3} max={20} value={crawlReviewsMax}
+                            onChange={e => setCrawlReviewsMax(Number(e.target.value))}
+                            className="w-16 border border-orange-300 rounded px-2 py-1 text-sm"/>
+                        </div>
+                      )}
+                    </div>
                   </div>
 
                   {/* Output mode + JSON key */}

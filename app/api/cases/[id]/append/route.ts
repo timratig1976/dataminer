@@ -16,13 +16,15 @@ import type { RowData } from "@/lib/types";
 export const runtime = "nodejs";
 
 interface AppendBody {
-  mode: "search" | "maps" | "file";
-  // search mode
+  mode: "search" | "maps" | "combined" | "file";
+  // search / combined mode
   queries?: string[];
   source?: DiscoverySource;
   limit?: number;
   queryTemplate?: string;
   region?: string;
+  // combined mode options
+  combinedPrimary?: "maps" | "search";  // which source runs first & gets priority
   // maps mode
   mapQuery?: string;        // e.g. "Heizungsbauer"
   location?: string;        // e.g. "Mecklenburg-Vorpommern" or "Rostock"
@@ -59,7 +61,9 @@ export async function POST(
   if (!caseData) return NextResponse.json({ error: "Case not found" }, { status: 404 });
 
   const body: AppendBody = await req.json();
-  const { mode = "search", dedupeField = "domain", dryRun = false } = body;
+  const dedupeField = body.dedupeField ?? "domain";
+  const dryRun = body.dryRun ?? false;
+  const mode: AppendBody["mode"] = body.mode ?? "search";
 
   if (mode === "maps") {
     const mapQuery = body.mapQuery ?? "";
@@ -134,7 +138,7 @@ export async function POST(
     });
   }
 
-  if (mode !== "search") {
+  if (mode !== "search" && mode !== "combined") {
     return NextResponse.json({ error: `mode '${mode}' not yet supported via this route` }, { status: 400 });
   }
 
@@ -164,7 +168,9 @@ export async function POST(
   const serpApiKey = sk2.serpApiKey;
   const serperApiKey2 = sk2.serperApiKey;
   const braveApiKey = sk2.braveApiKey;
+  const apifyApiToken = sk2.apifyApiToken;
   const scraplingUrl = process.env.SCRAPLING_URL ?? "http://127.0.0.1:8001";
+  const scraplingToken = process.env.SCRAPLING_TOKEN ?? "";
 
   // ── Load existing domains for dedupe ─────────────────────────────────────
 
@@ -180,55 +186,111 @@ export async function POST(
   const source = body.source ?? "auto";
   const limit = Math.min(body.limit ?? 30, 100);
 
-  for (const query of queries) {
-    const resp = await discoverySearch(query, {
-      source,
-      limit,
-      excludeDomains: [...existingSet],
-      serpApiKey,
-      braveApiKey,
-      serperApiKey: serperApiKey2,
-      edenApiKey: edenKey ?? undefined,
-      scraplingUrl,
-    });
+  // Determine effective mode:
+  // - "combined" mode: run both maps + web search, primary source yields domain-first priority
+  // - source starts with "maps" → maps mode
+  // - otherwise → web search mode
 
-    const step: StepResult = {
+  for (const query of queries) {
+    const stepResult: StepResult = {
       query,
-      source: resp.source,
-      hits: resp.hits.length,
+      source: source,
+      hits: 0,
       added: 0,
       skipped: 0,
-      latencyMs: resp.latencyMs,
-      error: resp.error,
+      latencyMs: 0,
     };
 
-    for (const hit of resp.hits) {
-      if (hit.isDuplicate) {
-        step.skipped++;
-        totalSkipped++;
-        continue;
+    // ── Maps search (if applicable) ──
+    const runMaps = mode === "combined" || source.startsWith("maps");
+    // ── Web search (if applicable) ──
+    const runSearch = mode === "combined" || !source.startsWith("maps");
+
+    // Track domains found in this query to dedupe between maps ↔ search
+    const queryDomains = new Set<string>();
+
+    if (runMaps) {
+      const t0 = Date.now();
+      try {
+        const resp = await mapsSearch({
+          query,
+          provider: serpApiKey ? "maps-serpapi" : serperApiKey2 ? "maps-serper" : apifyApiToken ? "maps-apify" : "maps-scrapling",
+          limit,
+          serpApiKey,
+          serperApiKey: serperApiKey2,
+          apifyApiToken,
+          scraplingUrl,
+          scraplingToken,
+          excludeDomains: [...existingSet],
+        });
+
+        for (const hit of resp.hits) {
+          if (hit.isDuplicate && existingSet.has(hit.domain?.toLowerCase() ?? "")) {
+            stepResult.skipped++; totalSkipped++;
+            continue;
+          }
+          const place = resp.places[resp.hits.indexOf(hit)];
+          const seedRow = hitToSeedRow(hit);
+          const extras = place ? placeToSeedExtras(place) : {};
+          allNewRows.push({
+            id: randomUUID(), caseId, rowIndex: 0,
+            data: { ...seedRow, ...extras },
+            cellStatuses: {}, cellErrors: {},
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          });
+          if (hit.domain) { existingSet.add(hit.domain.toLowerCase()); queryDomains.add(hit.domain.toLowerCase()); }
+          stepResult.added++;
+          stepResult.hits++;
+        }
+        stepResult.source = resp.provider;
+        if (resp.error) stepResult.error = resp.error;
+      } catch (e) {
+        if (!stepResult.error) stepResult.error = `maps: ${(e as Error).message}`;
       }
-
-      const seedRow = hitToSeedRow(hit);
-      const rowData: RowData = {
-        id: randomUUID(),
-        caseId,
-        rowIndex: 0, // appendDiscoveryRows recalculates
-        data: seedRow,
-        cellStatuses: {},
-        cellErrors: {},
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      };
-
-      allNewRows.push(rowData);
-      step.added++;
-
-      // Track in existingSet to dedupe across queries in same run
-      if (hit.domain) existingSet.add(hit.domain.toLowerCase());
+      stepResult.latencyMs += Date.now() - t0;
     }
 
-    steps.push(step);
+    if (runSearch) {
+      const t0 = Date.now();
+      try {
+        // For combined mode, pass maps domains to avoid re-adding same company from web search
+        const searchExclude = mode === "combined" ? [...existingSet] : [...existingSet];
+        const resp = await discoverySearch(query, {
+          source: source.startsWith("maps") ? "auto" : source,
+          limit,
+          excludeDomains: searchExclude,
+          serpApiKey,
+          braveApiKey,
+          serperApiKey: serperApiKey2,
+          edenApiKey: edenKey ?? undefined,
+          scraplingUrl,
+        });
+
+        for (const hit of resp.hits) {
+          if (hit.isDuplicate) { stepResult.skipped++; totalSkipped++; continue; }
+          const seedRow = hitToSeedRow(hit);
+          allNewRows.push({
+            id: randomUUID(), caseId, rowIndex: 0,
+            data: seedRow,
+            cellStatuses: {}, cellErrors: {},
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          });
+          stepResult.added++;
+          stepResult.hits++;
+          if (hit.domain) { existingSet.add(hit.domain.toLowerCase()); queryDomains.add(hit.domain.toLowerCase()); }
+        }
+        if (mode === "combined") stepResult.source = `${stepResult.source}+${resp.source}`;
+        else stepResult.source = resp.source;
+        if (resp.error) stepResult.error = (stepResult.error ? stepResult.error + "; " : "") + resp.error;
+      } catch (e) {
+        if (!stepResult.error) stepResult.error = `search: ${(e as Error).message}`;
+      }
+      stepResult.latencyMs += Date.now() - t0;
+    }
+
+    steps.push(stepResult);
   }
 
   // ── Write to DB (unless dryRun) ───────────────────────────────────────────

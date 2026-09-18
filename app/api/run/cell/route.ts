@@ -68,7 +68,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ status: "cancelled", message: "Operation cancelled", operationId: opId });
     }
 
-    result = await runAiColumn(column, row.data, apiKey, provider, abortController.signal, opId, await resolveEdenRegion(caseData));
+    result = await runAiColumn(column, { ...row.data, _case_id: caseId }, apiKey, provider, abortController.signal, opId, await resolveEdenRegion(caseData), undefined, rowId);
   } catch (error: any) {
     clearTimeout(timeout);
     removeOperation(opId);

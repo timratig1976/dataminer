@@ -29,6 +29,11 @@ export async function POST(
   const edenApiKey = await resolveEdenKey(caseData);
   if (!edenApiKey) return new Response(JSON.stringify({ error: "No Eden API key" }), { status: 400 });
 
+  // Resolve search API keys for domain lookup
+  const { resolveSearchKeys } = await import("@/lib/db");
+  const searchKeys = await resolveSearchKeys().catch(() => ({ serperApiKey: undefined, serpApiKey: undefined, braveApiKey: undefined, apifyApiToken: undefined }));
+  const hasSearchKey = !!(searchKeys.serperApiKey || searchKeys.serpApiKey || searchKeys.braveApiKey);
+
   const stream = new ReadableStream({
     async start(controller) {
       const push = (data: unknown) => {
@@ -66,10 +71,14 @@ export async function POST(
           try {
             const result = await scrapeCatalog({
               url,
-              extractionPrompt: "Firmen, Unternehmen, Betriebe — Name, Adresse, Telefon, Website",
+              extractionPrompt: `Firmen, Unternehmen, Betriebe — Name, Adresse, Telefon. Nur eigene Firmen-Websites als domain angeben, NICHT ${new URL(url).hostname}.`,
               followPagination: true,
               maxPages: maxPagesPerCatalog,
               edenApiKey,
+              resolveMissingDomains: hasSearchKey,
+              serperApiKey: searchKeys.serperApiKey,
+              serpApiKey: searchKeys.serpApiKey,
+              braveApiKey: searchKeys.braveApiKey,
               onProgress: (page, found) => {
                 push({ type: "page_progress", url, page, found });
               },
@@ -79,9 +88,22 @@ export async function POST(
             const newRows: RowData[] = [];
             let added = 0, skipped = 0;
 
+            // Catalog host to exclude from domain dedup
+            let catalogHost = "";
+            try { catalogHost = new URL(url).hostname.replace(/^www\./, "").toLowerCase(); } catch { /* ignore */ }
+
             for (const entry of result.entries) {
-              const domain = entry.domain ?? "";
+              const rawDomain = entry.domain ?? "";
+              // Ignore if LLM returned the catalog domain itself
+              const domain = rawDomain && rawDomain.replace(/^www\./, "").toLowerCase() !== catalogHost
+                ? rawDomain : "";
               if (domain && existingSet.has(domain.toLowerCase())) { skipped++; continue; }
+              // For domain-less entries, dedup by name+city within this crawl session
+              if (!domain) {
+                const nameCity = `${(entry.company_name ?? "").toLowerCase().trim()}|${(entry.city ?? "").toLowerCase().trim()}`;
+                if (nameCity !== "|" && existingSet.has(`name:${nameCity}`)) { skipped++; continue; }
+                if (nameCity !== "|") existingSet.add(`name:${nameCity}`);
+              }
               if (domain) existingSet.add(domain.toLowerCase());
 
               newRows.push({

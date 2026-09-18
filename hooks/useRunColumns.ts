@@ -3,7 +3,19 @@
 import { useState, useCallback } from "react";
 import type { AiColumn, RowData, Case } from "@/lib/types";
 
-function isEmptyOrNotFound(v: unknown): boolean {
+function isEmptyOrNotFound(v: unknown, col?: AiColumn, rowData?: Record<string, string | null>): boolean {
+  if (col && (col.tool === "batch_company" || col.tool === "batch_contact")) {
+    if (col.tool === "batch_company" && rowData) {
+      const fields = col.batchOutputFields ?? ["company_name", "domain", "phone", "company_email", "city", "industry"];
+      const hasAnyField = fields.some(f => rowData[f] && String(rowData[f]).trim() !== "" && !/^notfound$/i.test(String(rowData[f]).trim()));
+      if (hasAnyField) return false;
+    }
+    if (col.tool === "batch_contact" && rowData) {
+      const prefix = col.batchContactsPrefix ?? "contact_";
+      const hasContact = !!(rowData[`_contacts_json_${col.outputKey}`] || rowData[`${prefix}1_first_name`] || rowData[`${prefix}1_last_name`]);
+      if (hasContact) return false;
+    }
+  }
   const t = typeof v === "string" ? v.trim() : String(v ?? "").trim();
   return t === "" || /^notfound$/i.test(t);
 }
@@ -130,12 +142,11 @@ export function useRunColumns(
     const targetRows = runMode === "empty_only"
       ? rows.filter((r) => {
           if (!targetIds.includes(r.id)) return false;
-          const raw = r.data[col.outputKey];
-          const text = typeof raw === "string" ? raw.trim() : String(raw ?? "").trim();
-          return text === "" || /^notfound$/i.test(text);
+          return isEmptyOrNotFound(r.data[col.outputKey], col, r.data);
         })
       : rows.filter((r) => targetIds.includes(r.id));
     const runIds = targetRows.map((r) => r.id);
+    setRunningRowIds(new Set(runIds));
 
     // Mark targeted rows as running optimistically
     setRows((prev) =>
@@ -177,6 +188,12 @@ export function useRunColumns(
 
             if (event.type === "row_done") {
               const { rowId, status, value, multiValues, tokens, costUsd, error, metaData } = event;
+              setRunningRowIds((prev) => {
+                if (!prev.has(rowId)) return prev;
+                const next = new Set(prev);
+                next.delete(rowId);
+                return next;
+              });
               setRows((prev) =>
                 prev.map((r) => {
                   if (r.id !== rowId) return r;
@@ -231,6 +248,7 @@ export function useRunColumns(
     } finally {
       setAbortControllers((prev) => { const { [key]: _, ...rest } = prev; return rest; });
       setRunningColumnId(null);
+      setRunningRowIds(new Set());
       setOperationIds((prev) => { const { [key]: _, ...rest } = prev; return rest; });
     }
   }, [caseId, rows, selectedRows, concurrency, setRows, setColOrder]);
@@ -243,6 +261,7 @@ export function useRunColumns(
     if (controller) { controller.abort(); setAbortControllers((prev) => { const { [key]: _, ...rest } = prev; return rest; }); }
     setOperationIds((prev) => { const { [key]: _, ...rest } = prev; return rest; });
     setRunningColumnId(null);
+    setRunningRowIds(new Set());
   }, [operationIds, abortControllers]);
 
   const runPhase = useCallback(async (phase: "company" | "contact") => {
@@ -299,29 +318,30 @@ export function useRunColumns(
     const abortController = new AbortController();
     setAbortControllers((prev) => ({ ...prev, [key]: abortController }));
     const targetIds = selectedRows.size > 0 ? [...selectedRows] : rows.map((r) => r.id);
-    setRunningRowIds(new Set(targetIds));
     setGlobalRunError(null);
     try {
       // Run columns sequentially but don't abort on individual column error
       for (const col of caseData.aiColumns) {
         if (isOperationCancelled(key)) break;
 
-        // For empty_only: skip columns where ALL target rows already have values
-        if (mode === "empty_only") {
-          const anyEmpty = rows.some(r =>
-            targetIds.includes(r.id) && isEmptyOrNotFound(r.data[col.outputKey])
-          );
-          if (!anyEmpty) continue;  // skip this column entirely
-        }
+        // Filter target rows based on mode: in empty_only only touch empty ones!
+        const colTargetRows = mode === "empty_only"
+          ? rows.filter(r => targetIds.includes(r.id) && isEmptyOrNotFound(r.data[col.outputKey], col, r.data))
+          : rows.filter(r => targetIds.includes(r.id));
+
+        if (colTargetRows.length === 0) continue; // Nothing to do for this column
+
+        const colTargetIds = colTargetRows.map(r => r.id);
+        setRunningRowIds(new Set(colTargetIds));
 
         setRows((prev) => prev.map((r) =>
-          targetIds.includes(r.id) ? { ...r, cellStatuses: { ...r.cellStatuses, [col.outputKey]: "running" } } : r
+          colTargetIds.includes(r.id) ? { ...r, cellStatuses: { ...r.cellStatuses, [col.outputKey]: "running" } } : r
         ));
 
         try {
           const res = await fetch("/api/run/column/stream", {
             method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ caseId, columnId: col.id, rowIds: targetIds, runMode: mode, concurrency }),
+            body: JSON.stringify({ caseId, columnId: col.id, rowIds: colTargetIds, runMode: mode, concurrency }),
             signal: abortController.signal,
           });
 
@@ -344,6 +364,12 @@ export function useRunColumns(
                 const event = JSON.parse(dataStr);
                 if (event.type === "row_done") {
                   const { rowId, status, value, multiValues, error, metaData } = event;
+                  setRunningRowIds((prev) => {
+                    if (!prev.has(rowId)) return prev;
+                    const next = new Set(prev);
+                    next.delete(rowId);
+                    return next;
+                  });
                   setRows((prev) => prev.map((r) => {
                     if (r.id !== rowId) return r;
                     const extraData = multiValues ?? {};
@@ -365,7 +391,7 @@ export function useRunColumns(
           if (msg.includes("abort") || (colErr as Error).name === "AbortError") break;
           // Column error — mark remaining running cells as error but CONTINUE to next column
           setRows((prev) => prev.map((r) =>
-            targetIds.includes(r.id) && r.cellStatuses[col.outputKey] === "running"
+            colTargetIds.includes(r.id) && r.cellStatuses[col.outputKey] === "running"
               ? { ...r, cellStatuses: { ...r.cellStatuses, [col.outputKey]: "error" }, cellErrors: { ...r.cellErrors, [col.outputKey]: msg } }
               : r
           ));

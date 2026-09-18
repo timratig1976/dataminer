@@ -24,6 +24,8 @@ export interface AgentGoal {
   maxIterations?: number;
   /** Whether to include Google Maps/Places steps in the plan (default true) */
   useMaps?: boolean;
+  /** Run LLM validation on Maps results to filter irrelevant entries (adds cost, improves quality) */
+  validatePlaces?: boolean;
 }
 
 // ── Run state ────────────────────────────────────────────────────────────────
@@ -76,6 +78,12 @@ export interface AgentRunState {
   updatedAt: string;
   /** Human-readable log (last 200 entries, newest last) */
   log: string[];
+  /**
+   * Deduplicated registry of executed searches.
+   * Key: "<type>|<query_or_mapQuery>|<location>" → uniqueInserted count
+   * Used by handleReplan to avoid repeating exhausted queries.
+   */
+  executedQueries?: Record<string, number>;
 }
 
 // ── API shapes ───────────────────────────────────────────────────────────────

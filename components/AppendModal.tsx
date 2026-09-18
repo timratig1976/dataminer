@@ -126,6 +126,8 @@ function AiPlanTab({ caseId, onRowsAdded }: { caseId: string; onRowsAdded: (n: n
   const abortRef = useRef<AbortController | null>(null);
   const logRef = useRef<HTMLDivElement | null>(null);
 
+  const [skipCatalogs, setSkipCatalogs] = useState(false);
+
   const handlePlan = async () => {
     if (!prompt.trim()) return;
     setPlanning(true);
@@ -157,13 +159,19 @@ function AiPlanTab({ caseId, onRowsAdded }: { caseId: string; onRowsAdded: (n: n
     setPipelineDone(false);
     setError(null);
 
+    // Filter catalog steps if user opted out
+    const stepsToRun = skipCatalogs
+      ? plan.steps.filter((s) => !s.type.includes("catalog"))
+      : plan.steps;
+    const planToRun = { ...plan, steps: stepsToRun };
+
     abortRef.current = new AbortController();
 
     try {
       const res = await fetch(`/api/cases/${caseId}/append/stream`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ plan, dedupeField: "domain" }),
+        body: JSON.stringify({ plan: planToRun, dedupeField: "domain" }),
         signal: abortRef.current.signal,
       });
 
@@ -284,6 +292,16 @@ function AiPlanTab({ caseId, onRowsAdded }: { caseId: string; onRowsAdded: (n: n
               <p key={i} className="text-xs text-amber-700 mt-1">⚠ {w}</p>
             ))}
           </div>
+
+          <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={skipCatalogs}
+              onChange={(e) => setSkipCatalogs(e.target.checked)}
+              disabled={running}
+            />
+            <span>📋 Katalogseiten-Crawling überspringen</span>
+          </label>
 
           <div className="flex flex-col gap-1.5">
             {plan.steps.map((step) => {
@@ -434,8 +452,10 @@ function SearchTab({ caseId, onRowsAdded }: { caseId: string; onRowsAdded: (n: n
   const [queries, setQueries] = useState("");
   const [template, setTemplate] = useState("");
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<{ added: number; skipped: number; steps: { query: string; added: number; error?: string }[] } | null>(null);
+  const [result, setResult] = useState<{ added: number; skipped: number; steps: { query: string; added: number; source?: string; error?: string }[] } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [searchMode, setSearchMode] = useState<"auto" | "maps" | "search" | "combined">("auto");
+  const [combinedPrimary, setCombinedPrimary] = useState<"maps" | "search">("maps");
 
   const handleRun = async () => {
     const qList = queries.split("\n").map((q) => q.trim()).filter(Boolean);
@@ -444,13 +464,21 @@ function SearchTab({ caseId, onRowsAdded }: { caseId: string; onRowsAdded: (n: n
     setError(null);
 
     try {
+      // Build source param based on selected mode
+      let source = "auto";
+      let mode = "search";
+      if (searchMode === "maps") { source = "maps-serpapi"; mode = "maps"; }
+      else if (searchMode === "search") { source = "auto"; mode = "search"; }
+      else if (searchMode === "combined") { mode = "combined"; source = combinedPrimary === "maps" ? "maps-serpapi" : "auto"; }
+
       const res = await fetch(`/api/cases/${caseId}/append`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          mode: "search",
+          mode,
           queries: qList,
           queryTemplate: template.trim() || undefined,
+          source,
         }),
       });
       const data = await res.json();
@@ -466,10 +494,67 @@ function SearchTab({ caseId, onRowsAdded }: { caseId: string; onRowsAdded: (n: n
 
   return (
     <div className="flex flex-col gap-4">
+      {/* ── Search mode selector ── */}
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-2">Such-Quelle</label>
+        <div className="flex flex-wrap gap-2">
+          {[
+            { id: "auto" as const, label: "🔄 Auto", desc: "Beste Quelle automatisch" },
+            { id: "maps" as const, label: "🗺️ Nur GMB", desc: "Google Maps Business" },
+            { id: "search" as const, label: "🔍 Nur Google", desc: "Web-Suche" },
+            { id: "combined" as const, label: "🗺️+🔍 Kombi", desc: "Maps + Web kombiniert" },
+          ].map(opt => (
+            <button
+              key={opt.id}
+              onClick={() => setSearchMode(opt.id)}
+              disabled={loading}
+              className={`flex flex-col items-start gap-0.5 px-3 py-2 rounded-lg border text-xs transition-colors ${
+                searchMode === opt.id
+                  ? "border-purple-500 bg-purple-50 text-purple-700"
+                  : "border-gray-200 bg-white text-gray-600 hover:border-gray-300"
+              }`}
+              title={opt.desc}
+            >
+              <span className="font-semibold text-sm">{opt.label}</span>
+              <span className="opacity-60">{opt.desc}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Kombi-Einstellungen */}
+      {searchMode === "combined" && (
+        <div className="bg-purple-50 rounded-lg p-3 border border-purple-200">
+          <span className="text-xs font-semibold text-purple-700">Primäre Quelle:</span>
+          <div className="flex gap-2 mt-1.5">
+            <button
+              onClick={() => setCombinedPrimary("maps")}
+              className={`px-3 py-1 rounded text-xs font-medium ${
+                combinedPrimary === "maps"
+                  ? "bg-purple-600 text-white"
+                  : "bg-white text-purple-600 border border-purple-200"
+              }`}
+            >
+              🗺️ Maps zuerst (strukturierte Daten priorisieren)
+            </button>
+            <button
+              onClick={() => setCombinedPrimary("search")}
+              className={`px-3 py-1 rounded text-xs font-medium ${
+                combinedPrimary === "search"
+                  ? "bg-purple-600 text-white"
+                  : "bg-white text-purple-600 border border-purple-200"
+              }`}
+            >
+              🔍 Web zuerst (breitere Abdeckung)
+            </button>
+          </div>
+        </div>
+      )}
+
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-1">Suchanfragen (eine pro Zeile)</label>
         <textarea
-          className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono resize-none focus:outline-none focus:ring-2 focus:ring-purple-500"
           rows={5}
           placeholder={"Heizungsbauer Rostock\nHeizungsbauer Schwerin\nHaustechnik Greifswald"}
           value={queries}
@@ -482,7 +567,7 @@ function SearchTab({ caseId, onRowsAdded }: { caseId: string; onRowsAdded: (n: n
           Region-Template <span className="text-gray-400 font-normal">(optional, wird für alle Städte der Region expandiert)</span>
         </label>
         <input
-          className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
           placeholder='z.B. "Heizungsbauer {city} MV" — {city} wird durch alle Städte ersetzt'
           value={template}
           onChange={(e) => setTemplate(e.target.value)}
@@ -493,11 +578,21 @@ function SearchTab({ caseId, onRowsAdded }: { caseId: string; onRowsAdded: (n: n
       {result && (
         <div className="bg-green-50 rounded-lg px-4 py-3 text-sm text-green-800">
           ✅ {result.added} neue Einträge · {result.skipped} Duplikate
+          {result.steps.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {result.steps.map((s, i) => (
+                <span key={i} className="text-xs bg-green-100 px-2 py-0.5 rounded">
+                  {s.source && <span className="font-medium text-green-700">{s.source}: </span>}
+                  +{s.added}
+                </span>
+              ))}
+            </div>
+          )}
         </div>
       )}
       <div className="flex justify-end">
         <button
-          className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium disabled:opacity-50"
+          className="px-4 py-2 text-sm bg-purple-600 text-white rounded-lg hover:bg-purple-700 font-medium disabled:opacity-50"
           onClick={handleRun}
           disabled={loading || (!queries.trim() && !template.trim())}
         >

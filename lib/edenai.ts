@@ -146,23 +146,31 @@ function edenError(json: any, status: number): Error {
   return new Error(msg);
 }
 
-/** True for transient timeouts/aborts that are worth a single retry. */
+/** True for transient timeouts/aborts or rate-limits that are worth a retry. */
 function isRetryable(e: unknown): boolean {
   const m = e instanceof Error ? e.message : String(e);
-  return /timeout|abort|ECONNRESET|ETIMEDOUT|fetch failed|socket/i.test(m);
+  return /timeout|abort|ECONNRESET|ETIMEDOUT|fetch failed|socket|rate limit|too many requests|429/i.test(m);
 }
 
 /**
- * Run `fn` once, and retry a single time on transient timeout/abort.
- * Absorbs cold-start spikes on Eden's US universal-ai gateway (Firecrawl).
+ * Run `fn` once, and retry on transient timeout, rate limit or abort.
+ * Absorbs rate limits (e.g. Firecrawl 429) and cold-start spikes on Eden's US universal-ai gateway.
  */
-async function withRetry<T>(fn: () => Promise<T>, retryDelayMs = 800): Promise<T> {
-  try {
-    return await fn();
-  } catch (e) {
-    if (!isRetryable(e)) throw e;
-    await new Promise((r) => setTimeout(r, retryDelayMs));
-    return await fn();
+async function withRetry<T>(fn: () => Promise<T>, maxRetries = 3, initialDelayMs = 1500): Promise<T> {
+  let attempt = 0;
+  let delay = initialDelayMs;
+  while (true) {
+    try {
+      return await fn();
+    } catch (e) {
+      attempt++;
+      if (attempt > maxRetries || !isRetryable(e)) throw e;
+      const m = e instanceof Error ? e.message : String(e);
+      const isRateLimit = /rate limit|too many requests|429/i.test(m);
+      const waitMs = isRateLimit ? Math.max(delay, 2000) : delay;
+      await new Promise((r) => setTimeout(r, waitMs + Math.floor(Math.random() * 500)));
+      delay *= 2;
+    }
   }
 }
 
@@ -336,8 +344,9 @@ export async function edenWebSearch(params: {
 export async function edenScrapeUrl(params: {
   apiKey: string;
   url: string;
+  signal?: AbortSignal;
 }): Promise<{ markdown: string; title?: string; costUsd?: number }> {
-  const { apiKey, url } = params;
+  const { apiKey, url, signal } = params;
   const endpoint = `${EDEN_BASE_URLS.us}/v3/universal-ai`;
 
   const res = await withRetry(() =>
@@ -351,8 +360,9 @@ export async function edenScrapeUrl(params: {
           input: { url, formats: ["markdown"] },
           show_original_response: false,
         }),
+        signal,
       },
-      60_000
+      30_000
     )
   );
 

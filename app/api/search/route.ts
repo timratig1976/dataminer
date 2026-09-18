@@ -8,10 +8,10 @@ function parseLayer(raw: string | null | undefined): SearchLayer | undefined {
   return VALID_LAYERS.has(raw) ? (raw as SearchLayer) : undefined;
 }
 
-function clampMaxResults(raw: unknown, fallback = 5): number {
+function clampMaxResults(raw: unknown, fallback = 10): number {
   const n = Number(raw);
   if (!Number.isFinite(n)) return fallback;
-  return Math.max(1, Math.min(Math.floor(n), 10));
+  return Math.max(1, Math.min(Math.floor(n), 20));
 }
 
 function getSerpApiKey(): string | undefined {

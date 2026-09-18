@@ -33,12 +33,30 @@ export async function getLearnedCatalogDomains(): Promise<Set<string>> {
 
 /**
  * Add one or more domains to the persistent registry.
- * Silently ignores duplicates and invalid strings.
+ * Silently ignores duplicates, invalid strings, and known non-catalog domains.
  */
 export async function learnCatalogDomains(domains: string[]): Promise<void> {
+  // Never "learn" social media, video, maps, review sites or other non-directory domains
+  const NEVER_LEARN = new Set([
+    "youtube.com", "youtu.be", "vimeo.com",
+    "twitter.com", "x.com", "facebook.com", "instagram.com",
+    "tiktok.com", "pinterest.com", "snapchat.com", "reddit.com",
+    "linkedin.com", "xing.com",
+    "google.com", "google.de", "maps.google.com", "maps.apple.com",
+    "bing.com", "yahoo.com", "duckduckgo.com",
+    "tripadvisor.com", "tripadvisor.de",
+    "yelp.com", "yelp.de", "foursquare.com",
+    "kununu.com", "glassdoor.com", "glassdoor.de",
+    "wikipedia.org", "wikidata.org",
+    "bloomberg.com", "crunchbase.com",
+    "indeed.com", "stepstone.de", "monster.de",
+    "play.google.com", "apps.apple.com",
+    "amazon.com", "amazon.de", "ebay.com", "ebay.de",
+    "github.com", "gitlab.com",
+  ]);
   const clean = domains
     .map((d) => d.toLowerCase().replace(/^www\./, "").trim())
-    .filter((d) => d.includes(".") && d.length > 3);
+    .filter((d) => d.includes(".") && d.length > 3 && !NEVER_LEARN.has(d));
   if (clean.length === 0) return;
 
   await initDb();

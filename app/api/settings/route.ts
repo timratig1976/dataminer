@@ -27,7 +27,7 @@ export async function GET() {
       serpEnvPresent: Boolean(process.env.SERP_API_KEY?.trim()),
       braveEnvPresent: Boolean(process.env.BRAVE_API_KEY?.trim()),
       apifyEnvPresent: Boolean(process.env.APIFY_API_TOKEN?.trim()),
-      plannerSystemPrompt: s.plannerSystemPrompt ?? null,
+      plannerPrompt: s.plannerPrompt ?? null,
       updatedAt: s.updatedAt,
     });
   } catch (e) {

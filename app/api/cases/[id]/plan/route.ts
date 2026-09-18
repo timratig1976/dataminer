@@ -33,7 +33,7 @@ export async function POST(
       serpApiKeyAvailable: !!process.env.SERP_API_KEY,
       braveApiKeyAvailable: !!process.env.BRAVE_API_KEY,
       edenKeyAvailable: true,
-      systemPromptOverride: globalSettings.plannerSystemPrompt ?? null,
+      systemPromptOverride: globalSettings.plannerPrompt ?? null,
     });
     return NextResponse.json(plan);
   } catch (e: unknown) {

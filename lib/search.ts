@@ -174,11 +174,11 @@ function isCatalogUrl(url: string): boolean {
   }
 }
 
-/** Deduplicate results by normalised URL and strip catalog/directory entries */
+/** Deduplicate results by normalised URL — catalog entries are kept so the
+ *  agent can inject catalog_deep_crawl steps for them, but deduplicated by URL */
 function deduplicate(results: SearchResult[]): SearchResult[] {
   const seen = new Set<string>();
   return results.filter((r) => {
-    if (isCatalogUrl(r.url)) return false;
     const key = r.url.toLowerCase().replace(/\/+$/, "");
     if (seen.has(key)) return false;
     seen.add(key);
@@ -198,7 +198,7 @@ export { CATALOG_DOMAINS, isCatalogUrl };
 export async function searchViaSerper(
   query: string,
   serperApiKey: string,
-  maxResults = 10
+  maxResults = 50
 ): Promise<SearchResult[]> {
   if (!query.trim()) throw new Error("empty query");
   if (!serperApiKey.trim()) throw new Error("missing Serper API key");
@@ -288,7 +288,7 @@ async function searchViaSerpApiPage(
 export async function searchViaSerpApi(
   query: string,
   serpApiKey: string,
-  maxResults = 5
+  maxResults = 50
 ): Promise<SearchResult[]> {
   if (!query.trim()) throw new Error("empty query");
   if (!serpApiKey.trim()) throw new Error("missing SerpAPI key");
@@ -323,7 +323,7 @@ export async function searchViaSerpApi(
 
 export async function searchViaDuckDuckGo(
   query: string,
-  maxResults = 5
+  maxResults = 50
 ): Promise<SearchResult[]> {
   if (!query.trim()) throw new Error("empty query");
 
@@ -414,7 +414,7 @@ export async function searchViaDuckDuckGo(
 export async function searchViaBrave(
   query: string,
   braveApiKey: string,
-  maxResults = 5
+  maxResults = 50
 ): Promise<SearchResult[]> {
   if (!query.trim()) throw new Error("empty query");
   if (!braveApiKey.trim()) throw new Error("missing Brave API key");
@@ -469,7 +469,7 @@ export async function searchViaScrapling(
   query: string,
   scraplingUrl: string,
   scraplingToken: string,
-  maxResults = 5
+  maxResults = 50,
 ): Promise<SearchResult[]> {
   if (!query.trim()) throw new Error("empty query");
   if (!scraplingUrl.trim()) throw new Error("missing SCRAPLING_URL");
@@ -513,16 +513,16 @@ const firecrawlLastCall = { ts: 0 };
 export async function searchViaFirecrawl(
   query: string,
   edenApiKey: string,
-  maxResults = 5,
+  maxResults = 50,
   depth: "basic" | "deep" = "basic",
   includeDomains?: string[]
 ): Promise<{ results: SearchResult[]; costUsd?: number }> {
   if (!query.trim()) throw new Error("empty query");
   if (!edenApiKey.trim()) throw new Error("missing Eden AI key for Firecrawl");
 
-  // Rate limit: min 1.2s between Firecrawl calls to avoid 429
+  // Rate limit: min 2.0s between Firecrawl calls to avoid 429
   const now = Date.now();
-  const wait = Math.max(0, 1200 - (now - firecrawlLastCall.ts));
+  const wait = Math.max(0, 2000 - (now - firecrawlLastCall.ts));
   if (wait > 0) await new Promise(r => setTimeout(r, wait));
   firecrawlLastCall.ts = Date.now();
 
@@ -570,7 +570,7 @@ export async function searchViaFirecrawl(
 
 export async function searchViaPlaywright(
   query: string,
-  maxResults = 5
+  maxResults = 50
 ): Promise<SearchResult[]> {
   if (!query.trim()) throw new Error("empty query");
 
@@ -722,7 +722,7 @@ export async function webSearch(
     firecrawlDepth?: "basic" | "deep";
   } = {}
 ): Promise<SearchResponse> {
-  const { serpApiKey, serperApiKey, braveApiKey, scraplingUrl, scraplingToken, firecrawlApiKey, maxResults = 5, forceLayer, limitCap = 200, firecrawlDepth = "basic" } = options;
+  const { serpApiKey, serperApiKey, braveApiKey, scraplingUrl, scraplingToken, firecrawlApiKey, maxResults = 50, forceLayer, limitCap = 200, firecrawlDepth = "basic" } = options;
   const clampedMax = Math.max(1, Math.min(maxResults, limitCap));
   const layerErrors: Record<string, string> = {};
   const t0 = Date.now();

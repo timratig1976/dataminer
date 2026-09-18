@@ -109,6 +109,39 @@ export const discoveryJobs = pgTable(
   (t) => [index("idx_discovery_jobs_case_id").on(t.caseId)]
 );
 
+// ── Contact rows (Clay-pattern: contacts table linked to company rows) ──────
+/**
+ * Each row = one person/contact discovered for a company.
+ * Linked to the source company via companyRowId (FK → rows.id, nullable for
+ * manually added contacts). Upsert key: (caseId, companyRowId, email) OR
+ * (caseId, companyRowId, first_name+last_name) when no email.
+ *
+ * data fields: first_name, last_name, position, email, email_extrapolated,
+ *              phone, linkedin, source, company_name, domain, + any AI columns
+ * cellStatuses / cellErrors: for future per-contact AI enrichment columns
+ */
+export const contactRows = pgTable(
+  "contact_rows",
+  {
+    id: text("id").primaryKey(),
+    caseId: text("case_id")
+      .notNull()
+      .references(() => cases.id, { onDelete: "cascade" }),
+    /** FK to the company row this contact was found for. Null = standalone. */
+    companyRowId: text("company_row_id"),
+    rowIndex: integer("row_index").notNull().default(0),
+    data: jsonb("data").$type<Record<string, string | null>>().notNull().default({}),
+    cellStatuses: jsonb("cell_statuses").$type<Record<string, string>>().notNull().default({}),
+    cellErrors: jsonb("cell_errors").$type<Record<string, string>>().notNull().default({}),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+  },
+  (t) => [
+    index("idx_contact_rows_case_id").on(t.caseId, t.rowIndex),
+    index("idx_contact_rows_company_row_id").on(t.companyRowId),
+  ]
+);
+
 // ── Agent goal runs ─────────────────────────────────────────────────────────
 
 export const agentRuns = pgTable(

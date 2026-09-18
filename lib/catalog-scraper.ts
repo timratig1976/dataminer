@@ -17,6 +17,7 @@
 
 import { edenScrapeUrl, edenChatCompletion } from "./edenai";
 import { normalizeDomain } from "./discovery";
+import { webSearch } from "./search";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -42,6 +43,12 @@ export interface CatalogScrapeOptions {
   model?: string;              // default "openai/gpt-4o-mini"
   signal?: AbortSignal;
   onProgress?: (page: number, entriesFound: number) => void;
+  /** If true, fire a web search for entries without a domain to find their website */
+  resolveMissingDomains?: boolean;
+  /** Search API keys for domain resolution (at least one needed) */
+  serperApiKey?: string;
+  serpApiKey?: string;
+  braveApiKey?: string;
 }
 
 export interface CatalogScrapeResult {
@@ -119,7 +126,8 @@ Antworte NUR mit minimalem JSON (keine Erklärungen, kein Markdown):
 
 Regeln:
 - Fehlende Felder: null (nicht weglassen)
-- domain: nur die Basis-URL (ohne http/https), z.B. "example.de"
+- domain: NUR die eigene Website-Domain der Firma (ohne http/https), z.B. "muster-gmbh.de"
+  WICHTIG: Setze domain=null wenn die Firma keine eigene Website hat — NIEMALS die Katalog/Verzeichnis-Domain selbst (z.B. dastelefonbuch.de, gelbeseiten.de, my-hammer.de etc.)
 - Keine doppelten Einträge
 - next_page_url: URL zur nächsten Seite wenn erkennbar, sonst null`;
 
@@ -167,6 +175,45 @@ async function extractFromMarkdown(
 
 // ── Main scraper ──────────────────────────────────────────────────────────────
 
+// ── Domain resolution via web search ────────────────────────────────────────
+
+// Known directory/catalog domains — never return these as a firm's own website
+const CATALOG_DOMAINS_BLOCKLIST = new Set([
+  "dastelefonbuch.de", "gelbeseiten.de", "my-hammer.de", "houzz.de",
+  "dasoertliche.de", "immobilienscout24.de", "trustlocal.de", "yelp.de",
+  "yelp.com", "yellowpages.com", "tripadvisor.de", "tripadvisor.com",
+  "google.com", "google.de", "bing.com", "facebook.com", "instagram.com",
+  "linkedin.com", "xing.com", "kununu.com", "wlw.de", "europages.de",
+  "11880.com", "cylex.de", "meinbezirk.at", "herold.at",
+  "stadtbranchenbuch.com", "branchenbuch.de", "firmendb.de",
+]);
+
+async function resolveDomainViaSearch(
+  companyName: string,
+  city: string | null,
+  options: Pick<CatalogScrapeOptions, "serperApiKey" | "serpApiKey" | "braveApiKey">
+): Promise<string | null> {
+  const query = city ? `"${companyName}" ${city}` : `"${companyName}" Website`;
+  try {
+    const resp = await webSearch(query, {
+      serperApiKey: options.serperApiKey,
+      serpApiKey: options.serpApiKey,
+      braveApiKey: options.braveApiKey,
+      maxResults: 3,
+      limitCap: 5,
+    });
+    for (const r of resp.results) {
+      try {
+        const hostname = new URL(r.url).hostname.replace(/^www\./, "").toLowerCase();
+        if (!CATALOG_DOMAINS_BLOCKLIST.has(hostname) && hostname.includes(".")) {
+          return hostname;
+        }
+      } catch { /* skip invalid URLs */ }
+    }
+  } catch { /* ignore search errors */ }
+  return null;
+}
+
 export async function scrapeCatalog(options: CatalogScrapeOptions): Promise<CatalogScrapeResult> {
   const {
     url,
@@ -177,6 +224,10 @@ export async function scrapeCatalog(options: CatalogScrapeOptions): Promise<Cata
     model = "openai/gpt-4o-mini",
     signal,
     onProgress,
+    resolveMissingDomains = false,
+    serperApiKey,
+    serpApiKey,
+    braveApiKey,
   } = options;
 
   const allEntries: CatalogEntry[] = [];
@@ -268,6 +319,29 @@ export async function scrapeCatalog(options: CatalogScrapeOptions): Promise<Cata
     seenDomains.add(e.domain);
     return true;
   });
+
+  // Optional: resolve missing domains via web search
+  if (resolveMissingDomains) {
+    const missingIdxs = deduped
+      .map((e, i) => (!e.domain && e.company_name ? i : -1))
+      .filter(i => i >= 0);
+
+    // Run in small batches (3 parallel) to avoid rate limits
+    const BATCH = 3;
+    for (let b = 0; b < missingIdxs.length; b += BATCH) {
+      if (signal?.aborted) break;
+      const batch = missingIdxs.slice(b, b + BATCH);
+      await Promise.all(batch.map(async (idx) => {
+        const entry = deduped[idx];
+        const domain = await resolveDomainViaSearch(
+          entry.company_name!,
+          entry.city,
+          { serperApiKey, serpApiKey, braveApiKey }
+        );
+        if (domain) deduped[idx] = { ...entry, domain };
+      }));
+    }
+  }
 
   return {
     entries: deduped,

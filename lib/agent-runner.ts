@@ -115,17 +115,20 @@ export function evaluateStopCondition(run: AgentRunState): AgentRunStatus | null
   // Target reached?
   if (run.uniqueCount >= run.goal.targetCount) return "completed";
 
+  // Apply sensible defaults so a run can't burn unlimited money/time
+  const maxBudgetUsd = run.goal.maxBudgetUsd ?? 5;
+  const maxDurationMin = run.goal.maxDurationMin ?? 60;
+  const maxIterations = run.goal.maxIterations ?? 100;
+
   // Budget exhausted?
-  if (run.goal.maxBudgetUsd != null && run.costUsd >= run.goal.maxBudgetUsd) return "budget_exhausted";
+  if (run.costUsd >= maxBudgetUsd) return "budget_exhausted";
 
   // Wall-clock cap?
-  if (run.goal.maxDurationMin != null) {
-    const elapsed = (Date.now() - new Date(run.startedAt).getTime()) / 60_000;
-    if (elapsed >= run.goal.maxDurationMin) return "budget_exhausted";
-  }
+  const elapsed = (Date.now() - new Date(run.startedAt).getTime()) / 60_000;
+  if (elapsed >= maxDurationMin) return "budget_exhausted";
 
-  // Safety iteration limit?
-  if (run.goal.maxIterations != null && run.iteration >= run.goal.maxIterations) return "budget_exhausted";
+  // Safety iteration limit
+  if (run.iteration >= maxIterations) return "budget_exhausted";
 
   return null;
 }
@@ -235,11 +238,20 @@ export async function executeNextStep(
   run.stepResults.push(result);
   run.uniqueCount += result.uniqueInserted;
   run.costUsd += result.costUsd;
+
+  // Record executed query in the registry for intelligent replan
+  if (!run.executedQueries) run.executedQueries = {};
+  const qKey = [
+    nextStep.type,
+    nextStep.mapQuery ?? nextStep.query ?? nextStep.queryTemplate ?? nextStep.label,
+    nextStep.location ?? "",
+  ].join("|");
+  run.executedQueries[qKey] = (run.executedQueries[qKey] ?? 0) + result.uniqueInserted;
+
   stamp(run);
 
-  // Auto-inject catalog deep-crawl steps for any newly found catalog rows
-  // (rows with is_catalog="true" that don't already have a deep-crawl step)
-  await injectCatalogDeepCrawlSteps(run);
+  // Catalog deep-crawl auto-injection disabled — catalog pages are ignored for now
+  // await injectCatalogDeepCrawlSteps(run);
 
   // Log
   const logLine = result.error
@@ -269,15 +281,55 @@ export async function executeNextStep(
  * Domains that are job/service marketplaces or aggregators — they list
  * service requests, not actual company directories. Deep-crawling them
  * yields 0 real firm URLs. Skip them in catalog_deep_crawl steps.
+ *
+ * Rule: anything that is NOT a structured, paginated German business directory
+ * should be blocked here. When in doubt → block.
  */
 const NON_SCRAPEAGLE_CATALOG_DOMAINS = new Set([
+  // ── Social / video / media ────────────────────────────────────────────────
+  "youtube.com", "youtu.be",
+  "twitter.com", "x.com",
+  "facebook.com", "instagram.com",
+  "tiktok.com", "pinterest.com", "snapchat.com",
+  "linkedin.com", "xing.com",
+  // ── Maps / review portals ─────────────────────────────────────────────────
+  "maps.google.com", "google.com",
+  "maps.apple.com",
+  "tripadvisor.com", "tripadvisor.de",
+  "yelp.com", "yelp.de",
+  "foursquare.com",
+  "golocal.de",
+  // ── Bewertung / HR ────────────────────────────────────────────────────────
+  "kununu.com", "glassdoor.com", "glassdoor.de",
+  "proven-expert.com", "provenexpert.com",
+  "trustedshops.de", "ekomi.de", "trustpilot.com", "trustpilot.de",
+  // ── Job boards ────────────────────────────────────────────────────────────
+  "indeed.com", "stepstone.de", "monster.de", "jobs.de",
+  // ── App stores ────────────────────────────────────────────────────────────
+  "play.google.com", "apps.apple.com",
+  // ── Wiki / encyclopaedic ──────────────────────────────────────────────────
+  "wikipedia.org", "wikidata.org",
+  // ── Handwerker-Vermittlung (service requests, not directories) ────────────
   "houzz.de", "houzz.com",
   "my-hammer.de", "myhammer.de",
   "blauarbeit.de", "1-2-do.com", "1-2-do.de",
   "homeday.de", "handwerker-vermittlung.de",
-  "auftragsboerse.de", "tripadvisor.de", "tripadvisor.com",
-  "yelp.de", "yelp.com",
+  "auftragsboerse.de", "aroundhome.de", "homeadvisor.de",
+  "klugo.de",
+  // ── International marketplaces ────────────────────────────────────────────
+  "alibaba.com", "aliexpress.com",
+  "thomasnet.com",
+  // ── Finance / data providers ──────────────────────────────────────────────
+  "bloomberg.com", "crunchbase.com",
+  // ── Aggregators that block crawling ──────────────────────────────────────
+  "check24.de", "verivox.de", "idealo.de",
+  "mapquest.com",
+  "manta.com", "hotfrog.com", "yellowpages.com", "superpages.com",
+  // ── Low-yield DE directories ─────────────────────────────────────────────
   "gelbeseiten.de",   // paginated but low yield — skip deep crawl, use planned steps
+  "kleinanzeigen.de", "ebay-kleinanzeigen.de",
+  "quoka.de", "locanto.de",
+  "haendlerbund.de",
 ]);
 
 /**
@@ -304,11 +356,25 @@ async function injectCatalogDeepCrawlSteps(run: AgentRunState): Promise<void> {
     const newUrls = catalogUrls.filter(url => {
       if (!url) return false;
       if (existingUrls.has(url)) return false;
-      // Skip non-scrapeble aggregator/marketplace domains — they list requests, not firms
       try {
-        const hostname = new URL(url).hostname.replace(/^www\./, "");
+        const hostname = new URL(url).hostname.replace(/^www\./, "").toLowerCase();
+        // Block known non-crawlable domains
         if (NON_SCRAPEAGLE_CATALOG_DOMAINS.has(hostname)) return false;
-      } catch { /* keep */ }
+        // Only crawl known structured DE/AT/CH business directories
+        // Everything else (unknown domains found in search results) is skipped
+        const CRAWLABLE_WHITELIST = new Set([
+          "wlw.de", "branchenverzeichnis.de", "handwerker.de",
+          "11880.com", "meinbezirk.at", "cylex.de", "cylex-branchenbuch.de",
+          "stadtbranchenbuch.com", "stadtbranchenbuch.de",
+          "meinestadt.de", "local.ch", "local.de",
+          "dastelefonbuch.de", "dasoertliche.de",
+          "herold.at", "firmen.at",
+          "auskunft.de", "klicktel.de",
+          "northdata.de",
+          "muenchen.de", "berlin.de", // official city portals with business listings
+        ]);
+        if (!CRAWLABLE_WHITELIST.has(hostname)) return false;
+      } catch { return false; }
       return true;
     });
     if (newUrls.length === 0) return;
@@ -422,10 +488,6 @@ async function executePlanStep(
         excludeDomains: existingDomains,
       });
 
-      if (isOperationCancelled(cancelKey)) {
-        return { stepId: step.id, attemptedAt: t0, hitsFound: 0, uniqueInserted: 0, costUsd: 0, source: "cancelled" };
-      }
-
       hitsFound = resp.places.length;
       source = resp.provider;
 
@@ -447,9 +509,6 @@ async function executePlanStep(
           scraplingToken: env.scraplingToken,
           edenApiKey: env.edenApiKey,
         });
-        if (isOperationCancelled(cancelKey)) {
-          return { stepId: step.id, attemptedAt: t0, hitsFound: 0, uniqueInserted: 0, costUsd: 0, source: "cancelled" };
-        }
         hitsFound = webResp.hits.length;
         source = `maps-fallback-search (${webResp.source})`;
         if (typeof webResp.costUsd === "number") costUsd += webResp.costUsd;
@@ -634,10 +693,6 @@ async function executePlanStep(
         return { stepId: step.id, attemptedAt: t0, hitsFound, uniqueInserted, costUsd, source };
       }
 
-      if (isOperationCancelled(cancelKey)) {
-        return { stepId: step.id, attemptedAt: t0, hitsFound: 0, uniqueInserted: 0, costUsd, source: "cancelled" };
-      }
-
       if (markdown) {
         // Extract company entries from catalog markdown using LLM
         const extractionPrompt = step.extractionPrompt ??
@@ -731,7 +786,6 @@ Leeres Array [] wenn keine Einträge gefunden. website="" wenn keine externe Fir
       }
 
       for (const query of queriesToRun) {
-        if (isOperationCancelled(cancelKey)) break;
 
         const resp = await discoverySearch(query, {
           source: (step.source as "auto" | "firecrawl" | "serpapi" | "brave" | "duckduckgo" | "scrapling") ?? "auto",
@@ -788,6 +842,63 @@ Leeres Array [] wenn keine Einträge gefunden. website="" wenn keine externe Fir
 
 // ── Replan: all steps done but target not reached ────────────────────────────
 
+/**
+ * Analyse the executedQueries registry to derive:
+ * - Which locations are exhausted (queried ≥N times with low total yield)
+ * - Which query types worked well
+ * - Which locations have NOT been tried yet (based on region from goal)
+ */
+function analyseQueryRegistry(run: AgentRunState): {
+  exhaustedLocations: string[];
+  productiveLocations: string[];
+  exhaustedQueryTypes: string[];
+  locationYield: Record<string, { queries: number; leads: number }>;
+  totalQueries: number;
+} {
+  const reg = run.executedQueries ?? {};
+  const locationYield: Record<string, { queries: number; leads: number }> = {};
+  const typeYield: Record<string, { queries: number; leads: number }> = {};
+
+  for (const [key, leads] of Object.entries(reg)) {
+    const [type, , location] = key.split("|");
+    const loc = location || "unknown";
+
+    if (!locationYield[loc]) locationYield[loc] = { queries: 0, leads: 0 };
+    locationYield[loc].queries++;
+    locationYield[loc].leads += leads;
+
+    if (!typeYield[type]) typeYield[type] = { queries: 0, leads: 0 };
+    typeYield[type].queries++;
+    typeYield[type].leads += leads;
+  }
+
+  // Exhausted = ≥4 queries with avg < 1 lead/query
+  const exhaustedLocations = Object.entries(locationYield)
+    .filter(([, v]) => v.queries >= 4 && v.leads / v.queries < 1.0)
+    .sort((a, b) => b[1].queries - a[1].queries)
+    .map(([loc]) => loc);
+
+  // Productive = avg ≥ 2 leads/query
+  const productiveLocations = Object.entries(locationYield)
+    .filter(([, v]) => v.leads / v.queries >= 2.0)
+    .sort((a, b) => (b[1].leads / b[1].queries) - (a[1].leads / a[1].queries))
+    .slice(0, 10)
+    .map(([loc]) => loc);
+
+  // Query types with zero yield
+  const exhaustedQueryTypes = Object.entries(typeYield)
+    .filter(([, v]) => v.queries >= 5 && v.leads / v.queries < 0.5)
+    .map(([t]) => t);
+
+  return {
+    exhaustedLocations,
+    productiveLocations,
+    exhaustedQueryTypes,
+    locationYield,
+    totalQueries: Object.keys(reg).length,
+  };
+}
+
 async function handleReplan(
   run: AgentRunState,
   env: StepEnv,
@@ -805,11 +916,14 @@ async function handleReplan(
   run.iteration++;
   run.log.push(`🔄 Iteration ${run.iteration}: ${run.uniqueCount}/${run.goal.targetCount} erreicht, plane nächste Runde…`);
 
-  // Build step yields
+  // Build yield map from stepResults
   const stepYields: Record<string, number> = {};
   for (const r of run.stepResults) {
     if (r.stepId && !r.error) stepYields[r.stepId] = r.uniqueInserted;
   }
+
+  // Intelligent analysis of what's been tried
+  const analysis = analyseQueryRegistry(run);
 
   try {
     const newPlan = await refinePlan({
@@ -822,14 +936,8 @@ async function handleReplan(
       serpApiKeyAvailable: !!env.serpApiKey,
       braveApiKeyAvailable: !!env.braveApiKey,
       edenKeyAvailable: true,
+      analysis,
     });
-
-    if (isOperationCancelled(cancelKey)) {
-      run.status = "cancelled";
-      stamp(run);
-      await updateAgentRunState(run);
-      return run;
-    }
 
     if (newPlan && newPlan.steps.length > 0) {
       run.plan.steps.push(...newPlan.steps);

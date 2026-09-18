@@ -372,6 +372,14 @@ export interface ReplanOptions extends PlannerOptions {
   stepYields: Record<string, number>;
   /** Current unique domain count */
   currentUniqueCount: number;
+  /** Optional analysis of executed queries to avoid exhausted locations */
+  analysis?: {
+    exhaustedLocations: string[];
+    productiveLocations: string[];
+    exhaustedQueryTypes: string[];
+        locationYield: Record<string, { queries: number; leads: number }>;
+    totalQueries: number;
+  };
 }
 
 function buildReplanSystemPrompt(availableKeys: Record<string, boolean>): string {
@@ -391,13 +399,31 @@ WICHTIG: Katalogseiten sind LINK-EXTRAKTOREN — wir scrapen die Katalogseite un
 die verlinkten Firmenwebsites daraus. Nicht die Katalog-URL selbst importieren.
 
 Erweiterungsregeln:
-1. google_maps zuerst (priority 1): Wenn noch nicht alle Städte/Stadtteile abgedeckt, weitere Maps-Steps
-2. catalog_scrape (priority 1): Weitere Katalog-Seiten (andere Kataloge oder nächste Seiten)
-   - extractionPrompt: "Extrahiere Firmenname + eigene Website-URL (NICHT Katalog-Domain), Telefon, Adresse"
-3. Steps mit hohem Ertrag (>30%) → mehr davon (mehr Städte, weitere Kataloge)
-4. Steps mit null/niedrigem Ertrag (<5%) → NICHT wiederholen, anderen Typ versuchen
-5. multi_search / google_search nur als letzte Ergänzung (priority 3)
-6. Maximal 10 neue Steps vorschlagen
+1. NIEMALS einen Ort wiederholen der bereits ≥5x gesucht wurde und kaum neue Leads brachte
+2. Priorisiere NEUE Orte: andere Städte, Kreise, Bundesländer die noch nicht abgedeckt sind
+3. Variiere Suchbegriffe: Synonyme, Branchenslang, Verbandsnamen, englische Begriffe
+4. google_maps für neue Orte (priority 1), multi_search / google_search für neue Begriffe (priority 2)
+5. Maximal 10 neue Steps — aber alle mit ANDEREN Orten/Begriffen als bisher
+
+DU MUSST vermeiden:
+- Wiederholung derselben Stadt in derselben Iteration
+- Allgemeine Begriffe wie "Immobilienmakler" ohne neues Location-Targeting
+- Kleine Städte wieder und wieder zu suchen, wenn sie schon erschöpft sind
+- Synonym-Spam: Hausverwaltung / Immobilienverwaltung / Wohneigentumsverwaltung im SELBEN Ort
+
+BEISPIEL für gute neue Steps:
+- google_maps "Wohnungsgenossenschaften in Magdeburg" location="Magdeburg"
+- google_maps "Facility Management in Erfurt" location="Erfurt"
+- google_search "Bundesverband Hausverwaltung Mitgliedsfirmen"
+
+BEISPIEL für schlechte Steps (NICHT so machen):
+- Wiederholen von "Immobilienmakler in Neubrandenburg" wenn Neubrandenburg schon erschöpft ist
+- 10 Steps die alle nur Neubrandenburg abdecken
+
+KRITISCH: Schlage IMMER mindestens 3–5 neue Steps vor, egal wie niedrig der bisherige Ertrag war.
+Gib NIEMALS ein leeres steps-Array zurück — das stoppt die Suche vorzeitig.
+Wenn bekannte Quellen erschöpft sind, erfinde neue kreative Suchstrategien (andere Synonyme, Nachbarstädte, Verbände, Branchenportale).
+Schreibe KEINE Kommentare wie "Sources exhausted" oder "Diminishing returns" in warnings — das ist nicht hilfreich.
 
 Antworte NUR mit JSON:
 {
@@ -422,23 +448,66 @@ export async function refinePlan(opts: ReplanOptions): Promise<DiscoveryPlan | n
   const remaining = Math.max(0, goal.targetCount - currentUniqueCount);
   if (remaining <= 0) return null; // already done
 
-  // Build yield summary for the LLM
-  const yieldLines = previousSteps
-    .filter((s) => stepYields[s.id] !== undefined)
-    .map((s) => {
-      const y = stepYields[s.id];
-      const rate = s.estimatedHits > 0 ? (y / s.estimatedHits * 100).toFixed(0) : "?";
-      return `- [${s.type}] "${s.label}" → ${y} unique / ${s.estimatedHits} estimated (${rate}% Ertrag)`;
-    });
+  const { analysis } = opts;
+
+  // Build yield summary — only last 20 executed steps to keep prompt short
+  const executedSteps = previousSteps.filter((s) => stepYields[s.id] !== undefined);
+  const recentSteps = executedSteps.slice(-20);
+  const yieldLines = recentSteps.map((s) => {
+    const y = stepYields[s.id];
+    const rate = s.estimatedHits > 0 ? (y / s.estimatedHits * 100).toFixed(0) : "?";
+    return `- [${s.type}] "${s.label}" → ${y} unique (${rate}% Ertrag)`;
+  });
+
+  // Build location/query history from previous steps
+  const usedLocations = new Set<string>();
+  const usedQueries = new Set<string>();
+  for (const s of previousSteps) {
+    if (s.location) usedLocations.add(s.location.trim());
+    if (s.mapQuery) usedQueries.add(s.mapQuery.trim());
+    if (s.query) usedQueries.add(s.query.trim());
+  }
+
+  // Prefer the structured analysis if provided, otherwise fall back to step scan
+  const overusedLocations = analysis?.exhaustedLocations ?? (() => {
+    const locationCount: Record<string, number> = {};
+    for (const s of previousSteps) {
+      if (s.location) locationCount[s.location] = (locationCount[s.location] ?? 0) + 1;
+    }
+    return Object.entries(locationCount)
+      .filter(([, c]) => c >= 5)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 15)
+      .map(([loc, c]) => `${loc} (${c}x)`);
+  })();
+
+  const productiveLocations = analysis?.productiveLocations ?? [];
+  const exhaustedNote = overusedLocations.length > 0
+    ? `\n\nBEREITS ERSCHÖPFTE ORTE (nicht nochmals verwenden — zu wenig neue Leads):\n${overusedLocations.join("\n")}`
+    : "";
+
+  const productiveNote = productiveLocations.length > 0
+    ? `\n\nPRODUKTIVE ORTE (mehr davon): ${productiveLocations.join(", ")}`
+    : "";
+
+  const allLocationsNote = usedLocations.size > 0
+    ? `\n\nALLE BEREITS GESUCHTEN ORTE (${usedLocations.size} gesamt): ${[...usedLocations].join(", ")}`
+    : "";
+
+  const queryTypeNote = analysis?.exhaustedQueryTypes && analysis.exhaustedQueryTypes.length > 0
+    ? `\n\nWENIG ERFOLGREICHE STEP-TYPEN (anderen Typ bevorzugen): ${analysis.exhaustedQueryTypes.join(", ")}`
+    : "";
 
   const yieldSummary = yieldLines.length > 0
-    ? `\nErtrag der letzten Steps:\n${yieldLines.join("\n")}`
+    ? `\nErtrag der letzten ${recentSteps.length} Steps:\n${yieldLines.join("\n")}`
     : "";
 
   const userPrompt = `Ziel: "${goal.description}"
-Zielanzahl: ${goal.targetCount} · Bereits gefunden: ${currentUniqueCount} · Noch benötigt: ${remaining}${yieldSummary}
+Zielanzahl: ${goal.targetCount} · Bereits gefunden: ${currentUniqueCount} · Noch benötigt: ${remaining}${yieldSummary}${exhaustedNote}${productiveNote}${allLocationsNote}${queryTypeNote}
 
-Erweitere den Plan um neue Steps, um die verbleibenden ${remaining} Unternehmen zu finden.`;
+Schlage NEUE Steps vor — mit ANDEREN Orten und ANDEREN Suchbegriffen als bisher.
+Verwende keine Orte die bereits erschöpft sind (≥5 Suchen ohne neue Leads).
+Erkunde stattdessen: andere Bundesländer, Kreiszentren, Synonyme, Verbände, Branchenverzeichnisse.`;
 
   try {
     const resp = await edenChatCompletion({

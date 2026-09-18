@@ -127,7 +127,7 @@ export async function discoverySearch(
 ): Promise<DiscoverySearchResponse> {
   const {
     source = "auto",
-    limit = 30,
+    limit = 100,
     excludeDomains = [],
     serpApiKey,
     serperApiKey,

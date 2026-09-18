@@ -11,17 +11,17 @@
 
 import postgres from "postgres";
 import { drizzle, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
-import { sql, desc, asc, eq } from "drizzle-orm";
+import { sql, desc, asc, eq, inArray } from "drizzle-orm";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import fs from "fs";
 import path from "path";
 import type { Case, RowData, GroupedRowsResponse, CompanyGroup } from "./types";
 import type { AgentRunState, AgentRunListItem } from "./agent-types";
 import { decryptSecret, encryptSecret, maskSecret } from "./secrets";
-import { cases, rows, logs, scrapeCache, apolloCache, settings, agentRuns } from "./db/schema";
+import { cases, rows, logs, scrapeCache, apolloCache, settings, agentRuns, contactRows } from "./db/schema";
 
 // Re-export schema tables for scripts/migration tooling
-export { cases, rows, logs, scrapeCache, apolloCache, settings, agentRuns };
+export { cases, rows, logs, scrapeCache, apolloCache, settings, agentRuns, contactRows };
 
 const DEFAULT_URL = `postgres://${process.env.USER ?? "postgres"}@localhost:5432/dataminer`;
 const databaseUrl = process.env.DATABASE_URL?.trim() || DEFAULT_URL;
@@ -97,7 +97,14 @@ async function ensureSchema(client: postgres.Sql): Promise<void> {
       CREATE TABLE IF NOT EXISTS settings (
         id TEXT PRIMARY KEY DEFAULT 'global',
         eden_api_key TEXT,
-        eden_region TEXT NOT NULL DEFAULT 'eu',
+        eden_region TEXT NOT NULL DEFAULT 'us',
+        model_allowlist JSONB DEFAULT '[]'::jsonb,
+        catalog_domains JSONB DEFAULT '[]'::jsonb,
+        serper_api_key TEXT,
+        serp_api_key TEXT,
+        brave_api_key TEXT,
+        apify_api_token TEXT,
+        planner_system_prompt TEXT,
         updated_at TIMESTAMPTZ NOT NULL
       );
 
@@ -241,8 +248,10 @@ export interface GlobalSettings {
   braveApiKeyMasked?: string;
   apifyApiToken?: string;
   apifyApiTokenMasked?: string;
+  /** Model used for planning/extension. */
+  plannerModel?: string;
   /** Custom planner system prompt. null = use built-in default. */
-  plannerSystemPrompt?: string | null;
+  plannerPrompt?: string | null;
   updatedAt: string;
 }
 
@@ -274,7 +283,7 @@ export async function getGlobalSettings(): Promise<GlobalSettings> {
     braveApiKeyMasked: maskSecret(braveKey),
     apifyApiToken: apifyToken,
     apifyApiTokenMasked: maskSecret(apifyToken),
-    plannerSystemPrompt: (row as Record<string, unknown>)?.plannerSystemPrompt as string | null ?? null,
+    plannerPrompt: (row as Record<string, unknown>)?.plannerSystemPrompt as string | null ?? null,
     updatedAt: row ? toIso(row.updatedAt) : new Date().toISOString(),
   };
 }
@@ -493,7 +502,21 @@ export async function updateRowCell(rowId: string, outputKey: string, value: str
 
 export async function deleteRow(id: string): Promise<void> {
   await initDb();
-  await getDb().delete(rows).where(eq(rows.id, id));
+  const db = getDb();
+  // Cascade: delete related contact rows first
+  await db.delete(contactRows).where(eq(contactRows.companyRowId, id));
+  await db.delete(rows).where(eq(rows.id, id));
+}
+
+export async function deleteRowsBulk(ids: string[]): Promise<{ deleted: number; contactsDeleted: number }> {
+  if (ids.length === 0) return { deleted: 0, contactsDeleted: 0 };
+  await initDb();
+  const db = getDb();
+  // Delete contact rows that belong to the given company rows
+  await db.delete(contactRows).where(inArray(contactRows.companyRowId, ids));
+  // Delete the rows themselves
+  await db.delete(rows).where(inArray(rows.id, ids));
+  return { deleted: ids.length, contactsDeleted: 0 };
 }
 
 export async function deleteRowsByCase(caseId: string): Promise<void> {
@@ -766,6 +789,27 @@ export async function getAgentRun(runId: string): Promise<AgentRunState | null> 
   return row.state as unknown as AgentRunState;
 }
 
+/** Returns all runs with status "running" or "expanding" across all cases */
+export async function getAllRunningRuns(): Promise<{ id: string; caseId: string; uniqueCount: number; targetCount: number; status: string; goal: string }[]> {
+  await initDb();
+  const result = await getDb()
+    .select({ id: agentRuns.id, caseId: agentRuns.caseId, status: agentRuns.status, state: agentRuns.state })
+    .from(agentRuns)
+    .where(inArray(agentRuns.status, ["running", "expanding"]));
+  return result.map((r) => {
+    const s = r.state as Record<string, unknown>;
+    const goal = s.goal as Record<string, unknown> | undefined;
+    return {
+      id: r.id,
+      caseId: r.caseId,
+      uniqueCount: typeof s.uniqueCount === "number" ? s.uniqueCount : 0,
+      targetCount: typeof goal?.targetCount === "number" ? goal.targetCount : 0,
+      status: r.status,
+      goal: typeof goal?.description === "string" ? goal.description : "",
+    };
+  });
+}
+
 export async function updateAgentRunState(run: AgentRunState): Promise<void> {
   await initDb();
   await getDb()
@@ -804,4 +848,132 @@ export async function listAgentRuns(caseId: string): Promise<AgentRunListItem[]>
       startedAt: toIso(r.createdAt),
     };
   });
+}
+
+// ── Contact rows (Clay-pattern) ───────────────────────────────────────────────
+
+import type { ContactRow } from "./types";
+
+function deserializeContactRow(r: typeof contactRows.$inferSelect): ContactRow {
+  return {
+    id: r.id,
+    caseId: r.caseId,
+    companyRowId: r.companyRowId ?? null,
+    rowIndex: r.rowIndex,
+    data: (r.data ?? {}) as Record<string, string | null>,
+    cellStatuses: (r.cellStatuses ?? {}) as Record<string, string>,
+    cellErrors: (r.cellErrors ?? {}) as Record<string, string>,
+    createdAt: toIso(r.createdAt),
+    updatedAt: toIso(r.updatedAt),
+  };
+}
+
+export async function listContactRows(caseId: string): Promise<ContactRow[]> {
+  await initDb();
+  const result = await getDb()
+    .select()
+    .from(contactRows)
+    .where(eq(contactRows.caseId, caseId))
+    .orderBy(asc(contactRows.rowIndex));
+  return result.map(deserializeContactRow);
+}
+
+export async function listContactRowsByCompany(companyRowId: string): Promise<ContactRow[]> {
+  await initDb();
+  const result = await getDb()
+    .select()
+    .from(contactRows)
+    .where(eq(contactRows.companyRowId, companyRowId))
+    .orderBy(asc(contactRows.rowIndex));
+  return result.map(deserializeContactRow);
+}
+
+/**
+ * Upsert contacts for a company row (Clay "write data to row" pattern).
+ * Deduplication key: email (if present) OR first_name+last_name combo.
+ * Existing contacts are updated; new ones are inserted.
+ * Returns { inserted, updated } counts.
+ */
+export async function upsertContactRows(
+  caseId: string,
+  companyRowId: string,
+  contacts: Array<Record<string, string | null>>
+): Promise<{ inserted: number; updated: number }> {
+  await initDb();
+  const db = getDb();
+
+  // Load existing contacts for this company row
+  const existing = await db
+    .select()
+    .from(contactRows)
+    .where(eq(contactRows.companyRowId, companyRowId));
+
+  let inserted = 0;
+  let updated = 0;
+  const now = new Date();
+
+  // Get current max rowIndex for this case (for new rows)
+  const maxResult = await db
+    .select({ maxIdx: sql<number>`COALESCE(MAX(${contactRows.rowIndex}), -1)` })
+    .from(contactRows)
+    .where(eq(contactRows.caseId, caseId));
+  let nextIdx = (maxResult[0]?.maxIdx ?? -1) + 1;
+
+  for (const contact of contacts) {
+    const email = contact.email?.trim() || null;
+    const firstName = (contact.first_name ?? "").trim();
+    const lastName = (contact.last_name ?? "").trim();
+
+    // Find matching existing contact
+    const match = existing.find((e) => {
+      const ed = e.data as Record<string, string | null>;
+      if (email && ed.email?.trim()) return ed.email.trim().toLowerCase() === email.toLowerCase();
+      // Fallback: name match
+      return (
+        (ed.first_name ?? "").trim().toLowerCase() === firstName.toLowerCase() &&
+        (ed.last_name ?? "").trim().toLowerCase() === lastName.toLowerCase() &&
+        firstName !== ""
+      );
+    });
+
+    if (match) {
+      // Update — merge new data over existing (don't overwrite with empty)
+      const mergedData: Record<string, string | null> = { ...(match.data as Record<string, string | null>) };
+      for (const [k, v] of Object.entries(contact)) {
+        if (v !== null && v !== "") mergedData[k] = v;
+      }
+      await db
+        .update(contactRows)
+        .set({ data: mergedData, updatedAt: now })
+        .where(eq(contactRows.id, match.id));
+      updated++;
+    } else {
+      // Insert new
+      const id = `cr_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      await db.insert(contactRows).values({
+        id,
+        caseId,
+        companyRowId,
+        rowIndex: nextIdx++,
+        data: contact,
+        cellStatuses: {},
+        cellErrors: {},
+        createdAt: now,
+        updatedAt: now,
+      });
+      inserted++;
+    }
+  }
+
+  return { inserted, updated };
+}
+
+export async function deleteContactRowsByCompany(companyRowId: string): Promise<void> {
+  await initDb();
+  await getDb().delete(contactRows).where(eq(contactRows.companyRowId, companyRowId));
+}
+
+export async function deleteContactRowsByCase(caseId: string): Promise<void> {
+  await initDb();
+  await getDb().delete(contactRows).where(eq(contactRows.caseId, caseId));
 }

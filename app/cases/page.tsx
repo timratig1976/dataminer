@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Search, Trash2, Eye, ChevronRight, Database, LayoutTemplate, Check } from "lucide-react";
+import { Plus, Search, Trash2, ChevronRight, Database, LayoutTemplate, Check, Download, Upload, Loader2 } from "lucide-react";
 import type { Case } from "@/lib/types";
 import type { ProjectTemplate } from "@/lib/templates";
 import AppShell from "@/components/AppShell";
@@ -18,6 +18,40 @@ export default function CasesPage() {
   const [templates, setTemplates] = useState<ProjectTemplate[]>([]);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>("standard");
 
+  const [importing, setImporting] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const [runningRuns, setRunningRuns] = useState<Record<string, { count: number; unique: number; target: number }>>({});
+
+  async function exportSnapshot(caseId: string, caseName: string, e: React.MouseEvent) {
+    e.stopPropagation();
+    const a = document.createElement("a");
+    a.href = `/api/export/snapshot?caseId=${caseId}`;
+    a.download = `${caseName.replace(/[^a-z0-9]/gi, "_")}_snapshot.json`;
+    a.click();
+  }
+
+  async function handleImport(file: File) {
+    setImporting(true);
+    setImportError(null);
+    try {
+      const text = await file.text();
+      const snap = JSON.parse(text);
+      const res = await fetch("/api/import/snapshot", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(snap),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Import fehlgeschlagen");
+      router.push(`/cases/${data.caseId}`);
+    } catch (e) {
+      setImportError(e instanceof Error ? e.message : String(e));
+      setImporting(false);
+    }
+  }
+
   useEffect(() => {
     fetch("/api/cases")
       .then(async (r) => {
@@ -29,6 +63,30 @@ export default function CasesPage() {
       })
       .catch((e) => setLoadError(e instanceof Error ? e.message : String(e)))
       .finally(() => setLoading(false));
+
+    // Poll for active agent runs across all cases
+    const pollRuns = async () => {
+      try {
+        const res = await fetch("/api/agent/worker");
+        const data = await res.json();
+        const running: Array<{ id: string; caseId: string; uniqueCount: number; targetCount: number }> = data.running || [];
+        const byCase: Record<string, { count: number; unique: number; target: number }> = {};
+        for (const r of running) {
+          if (!byCase[r.caseId]) {
+            byCase[r.caseId] = { count: 0, unique: 0, target: 0 };
+          }
+          byCase[r.caseId].count++;
+          byCase[r.caseId].unique += r.uniqueCount || 0;
+          byCase[r.caseId].target += r.targetCount || 0;
+        }
+        setRunningRuns(byCase);
+      } catch {
+        // ignore
+      }
+    };
+    pollRuns();
+    const t = setInterval(pollRuns, 5000);
+    return () => clearInterval(t);
   }, []);
 
   // Load templates when creating modal opens
@@ -79,6 +137,23 @@ export default function CasesPage() {
               className="w-56 pl-8 pr-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-500"
             />
           </div>
+          {/* Hidden file input for snapshot import */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".json"
+            className="hidden"
+            onChange={e => { const f = e.target.files?.[0]; if (f) handleImport(f); e.target.value = ""; }}
+          />
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={importing}
+            title="Case aus Snapshot-JSON importieren"
+            className="flex items-center gap-1.5 border border-gray-200 text-gray-600 px-3 py-1.5 rounded-lg text-sm font-medium hover:bg-gray-50 disabled:opacity-50"
+          >
+            {importing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
+            {importing ? "Importiert…" : "Snapshot importieren"}
+          </button>
           <button
             onClick={() => setCreating(true)}
             className="flex items-center gap-1.5 bg-violet-600 text-white px-3 py-1.5 rounded-lg text-sm font-medium hover:bg-violet-700"
@@ -89,6 +164,14 @@ export default function CasesPage() {
         </div>
       }
     >
+      {/* Import error */}
+      {importError && (
+        <div className="mx-4 mt-3 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700 flex items-center justify-between">
+          <span>❌ Import-Fehler: {importError}</span>
+          <button onClick={() => setImportError(null)} className="text-red-400 hover:text-red-600 ml-3">×</button>
+        </div>
+      )}
+
       {/* Cases grid */}
       {loading ? (
         <div className="px-4 py-3 text-xs text-gray-400">Lädt…</div>
@@ -118,6 +201,13 @@ export default function CasesPage() {
                   {c.name.charAt(0).toUpperCase()}
                 </div>
                 <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <button
+                    onClick={(e) => exportSnapshot(c.id, c.name, e)}
+                    title="Als Snapshot exportieren (JSON)"
+                    className="p-1 text-gray-400 hover:text-blue-500"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                  </button>
                   <button onClick={(e) => deleteCase(c.id, e)} className="p-1 text-gray-400 hover:text-red-500">
                     <Trash2 className="w-3.5 h-3.5" />
                   </button>
@@ -127,6 +217,12 @@ export default function CasesPage() {
               <div className="text-xs text-gray-400 mb-4">
                 {c.aiColumns.length} AI-Spalten · {new Date(c.updatedAt).toLocaleDateString("de-DE")}
               </div>
+              {runningRuns[c.id] ? (
+                <div className="mb-3 inline-flex items-center gap-1.5 text-xs font-medium text-blue-700 bg-blue-50 border border-blue-100 px-2 py-1 rounded-lg">
+                  <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
+                  🔄 {runningRuns[c.id].count} Suche{runningRuns[c.id].count === 1 ? "" : "n"} · {runningRuns[c.id].unique.toLocaleString("de-DE")}/{runningRuns[c.id].target.toLocaleString("de-DE")} Leads
+                </div>
+              ) : null}
               <div className="flex items-center text-xs text-violet-600 font-medium">
                 Öffnen <ChevronRight className="w-3.5 h-3.5 ml-1" />
               </div>
