@@ -18,6 +18,7 @@
 import { edenScrapeUrl, edenChatCompletion } from "./edenai";
 import { normalizeDomain } from "./discovery";
 import { webSearch } from "./search";
+import { getCachedScrape, setCachedScrape } from "./db";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -246,8 +247,14 @@ export async function scrapeCatalog(options: CatalogScrapeOptions): Promise<Cata
     // 1. Scrape page
     let markdown = "";
     try {
-      const scrapeResult = await edenScrapeUrl({ apiKey: edenApiKey, url: currentUrl });
-      markdown = scrapeResult.markdown;
+      const cached = await getCachedScrape(currentUrl).catch(() => null);
+      if (cached?.markdown) {
+        markdown = cached.markdown;
+      } else {
+        const scrapeResult = await edenScrapeUrl({ apiKey: edenApiKey, url: currentUrl });
+        markdown = scrapeResult.markdown;
+        if (markdown.trim()) await setCachedScrape(currentUrl, markdown, scrapeResult.title).catch(() => {});
+      }
     } catch (e) {
       errors.push(`Page ${page} scrape error: ${(e as Error).message}`);
       break;

@@ -506,19 +506,45 @@ export async function searchViaScrapling(
   );
 }
 
-// ── Layer: Firecrawl + Linkup via Eden AI (US endpoint) ─────────────────────
+// ── Layer: Firecrawl (Direct API or via Eden AI) ────────────────────────────
 
 const firecrawlLastCall = { ts: 0 };
 
 export async function searchViaFirecrawl(
   query: string,
-  edenApiKey: string,
+  edenApiKey?: string,
   maxResults = 50,
   depth: "basic" | "deep" = "basic",
-  includeDomains?: string[]
+  includeDomains?: string[],
+  directFirecrawlApiKey?: string
 ): Promise<{ results: SearchResult[]; costUsd?: number }> {
   if (!query.trim()) throw new Error("empty query");
-  if (!edenApiKey.trim()) throw new Error("missing Eden AI key for Firecrawl");
+
+  // 1. Try direct Firecrawl API if configured
+  const directKey = directFirecrawlApiKey || (edenApiKey?.startsWith("fc-") ? edenApiKey : undefined) || process.env.FIRECRAWL_API_KEY?.trim();
+  if (directKey) {
+    try {
+      const { directFirecrawlSearch } = await import("./firecrawl");
+      const direct = await directFirecrawlSearch({ apiKey: directKey, query, limit: maxResults });
+      if (direct.results.length > 0) {
+        return {
+          results: direct.results.map((r) => ({
+            title: sanitiseText(r.title, 200),
+            url: r.url,
+            snippet: sanitiseText(r.snippet, 400),
+          })),
+          costUsd: direct.costUsd,
+        };
+      }
+    } catch (err) {
+      console.warn(`[search] Direct Firecrawl search failed, falling back to Eden AI if available:`, (err as Error).message);
+      if (!edenApiKey || edenApiKey.startsWith("fc-")) {
+        throw err;
+      }
+    }
+  }
+
+  if (!edenApiKey?.trim()) throw new Error("missing Eden AI key or Firecrawl key for Firecrawl search");
 
   // Rate limit: min 2.0s between Firecrawl calls to avoid 429
   const now = Date.now();
@@ -756,34 +782,36 @@ export async function webSearch(
     if (forceLayer === "serpapi") {
       if (!serpApiKey) throw new Error("forceLayer=serpapi but no SERP_API_KEY");
       const r = await searchViaSerpApi(query, serpApiKey, clampedMax);
-      return respond(r, "serpapi");
+      return respond(r, "serpapi", 0.01);
     }
     if (forceLayer === "serper") {
       if (!serperApiKey) throw new Error("forceLayer=serper but no SERPER_API_KEY");
       const r = await searchViaSerper(query, serperApiKey, clampedMax);
-      return respond(r, "serper");
+      return respond(r, "serper", 0.001);
     }
     if (forceLayer === "brave") {
       if (!braveApiKey) throw new Error("forceLayer=brave but no BRAVE_API_KEY");
       const r = await searchViaBrave(query, braveApiKey, clampedMax);
-      return respond(r, "brave");
+      return respond(r, "brave", 0.003);
     }
     if (forceLayer === "duckduckgo") {
       const r = await searchViaDuckDuckGo(query, clampedMax);
-      return respond(r, "duckduckgo");
+      return respond(r, "duckduckgo", 0);
     }
     if (forceLayer === "playwright") {
       const r = await searchViaPlaywright(query, clampedMax);
-      return respond(r, "playwright");
+      return respond(r, "playwright", 0);
     }
     if (forceLayer === "scrapling") {
       if (!scraplingUrl || !scraplingToken) throw new Error("forceLayer=scrapling but no SCRAPLING_URL/TOKEN");
       const r = await searchViaScrapling(query, scraplingUrl, scraplingToken, clampedMax);
-      return respond(r, "scrapling");
+      return respond(r, "scrapling", 0);
     }    if (forceLayer === "firecrawl") {
-      if (!firecrawlApiKey) throw new Error("forceLayer=firecrawl but no Eden AI key");
-      const { results, costUsd } = await searchViaFirecrawl(query, firecrawlApiKey!, clampedMax, firecrawlDepth);
-      return respond(results, "firecrawl", costUsd);
+      const directKey = firecrawlApiKey?.startsWith("fc-") ? firecrawlApiKey : process.env.FIRECRAWL_API_KEY?.trim();
+      const edenKey = firecrawlApiKey?.startsWith("fc-") ? undefined : firecrawlApiKey;
+      if (!directKey && !edenKey) throw new Error("forceLayer=firecrawl but neither Firecrawl API key nor Eden AI key configured");
+      const { results, costUsd } = await searchViaFirecrawl(query, edenKey, clampedMax, firecrawlDepth, undefined, directKey);
+      return respond(results, "firecrawl", costUsd ?? 0.00435);
     }  }
 
   // ─ Layer 1: SerpAPI ─
@@ -791,7 +819,7 @@ export async function webSearch(
     const r = await tryLayer("serpapi", () =>
       searchViaSerpApi(query, serpApiKey!, clampedMax)
     );
-    if (r && r.length > 0) return respond(r, "serpapi");
+    if (r && r.length > 0) return respond(r, "serpapi", 0.01);
   }
 
   // ─ Layer 1b: Serper.dev (cheaper Google, 2500 free/month) ─
@@ -799,7 +827,7 @@ export async function webSearch(
     const r = await tryLayer("serper", () =>
       searchViaSerper(query, serperApiKey!, clampedMax)
     );
-    if (r && r.length > 0) return respond(r, "serper");
+    if (r && r.length > 0) return respond(r, "serper", 0.001);
   }
 
   // ─ Layer 2: Brave Search API ─
@@ -807,15 +835,20 @@ export async function webSearch(
     const r = await tryLayer("brave", () =>
       searchViaBrave(query, braveApiKey!, clampedMax)
     );
-    if (r && r.length > 0) return respond(r, "brave");
+    if (r && r.length > 0) return respond(r, "brave", 0.003);
   }
 
-  // ─ Layer 2b: Firecrawl via Eden AI (structured, reliable; US endpoint) ─
-  if (firecrawlApiKey) {
-    const r = await tryLayer("firecrawl", () =>
-      searchViaFirecrawl(query, firecrawlApiKey!, clampedMax, firecrawlDepth).then(({ results }) => results)
-    );
-    if (r && r.length > 0) return respond(r, "firecrawl");
+  // ─ Layer 2b: Firecrawl (Direct API or via Eden AI) ─
+  if (firecrawlApiKey || process.env.FIRECRAWL_API_KEY) {
+    const directKey = firecrawlApiKey?.startsWith("fc-") ? firecrawlApiKey : process.env.FIRECRAWL_API_KEY?.trim();
+    const edenKey = firecrawlApiKey?.startsWith("fc-") ? undefined : firecrawlApiKey;
+    let fcCost: number | undefined;
+    const r = await tryLayer("firecrawl", async () => {
+      const res = await searchViaFirecrawl(query, edenKey, clampedMax, firecrawlDepth, undefined, directKey);
+      fcCost = res.costUsd ?? 0.00435;
+      return res.results;
+    });
+    if (r && r.length > 0) return respond(r, "firecrawl", fcCost ?? 0.00435);
   }
 
   // ─ Layer 3: DuckDuckGo HTML scraping ─

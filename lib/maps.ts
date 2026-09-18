@@ -49,6 +49,7 @@ export interface MapsSearchResponse {
   provider: MapsProvider;
   query: string;
   latencyMs: number;
+  costUsd?: number;
   error?: string;
 }
 
@@ -398,12 +399,21 @@ export async function mapsSearch(params: MapsSearchParams): Promise<MapsSearchRe
   }
 
   const hits = placesToHits(places, query, effectiveProvider, excludeDomains);
+
+  let costUsd = 0;
+  if (places.length > 0 || !error) {
+    if (effectiveProvider === "maps-serper") costUsd = 0.001;
+    else if (effectiveProvider === "maps-serpapi") costUsd = 0.01;
+    else if (effectiveProvider === "maps-apify") costUsd = Math.max(0.005, places.length * 0.0015);
+  }
+
   return {
     places,
     hits,
     provider: effectiveProvider,
     query,
     latencyMs: Date.now() - t0,
+    costUsd,
     ...(places.length === 0 && error ? { error } : {}),
   };
 }

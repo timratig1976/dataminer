@@ -20,6 +20,7 @@ export async function GET(
 
   return NextResponse.json({
     edenConfigured: !!(caseData.edenApiKey || process.env.EDEN_API_KEY),
+    firecrawlConfigured: !!searchKeys.firecrawlApiKey,
     serperConfigured: !!searchKeys.serperApiKey,
     serpApiConfigured: !!searchKeys.serpApiKey,
     braveConfigured: !!searchKeys.braveApiKey,

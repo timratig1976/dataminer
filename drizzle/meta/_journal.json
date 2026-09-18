@@ -57,6 +57,13 @@
       "when": 1758000000000,
       "tag": "0007_contact_rows",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1758100000000,
+      "tag": "0008_firecrawl_api_key",
+      "breakpoints": true
     }
   ]
 }

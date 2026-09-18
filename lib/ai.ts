@@ -268,14 +268,23 @@ export async function runAiColumn(
 
   // ── Batch enrichment — 1 scrape + optional search + 1 LLM call → all fields ──
   if (column.tool === "batch_company") {
-    const serpApiKey = process.env.SERP_API_KEY || undefined;
-    const braveApiKey = process.env.BRAVE_API_KEY || undefined;
+    const { resolveSearchKeys, resolveFirecrawlKey } = await import("./db");
+    const [searchKeys, dbFirecrawlKey] = await Promise.all([
+      resolveSearchKeys().catch(() => ({ serpApiKey: undefined, braveApiKey: undefined, firecrawlApiKey: undefined })),
+      resolveFirecrawlKey().catch(() => undefined),
+    ]);
+
+    const serpApiKey = searchKeys.serpApiKey || process.env.SERP_API_KEY || undefined;
+    const braveApiKey = searchKeys.braveApiKey || process.env.BRAVE_API_KEY || undefined;
+    const firecrawlApiKey = dbFirecrawlKey || searchKeys.firecrawlApiKey || process.env.FIRECRAWL_API_KEY || undefined;
+
     const cachedScrape = await getCachedScrape(
       rowData["domain"] ?? rowData["source_domain"] ?? rowData["source_url"] ?? ""
     ).catch(() => null);
 
     const result = await batchEnrichRow(rowData as Record<string, string | null>, {
       edenApiKey: apiKey,
+      firecrawlApiKey,
       model: normalizeEdenModel(column.model ?? "openai/gpt-4o-mini"),
       serpApiKey,
       braveApiKey,
@@ -629,11 +638,13 @@ Antworte NUR mit dem JSON-Objekt.`;
   let webSearchSource: string | undefined;
   let webSearchResultCount = 0;
   let webSearchQueryRendered: string | undefined;
+  let webSearchCostUsd = 0;
+  let pageScrapeCostUsd = 0;
   let pageContext = "";
   let scrapedUrls: string[] = [];
   let searchResults: { title: string; url: string; snippet: string }[] = [];
   const evidenceMode = column.evidenceMode ?? "snippet";
-  // Firecrawl uses the same single Eden key as the LLM
+  // Firecrawl uses direct key if available, otherwise fallback to Eden key
   const firecrawlKey = apiKey || process.env.EDEN_API_KEY || undefined;
 
   // Resolve city value directly from rowData (via inputMappings or common field names)
@@ -672,12 +683,19 @@ Antworte NUR mit dem JSON-Objekt.`;
   // Run the search (primary query + fallbacks) and return raw results
   async function doSearch(): Promise<{ results: typeof searchResults; source: SearchLayer; query: string }> {
     const primaryQuery = renderPrompt(column.searchQuery!, rowData, column.inputMappings);
-    const serpApiKey = process.env.SERP_API_KEY || undefined;
-    const braveApiKey = process.env.BRAVE_API_KEY || undefined;
+    const { resolveSearchKeys, resolveFirecrawlKey } = await import("./db");
+    const [searchKeys, dbFirecrawlKey] = await Promise.all([
+      resolveSearchKeys().catch(() => ({ serpApiKey: undefined, braveApiKey: undefined, serperApiKey: undefined })),
+      resolveFirecrawlKey().catch(() => undefined),
+    ]);
+
+    const serpApiKey = searchKeys.serpApiKey || process.env.SERP_API_KEY || undefined;
+    const serperApiKey = searchKeys.serperApiKey || process.env.SERPER_API_KEY || undefined;
+    const braveApiKey = searchKeys.braveApiKey || process.env.BRAVE_API_KEY || undefined;
     const scraplingUrl = process.env.SCRAPLING_URL || undefined;
     const scraplingToken = process.env.SCRAPLING_TOKEN || undefined;
-    const firecrawlApiKey = apiKey || process.env.EDEN_API_KEY || undefined;
-    const searchOpts = { serpApiKey, braveApiKey, scraplingUrl, scraplingToken, firecrawlApiKey, maxResults: column.searchMaxResults ?? 5, forceLayer: column.searchForceLayer };
+    const firecrawlApiKey = dbFirecrawlKey || apiKey || process.env.EDEN_API_KEY || undefined;
+    const searchOpts = { serpApiKey, serperApiKey, braveApiKey, scraplingUrl, scraplingToken, firecrawlApiKey, maxResults: column.searchMaxResults ?? 5, forceLayer: column.searchForceLayer };
 
     const resolvedCity = resolveCity();
     let effectivePrimary = primaryQuery;
@@ -689,10 +707,12 @@ Antworte NUR mit dem JSON-Objekt.`;
     }
 
     let resp = await webSearch(effectivePrimary, searchOpts);
+    if (resp.costUsd) webSearchCostUsd += resp.costUsd;
     if (resp.results.length === 0) {
       for (const fallback of buildFallbacks(primaryQuery, resolvedCity)) {
         console.log(`[ai] 0 results for "${effectivePrimary}", retrying with "${fallback}"`);
         resp = await webSearch(fallback, searchOpts);
+        if (resp.costUsd) webSearchCostUsd += resp.costUsd;
         if (resp.results.length > 0) {
           effectivePrimary = fallback;
           break;
@@ -711,13 +731,19 @@ Antworte NUR mit dem JSON-Objekt.`;
     if (candidates.length === 0) return "";
     const blocks: string[] = [];
     let cacheHits = 0;
+    const { resolveFirecrawlKey } = await import("./db");
+    const directFcKey = await resolveFirecrawlKey().catch(() => undefined);
+
     for (const url of candidates) {
       if (operationId && isOperationCancelled(operationId)) throw new Error("Operation cancelled");
       try {
         const cached = await getCachedScrape(url);
         let { markdown, title } = cached ?? {};
         if (!markdown) {
-          ({ markdown, title } = await edenScrapeUrl({ apiKey: firecrawlKey!, url }));
+          const res = await edenScrapeUrl({ apiKey: firecrawlKey!, directFirecrawlApiKey: directFcKey, url });
+          markdown = res.markdown;
+          title = res.title;
+          pageScrapeCostUsd += (res.costUsd ?? 0.00435);
           if (markdown && markdown.trim()) await setCachedScrape(url, markdown, title);
         } else {
           cacheHits++;
@@ -1028,6 +1054,9 @@ Antworte NUR mit dem JSON-Objekt.`;
         }
       }
 
+      const totalEffectiveCost = (costUsd ?? 0) + webSearchCostUsd + pageScrapeCostUsd;
+      const finalCostUsd = totalEffectiveCost > 0 ? totalEffectiveCost : undefined;
+
       const primaryKey = column.multiKeys[0];
       return {
         value: multiValues[primaryKey.outputKey] ?? "",
@@ -1035,7 +1064,7 @@ Antworte NUR mit dem JSON-Objekt.`;
         rawResponse: raw,
         renderedPrompt: prompt,
         tokens,
-        costUsd,
+        costUsd: finalCostUsd,
         webSearchQuery: webSearchQueryRendered,
         webSearchResultCount,
         webSearchSource,
@@ -1043,14 +1072,17 @@ Antworte NUR mit dem JSON-Objekt.`;
       };
     }
 
+    const totalEffectiveCost = (costUsd ?? 0) + webSearchCostUsd + pageScrapeCostUsd;
+    const finalCostUsd = totalEffectiveCost > 0 ? totalEffectiveCost : undefined;
+
     if (isJson && column.jsonKey) {
       const extracted = extractJsonKey(raw, column.jsonKey);
       const extra = { multiValues: { ...(reasoningValue ? { [`_reasoning_${column.outputKey}`]: reasoningValue } : {}), ...crawlMetaValues } };
-      return { value: extracted === "notFound" ? "" : extracted, rawResponse: raw, renderedPrompt: prompt, tokens, costUsd, webSearchQuery: webSearchQueryRendered, webSearchResultCount, webSearchSource, ...(scrapedUrls.length ? { scrapedUrls } : {}), ...(Object.keys(extra.multiValues).length ? extra : {}) };
+      return { value: extracted === "notFound" ? "" : extracted, rawResponse: raw, renderedPrompt: prompt, tokens, costUsd: finalCostUsd, webSearchQuery: webSearchQueryRendered, webSearchResultCount, webSearchSource, ...(scrapedUrls.length ? { scrapedUrls } : {}), ...(Object.keys(extra.multiValues).length ? extra : {}) };
     }
 
     const extra = { multiValues: { ...(reasoningValue ? { [`_reasoning_${column.outputKey}`]: reasoningValue } : {}), ...crawlMetaValues } };
-    return { value: raw === "notFound" ? "" : raw, rawResponse: raw, renderedPrompt: prompt, tokens, costUsd, webSearchQuery: webSearchQueryRendered, webSearchResultCount, webSearchSource, ...(scrapedUrls.length ? { scrapedUrls } : {}), ...(Object.keys(extra.multiValues).length ? extra : {}) };
+    return { value: raw === "notFound" ? "" : raw, rawResponse: raw, renderedPrompt: prompt, tokens, costUsd: finalCostUsd, webSearchQuery: webSearchQueryRendered, webSearchResultCount, webSearchSource, ...(scrapedUrls.length ? { scrapedUrls } : {}), ...(Object.keys(extra.multiValues).length ? extra : {}) };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     return { value: "", error: message };

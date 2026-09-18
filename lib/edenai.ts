@@ -338,15 +338,33 @@ export async function edenWebSearch(params: {
 }
 
 /**
- * Firecrawl single-URL scrape via universal-ai (US endpoint).
+ * Firecrawl single-URL scrape.
+ * Automatically tries direct Firecrawl API first when a direct key is present (saving ~95% vs Eden token billing),
+ * and falls back to Eden AI universal-ai (US endpoint).
  * Returns markdown content of the page.
  */
 export async function edenScrapeUrl(params: {
   apiKey: string;
+  directFirecrawlApiKey?: string;
   url: string;
   signal?: AbortSignal;
 }): Promise<{ markdown: string; title?: string; costUsd?: number }> {
-  const { apiKey, url, signal } = params;
+  const { apiKey, directFirecrawlApiKey, url, signal } = params;
+
+  // 1. Direct Firecrawl API (flat request/credit billing)
+  const directKey = directFirecrawlApiKey || (apiKey?.startsWith("fc-") ? apiKey : undefined) || process.env.FIRECRAWL_API_KEY?.trim();
+  if (directKey) {
+    try {
+      const { directFirecrawlScrape } = await import("./firecrawl");
+      return await directFirecrawlScrape({ apiKey: directKey, url, signal });
+    } catch (err) {
+      console.warn(`[scrape] Direct Firecrawl scrape failed, falling back to Eden AI if available:`, (err as Error).message);
+      if (!apiKey || apiKey.startsWith("fc-")) {
+        throw err;
+      }
+    }
+  }
+
   const endpoint = `${EDEN_BASE_URLS.us}/v3/universal-ai`;
 
   const res = await withRetry(() =>

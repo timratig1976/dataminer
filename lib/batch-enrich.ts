@@ -15,6 +15,7 @@
 
 import { edenChatCompletion, edenScrapeUrl } from "./edenai";
 import { webSearch } from "./search";
+import { getCachedScrape, setCachedScrape } from "./db";
 
 /** Strip surrogate pairs and other invalid UTF-16 sequences that Eden AI rejects. */
 function sanitizeForLlm(text: string): string {
@@ -55,8 +56,72 @@ function filterScrapedContent(markdown: string): string {
 
     return true;
   });
-  // Collapse >2 consecutive empty lines to 1
+// Collapse >2 consecutive empty lines to 1
   return filtered.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+/**
+ * Check if the scraped markdown already contains essential company contact details
+ * (at least email and either phone or address/management).
+ */
+export function hasSufficientContactInfo(markdown: string): boolean {
+  if (!markdown || markdown.length < 50) return false;
+  // Look for email pattern (excluding image extensions)
+  const hasEmail = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}(?!\.(?:png|jpg|jpeg|webp|gif|svg))/i.test(markdown);
+  // Look for phone or postal address or leadership hints
+  const hasPhone = /(?:tel|telefon|fon|phone|mobil)?[:\s/]*(\+?[0-9][0-9\s/()\-]{6,}[0-9])/i.test(markdown);
+  const hasLeadership = /(?:geschäftsführer|inhaber|vorstand|vertreten durch|ansprechpartner)/i.test(markdown);
+
+  return hasEmail && (hasPhone || hasLeadership);
+}
+
+/**
+ * Extract a targeted Impressum / Contact link from the homepage Markdown or raw text.
+ * Returns an absolute URL or undefined if none found.
+ */
+export function findImpressumLink(rawMarkdown: string, baseUrl: string): string | undefined {
+  if (!rawMarkdown) return undefined;
+  
+  // Look for Markdown links [Anchor](url) or HTML <a href="...">
+  const mdLinkRegex = /\[([^\]]*?(?:impressum|imprint|kontakt|contact|über\s*uns|ueber\s*uns|legal)[^\]]*?)\]\((https?:\/\/[^\s)]+|\/[^\s)]+)\)/gi;
+  const htmlLinkRegex = /<a[^>]+href=["'](https?:\/\/[^"'>]+|\/[^"'>]+)["'][^>]*>(?:(?!<\/a>).)*(?:impressum|imprint|kontakt|contact|über\s*uns|ueber\s*uns|legal)/gi;
+  
+  let match: RegExpExecArray | null;
+  const candidates: { url: string; score: number }[] = [];
+
+  while ((match = mdLinkRegex.exec(rawMarkdown)) !== null) {
+    const text = match[1].toLowerCase();
+    const href = match[2];
+    let score = 1;
+    if (text.includes("impressum") || text.includes("imprint")) score = 10;
+    else if (text.includes("kontakt")) score = 5;
+    candidates.push({ url: href, score });
+  }
+
+  while ((match = htmlLinkRegex.exec(rawMarkdown)) !== null) {
+    const href = match[1];
+    candidates.push({ url: href, score: 8 });
+  }
+
+  // Also check standard URL patterns in markdown links like [Rechtliches](/impressum)
+  const hrefOnlyRegex = /\[[^\]]+\]\(((?:https?:\/\/[^\s)]+)?\/(?:impressum|imprint|kontakt|legal)(?:\.html|\/)?)\)/gi;
+  while ((match = hrefOnlyRegex.exec(rawMarkdown)) !== null) {
+    candidates.push({ url: match[1], score: 9 });
+  }
+
+  if (candidates.length === 0) return undefined;
+  candidates.sort((a, b) => b.score - a.score);
+
+  const best = candidates[0].url;
+  try {
+    const resolved = new URL(best, baseUrl);
+    // Ensure it belongs to the same domain (not an external social link)
+    const baseHost = new URL(baseUrl).hostname.replace(/^www\./, "");
+    if (!resolved.hostname.replace(/^www\./, "").includes(baseHost)) return undefined;
+    return resolved.toString();
+  } catch {
+    return undefined;
+  }
 }
 
 // ── Output field definitions ──────────────────────────────────────────────────
@@ -140,6 +205,7 @@ Regeln:
 
 export interface BatchEnrichOptions {
   edenApiKey: string;
+  firecrawlApiKey?: string;
   model?: string;
   serpApiKey?: string;
   braveApiKey?: string;
@@ -173,6 +239,7 @@ export async function batchEnrichRow(
 ): Promise<BatchEnrichResult> {
   const {
     edenApiKey,
+    firecrawlApiKey,
     model = "openai/gpt-4o-mini",
     serpApiKey,
     braveApiKey,
@@ -198,41 +265,84 @@ export async function batchEnrichRow(
   let impressumMarkdown: string | undefined;
   let scrapeError: string | undefined;
   let searchError: string | undefined;
+  let rowScrapeCostUsd = 0;
+  let rowSearchCostUsd = 0;
 
   // 2. Scrape homepage + impressum/kontakt page for company email
   // IMPORTANT: skip scrape if domain is a non-company URL (Google Maps, social media, etc.)
   const isRealDomain = domain && !NON_COMPANY_DOMAINS.has(domain) && !isNonCompanyUrl(domain);
   if (isRealDomain) {
-    if (cachedScrape) {
-      scrapeMarkdown = filterScrapedContent(cachedScrape);
+    const base = domain.startsWith("http") ? domain : `https://${domain}`;
+    let rawHomepageMarkdown = cachedScrape;
+
+    // Check PostgreSQL scrape_cache if cachedScrape wasn't passed directly
+    if (!rawHomepageMarkdown) {
+      const dbCached = await getCachedScrape(base).catch(() => null);
+      if (dbCached?.markdown) {
+        rawHomepageMarkdown = dbCached.markdown;
+      }
+    }
+
+    if (rawHomepageMarkdown) {
+      scrapeMarkdown = filterScrapedContent(rawHomepageMarkdown);
     } else {
       try {
-        const base = domain.startsWith("http") ? domain : `https://${domain}`;
-        const result = await edenScrapeUrl({ apiKey: edenApiKey, url: base, signal });
-        scrapeMarkdown = filterScrapedContent(result.markdown?.slice(0, 6000) ?? "");
+        const result = await edenScrapeUrl({
+          apiKey: edenApiKey,
+          directFirecrawlApiKey: firecrawlApiKey,
+          url: base,
+          signal,
+        });
+        rawHomepageMarkdown = result.markdown ?? "";
+        scrapeMarkdown = filterScrapedContent(rawHomepageMarkdown.slice(0, 6000));
+        rowScrapeCostUsd += (result.costUsd ?? 0.00435);
+        // Persist homepage in scrape_cache
+        if (rawHomepageMarkdown.trim()) {
+          await setCachedScrape(base, rawHomepageMarkdown, result.title).catch(() => {});
+        }
       } catch (e) {
         scrapeError = (e as Error).message;
       }
     }
+
     if (scrapeMarkdown?.trim()) {
       contextParts.push(`## Homepage (${domain})\n${scrapeMarkdown}`);
       sourcesUsed.push("scrape");
     }
-    // Also scrape impressum/kontakt to find company email & address
-    if (!cachedScrape) {
-      const base = domain.startsWith("http") ? domain : `https://${domain}`;
-      const impressumPaths = ["/impressum", "/kontakt", "/impressum.html", "/kontakt.html", "/about", "/ueber-uns"];
-      for (const path of impressumPaths) {
-        if (signal?.aborted) break;
-        try {
-          const result = await edenScrapeUrl({ apiKey: edenApiKey, url: `${base}${path}`, signal });
-          if (result.markdown && result.markdown.length > 150) {
-            impressumMarkdown = filterScrapedContent(result.markdown.slice(0, 3000));
-            contextParts.push(`## Impressum/Kontakt (${path})\n${impressumMarkdown}`);
-            sourcesUsed.push(`impressum:${path}`);
-            break;
+
+    // ── Targeted Impressum Scrape (P0 IP Protection & Cost Optimization) ──
+    // 1. Only scrape if essential contact data is NOT already present on homepage.
+    // 2. Scrape AT MOST 1 targeted page (parsed from homepage links or standard fallback).
+    const alreadyHasInfo = rawHomepageMarkdown ? hasSufficientContactInfo(rawHomepageMarkdown) : false;
+
+    if (!alreadyHasInfo) {
+      const targetedLink = rawHomepageMarkdown ? findImpressumLink(rawHomepageMarkdown, base) : undefined;
+      const impressumUrl = targetedLink || `${base}/impressum`;
+
+      try {
+        // Check cache first for the impressum URL
+        let rawImpressum = await getCachedScrape(impressumUrl).catch(() => null);
+        if (!rawImpressum?.markdown) {
+          const result = await edenScrapeUrl({
+            apiKey: edenApiKey,
+            directFirecrawlApiKey: firecrawlApiKey,
+            url: impressumUrl,
+            signal,
+          });
+          if (result.markdown && result.markdown.length > 100) {
+            rawImpressum = { markdown: result.markdown, title: result.title };
+            rowScrapeCostUsd += (result.costUsd ?? 0.00435);
+            await setCachedScrape(impressumUrl, result.markdown, result.title).catch(() => {});
           }
-        } catch { continue; }
+        }
+
+        if (rawImpressum?.markdown && rawImpressum.markdown.length > 100) {
+          impressumMarkdown = filterScrapedContent(rawImpressum.markdown.slice(0, 3500));
+          contextParts.push(`## Impressum/Kontakt (${impressumUrl})\n${impressumMarkdown}`);
+          sourcesUsed.push(`impressum:${impressumUrl}`);
+        }
+      } catch {
+        // Targeted impressum failed, don't burn more calls
       }
     }
   }
@@ -249,6 +359,7 @@ export async function batchEnrichRow(
         maxResults: 5,
         limitCap: 10,
       });
+      if (resp.costUsd) rowSearchCostUsd += resp.costUsd;
       if (resp.results.length > 0) {
         searchSnippets = resp.results
           .map((r, i) => `[${i + 1}] ${r.title}\n${r.snippet}`)
@@ -270,6 +381,7 @@ export async function batchEnrichRow(
         firecrawlApiKey: edenApiKey,
         maxResults: 5,
       });
+      if (resp.costUsd) rowSearchCostUsd += resp.costUsd;
       if (resp.results.length > 0) {
         searchSnippets = resp.results.map((r, i) => `[${i + 1}] ${r.title}\n${r.snippet}`).join("\n\n");
         contextParts.push(`## Suchergebnisse\n${searchSnippets}`);
@@ -345,6 +457,8 @@ export async function batchEnrichRow(
       fields["domain"] = normalizeDomainSimple(domain);
     }
 
+    const totalCostUsd = (resp.costUsd ?? 0) + rowScrapeCostUsd + rowSearchCostUsd;
+
     return {
       fields,
       scrapeMarkdown,
@@ -354,7 +468,7 @@ export async function batchEnrichRow(
       debugRawResponse: resp.raw ?? "",
       sourcesUsed,
       tokensUsed: resp.tokens?.total,
-      costUsd: resp.costUsd,
+      costUsd: totalCostUsd > 0 ? totalCostUsd : undefined,
       scrapeError,
       searchError,
     };

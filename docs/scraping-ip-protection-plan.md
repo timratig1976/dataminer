@@ -65,11 +65,12 @@ flowchart TD
 
 ---
 
-## 4. Umsetzungs-Fahrplan
+## 4. Umsetzungs-Fahrplan & aktueller Status
 
-| Phase | Maßnahme | Erwarteter Effekt |
-|---|---|---|
-| **Sofort (P0)** | Blinde Impressums-Schleife in `batch-enrich.ts` entfernen (nur noch Startseite + max. 1 gezielter Link). | Senkt Eden AI Scrape-Volumen sofort um **85%**. |
-| **Sofort (P0)** | Vor-Abfrage von `getCachedScrape()` vor jedem Webabruf strikt durchsetzen. | Verhindert Re-Scrapes bereits verarbeiteter Zeilen (0 € Kosten). |
-| **P1** | Proxy-Support via `https-proxy-agent` in den lokalen HTTP-Fetch einbauen (`SCRAPE_PROXY_URL`). | Hetzner-Server-IP ist zu 100% vor Abuse-Reports geschützt. |
-| **P2** | Lokalen Scrapling-Service (`scrapling-service/main.py`) als primären Engine-Tier nutzen, falls JS-Rendering nötig ist. | Vollständige Unabhängigkeit von externen Scraper-Abrechnungen. |
+| Phase | Maßnahme | Erwarteter Effekt | Status |
+|---|---|---|---|
+| **P0** | Blinde Impressums-Schleife in `batch-enrich.ts` entfernt (`hasSufficientContactInfo` + gezielter Link-Parser `findImpressumLink`, max. 1 Unterseite). | Senkt Scrape-Volumen um **85%**. | **Umgesetzt ✓** |
+| **P0** | Vor-Abfrage von `getCachedScrape()` und konsequentes `setCachedScrape()` in `batch-enrich.ts`, `ai.ts`, `catalog-scraper.ts` und `profile-scraper.ts`. | Verhindert Re-Scrapes bereits verarbeiteter Zeilen (0 € Kosten). | **Umgesetzt ✓** |
+| **P0** | Direkte Firecrawl-API integriert (`lib/firecrawl.ts` & Settings-Widget). | Rechnet 1 Credit (0,004 €) pauschal ab statt Token-Preisen. Hetzner-IP durch Firecrawl Residential Proxies zu 100% geschützt. | **Umgesetzt ✓** |
+| **P0** | Lückenlose Gesamtkosten-Erfassung aller Provider (Eden AI, Firecrawl, Serper.dev, SerpApi, Brave, Apify) in `batch-enrich.ts`, `maps.ts`, `search.ts` und `ai.ts`. | Exakte Kosten-Transparenz pro Zeile und Lauf. | **Umgesetzt ✓** |
+| **P1** | Optionaler lokaler Proxy-Layer (`SCRAPE_PROXY_URL`) für Playwright / Scrapling-Service, falls Scrapes komplett ohne Firecrawl lokal laufen sollen. | Ermöglicht 0 € Scraper-Kosten bei vollem Hetzner-IP-Schutz. | Geplant |

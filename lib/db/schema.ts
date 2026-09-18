@@ -41,6 +41,8 @@ export const settings = pgTable("settings", {
   serpApiKey: text("serp_api_key"),
   braveApiKey: text("brave_api_key"),
   apifyApiToken: text("apify_api_token"),
+  /** Direct Firecrawl API key (encrypted at rest) for cheaper scraping/search */
+  firecrawlApiKey: text("firecrawl_api_key"),
   /** Overridable planner system prompt. If null, planner.ts uses its built-in default. */
   plannerSystemPrompt: text("planner_system_prompt"),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),

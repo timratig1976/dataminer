@@ -490,6 +490,7 @@ async function executePlanStep(
 
       hitsFound = resp.places.length;
       source = resp.provider;
+      if (typeof resp.costUsd === "number") costUsd += resp.costUsd;
 
       // Fallback: if Maps returns 0 places, try web search instead.
       // Serper Places has limited coverage for niche categories in smaller German cities.

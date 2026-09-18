@@ -104,9 +104,11 @@ async function ensureSchema(client: postgres.Sql): Promise<void> {
         serp_api_key TEXT,
         brave_api_key TEXT,
         apify_api_token TEXT,
+        firecrawl_api_key TEXT,
         planner_system_prompt TEXT,
         updated_at TIMESTAMPTZ NOT NULL
       );
+      ALTER TABLE settings ADD COLUMN IF NOT EXISTS firecrawl_api_key TEXT;
 
       CREATE TABLE IF NOT EXISTS agent_runs (
         id TEXT PRIMARY KEY,
@@ -248,6 +250,8 @@ export interface GlobalSettings {
   braveApiKeyMasked?: string;
   apifyApiToken?: string;
   apifyApiTokenMasked?: string;
+  firecrawlApiKey?: string;
+  firecrawlApiKeyMasked?: string;
   /** Model used for planning/extension. */
   plannerModel?: string;
   /** Custom planner system prompt. null = use built-in default. */
@@ -270,6 +274,7 @@ export async function getGlobalSettings(): Promise<GlobalSettings> {
   const serpKey = row ? decryptSecret((row as Record<string,unknown>).serpApiKey as string ?? undefined) : undefined;
   const braveKey = row ? decryptSecret((row as Record<string,unknown>).braveApiKey as string ?? undefined) : undefined;
   const apifyToken = row ? decryptSecret((row as Record<string,unknown>).apifyApiToken as string ?? undefined) : undefined;
+  const firecrawlKey = row ? decryptSecret((row as Record<string,unknown>).firecrawlApiKey as string ?? undefined) : undefined;
   return {
     edenApiKey: key,
     edenApiKeyMasked: maskSecret(key),
@@ -283,6 +288,8 @@ export async function getGlobalSettings(): Promise<GlobalSettings> {
     braveApiKeyMasked: maskSecret(braveKey),
     apifyApiToken: apifyToken,
     apifyApiTokenMasked: maskSecret(apifyToken),
+    firecrawlApiKey: firecrawlKey,
+    firecrawlApiKeyMasked: maskSecret(firecrawlKey),
     plannerPrompt: (row as Record<string, unknown>)?.plannerSystemPrompt as string | null ?? null,
     updatedAt: row ? toIso(row.updatedAt) : new Date().toISOString(),
   };
@@ -297,6 +304,7 @@ export async function saveGlobalSettings(patch: {
   serpApiKey?: string;
   braveApiKey?: string;
   apifyApiToken?: string;
+  firecrawlApiKey?: string;
   /** Pass null to reset to built-in default, string to override */
   plannerSystemPrompt?: string | null;
 }): Promise<GlobalSettings> {
@@ -308,6 +316,7 @@ export async function saveGlobalSettings(patch: {
   const encSerp = patch.serpApiKey !== undefined ? encryptSecret(patch.serpApiKey) : null;
   const encBrave = patch.braveApiKey !== undefined ? encryptSecret(patch.braveApiKey) : null;
   const encApify = patch.apifyApiToken !== undefined ? encryptSecret(patch.apifyApiToken) : null;
+  const encFirecrawl = patch.firecrawlApiKey !== undefined ? encryptSecret(patch.firecrawlApiKey) : null;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const insertValues: any = {
     id: GLOBAL_SETTINGS_ID,
@@ -318,6 +327,7 @@ export async function saveGlobalSettings(patch: {
     serpApiKey: encSerp,
     braveApiKey: encBrave,
     apifyApiToken: encApify,
+    firecrawlApiKey: encFirecrawl,
     plannerSystemPrompt: patch.plannerSystemPrompt !== undefined ? patch.plannerSystemPrompt : null,
     updatedAt: now,
   };
@@ -330,6 +340,7 @@ export async function saveGlobalSettings(patch: {
     serpApiKey: patch.serpApiKey !== undefined ? encSerp : sql`${settings.serpApiKey}`,
     braveApiKey: patch.braveApiKey !== undefined ? encBrave : sql`${settings.braveApiKey}`,
     apifyApiToken: patch.apifyApiToken !== undefined ? encApify : sql`${settings.apifyApiToken}`,
+    firecrawlApiKey: patch.firecrawlApiKey !== undefined ? encFirecrawl : sql`${settings.firecrawlApiKey}`,
     plannerSystemPrompt: patch.plannerSystemPrompt !== undefined ? patch.plannerSystemPrompt : sql`${settings.plannerSystemPrompt}`,
     updatedAt: now,
   };
@@ -346,6 +357,7 @@ export async function resolveSearchKeys(): Promise<{
   serpApiKey?: string;
   braveApiKey?: string;
   apifyApiToken?: string;
+  firecrawlApiKey?: string;
 }> {
   const global = await getGlobalSettings();
   return {
@@ -353,7 +365,14 @@ export async function resolveSearchKeys(): Promise<{
     serpApiKey: global.serpApiKey || process.env.SERP_API_KEY?.trim() || undefined,
     braveApiKey: global.braveApiKey || process.env.BRAVE_API_KEY?.trim() || undefined,
     apifyApiToken: global.apifyApiToken || process.env.APIFY_API_TOKEN?.trim() || undefined,
+    firecrawlApiKey: global.firecrawlApiKey || process.env.FIRECRAWL_API_KEY?.trim() || undefined,
   };
+}
+
+/** Resolve direct Firecrawl API key: DB → env fallback */
+export async function resolveFirecrawlKey(): Promise<string | undefined> {
+  const global = await getGlobalSettings();
+  return global.firecrawlApiKey || process.env.FIRECRAWL_API_KEY?.trim() || undefined;
 }
 
 /**

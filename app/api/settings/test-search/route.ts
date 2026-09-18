@@ -19,6 +19,20 @@ export async function POST(req: NextRequest) {
   const TEST_QUERY = bodyQuery?.trim() || "Handwerker Berlin";
 
   try {
+    if (provider === "firecrawl") {
+      const key = bodyKey?.trim() || dbKeys.firecrawlApiKey;
+      if (!key) return NextResponse.json({ ok: false, error: "Kein Firecrawl-Key konfiguriert" });
+      const { directFirecrawlScrape } = await import("@/lib/firecrawl");
+      const result = await directFirecrawlScrape({ apiKey: key, url: "https://example.com" });
+      return NextResponse.json({
+        ok: Boolean(result.markdown),
+        provider: "firecrawl",
+        hits: 1,
+        sample: result.title || "example.com erfolgreich gescrapt",
+        note: "Direkte Firecrawl API (v1/scrape)",
+      });
+    }
+
     if (provider === "serper") {
       const key = bodyKey?.trim() || dbKeys.serperApiKey;
       if (!key) return NextResponse.json({ ok: false, error: "Kein Serper-Key konfiguriert" });

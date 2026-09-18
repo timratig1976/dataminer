@@ -13,6 +13,7 @@
 
 import { edenScrapeUrl, edenChatCompletion } from "./edenai";
 import { webSearch } from "./search";
+import { getCachedScrape, setCachedScrape } from "./db";
 
 // ── Known catalog/directory domains we CAN scrape for profile data ───────────
 // These are good sources of structured contact info
@@ -154,8 +155,14 @@ export async function scrapeCompanyProfile(params: {
   // ── Step 2: Scrape the profile page ──────────────────────────────────────
   let markdown = "";
   try {
-    const scraped = await edenScrapeUrl({ apiKey: edenApiKey, url: profileUrl });
-    markdown = scraped.markdown ?? "";
+    const cached = await getCachedScrape(profileUrl).catch(() => null);
+    if (cached?.markdown) {
+      markdown = cached.markdown;
+    } else {
+      const scraped = await edenScrapeUrl({ apiKey: edenApiKey, url: profileUrl });
+      markdown = scraped.markdown ?? "";
+      if (markdown.trim()) await setCachedScrape(profileUrl, markdown, scraped.title).catch(() => {});
+    }
   } catch { return { ...empty, profileUrl, profileSource, confidence: "none" }; }
 
   if (!markdown.trim()) {
