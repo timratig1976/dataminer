@@ -86,33 +86,33 @@ export default function GroupedTableView({ caseId, groupKey = "company_name" }: 
   const totalPages = Math.max(1, Math.ceil(data.totalCompanies / perPage));
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+    <div style={{ display: "flex", flexDirection: "column", height: "100%", background: "var(--bg)" }}>
       {/* Toolbar */}
       <div style={{
-        display: "flex", alignItems: "center", gap: 8, padding: "8px 16px",
-        background: "#fff", borderBottom: "1px solid #e5e7eb", flexShrink: 0,
+        display: "flex", alignItems: "center", gap: 8, padding: "9px 24px",
+        background: "var(--surface)", borderBottom: "1px solid var(--border)", flexShrink: 0,
         fontSize: 12,
       }}>
-        <span style={{ fontWeight: 600, color: "#374151" }}>
+        <span style={{ fontWeight: 600, color: "var(--text-1)" }}>
           {data.totalCompanies} Firmen · {data.companies.reduce((s, c) => s + 1 + c.contacts.length, 0)} Zeilen gesamt
         </span>
-        <span style={{ color: "#d1d5db" }}>|</span>
+        <span style={{ color: "var(--border)" }}>|</span>
         <button
           onClick={expandAll}
-          style={{ border: "none", background: "none", cursor: "pointer", color: "#7c3aed", fontSize: 12, padding: "2px 6px" }}
+          style={{ border: "none", background: "none", cursor: "pointer", color: "var(--orange)", fontSize: 12, padding: "2px 6px", fontWeight: 500 }}
         >
           Alle aufklappen
         </button>
         <button
           onClick={collapseAll}
-          style={{ border: "none", background: "none", cursor: "pointer", color: "#6b7280", fontSize: 12, padding: "2px 6px" }}
+          style={{ border: "none", background: "none", cursor: "pointer", color: "var(--text-3)", fontSize: 12, padding: "2px 6px" }}
         >
           Alle zuklappen
         </button>
       </div>
 
       {/* Table */}
-      <div style={{ flex: 1, overflowY: "auto", overflowX: "auto", background: "#f9fafb", padding: 8 }}>
+      <div style={{ flex: 1, overflowY: "auto", overflowX: "auto", background: "var(--bg)", padding: 16 }}>
         {data.companies.map(group => (
           <CompanyRow
             key={group.companyRow.id}
@@ -128,23 +128,23 @@ export default function GroupedTableView({ caseId, groupKey = "company_name" }: 
       {/* Pagination */}
       <div style={{
         display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
-        padding: "8px 16px", background: "#fff", borderTop: "1px solid #e5e7eb",
+        padding: "8px 16px", background: "var(--surface)", borderTop: "1px solid var(--border)",
         flexShrink: 0, fontSize: 12,
       }}>
         <button
           disabled={page <= 1}
           onClick={() => setPage(p => Math.max(1, p - 1))}
-          style={{ border: "1px solid #d1d5db", borderRadius: 4, padding: "3px 8px", background: page <= 1 ? "#f3f4f6" : "#fff", cursor: page <= 1 ? "not-allowed" : "pointer", color: page <= 1 ? "#d1d5db" : "#374151" }}
+          style={{ border: "1px solid var(--border)", borderRadius: "var(--rs)", padding: "3px 8px", background: page <= 1 ? "var(--bg)" : "var(--surface)", cursor: page <= 1 ? "not-allowed" : "pointer", color: page <= 1 ? "var(--text-3)" : "var(--text-1)" }}
         >
           ‹ Zurück
         </button>
-        <span style={{ color: "#6b7280" }}>
+        <span style={{ color: "var(--text-2)" }}>
           Seite {data.page} / {totalPages}
         </span>
         <button
           disabled={page >= totalPages}
           onClick={() => setPage(p => p + 1)}
-          style={{ border: "1px solid #d1d5db", borderRadius: 4, padding: "3px 8px", background: page >= totalPages ? "#f3f4f6" : "#fff", cursor: page >= totalPages ? "not-allowed" : "pointer", color: page >= totalPages ? "#d1d5db" : "#374151" }}
+          style={{ border: "1px solid var(--border)", borderRadius: "var(--rs)", padding: "3px 8px", background: page >= totalPages ? "var(--bg)" : "var(--surface)", cursor: page >= totalPages ? "not-allowed" : "pointer", color: page >= totalPages ? "var(--text-3)" : "var(--text-1)" }}
         >
           Weiter ›
         </button>
@@ -271,31 +271,31 @@ function CompanyRow({ group, expanded, onToggle, caseId, onRefresh }: {
           display: "flex", alignItems: "center", gap: 8, padding: "10px 14px",
           background: companyData["is_catalog"] === "true"
             ? (expanded ? "#fffbeb" : "#fefce8")
-            : (expanded ? "#ede9fe" : "#fff"),
-          border: `1px solid ${companyData["is_catalog"] === "true" ? "#fde68a" : expanded ? "#c4b5fd" : "#e5e7eb"}`,
-          borderRadius: 8, cursor: hasAnyContacts ? "pointer" : "default",
+            : (expanded ? "var(--orange-soft)" : "var(--surface)"),
+          border: `1px solid ${companyData["is_catalog"] === "true" ? "#fde68a" : expanded ? "var(--orange-mid)" : "var(--border)"}`,
+          borderRadius: "var(--r)", cursor: hasAnyContacts ? "pointer" : "default",
           transition: "background .15s",
-          boxShadow: expanded ? "0 1px 3px rgba(124,58,237,0.1)" : undefined,
+          boxShadow: expanded ? "var(--shadow-sm)" : undefined,
         }}
       >
         {hasAnyContacts
           ? (expanded
-              ? <ChevronDown style={{ width: 16, height: 16, color: "#7c3aed", flexShrink: 0 }} />
-              : <ChevronRight style={{ width: 16, height: 16, color: "#9ca3af", flexShrink: 0 }} />)
+              ? <ChevronDown style={{ width: 16, height: 16, color: "var(--orange)", flexShrink: 0 }} />
+              : <ChevronRight style={{ width: 16, height: 16, color: "var(--text-3)", flexShrink: 0 }} />)
           : <span style={{ width: 16, flexShrink: 0 }} />
         }
-        <Building2 style={{ width: 14, height: 14, color: "#7c3aed", flexShrink: 0 }} />
-        <span style={{ fontWeight: 700, fontSize: 14, color: "#111827" }}>
+        <Building2 style={{ width: 14, height: 14, color: "var(--orange)", flexShrink: 0 }} />
+        <span style={{ fontWeight: 600, fontSize: 13.5, color: "var(--text-1)" }}>
           {group.companyName || "(ohne Name)"}
         </span>
         {/* Catalog badge */}
         {companyData["is_catalog"] === "true" && (
-          <span style={{ fontSize: 10, color: "#b45309", background: "#fef3c7", border: "1px solid #fde68a", padding: "1px 6px", borderRadius: 6, fontWeight: 600, flexShrink: 0 }}>
+          <span style={{ fontSize: 10, color: "var(--warn)", background: "var(--warn-soft)", border: "1px solid var(--warn)", padding: "1px 6px", borderRadius: 6, fontWeight: 600, flexShrink: 0 }}>
             📋 Katalog
           </span>
         )}
         {hasAnyContacts && !expanded && (
-          <span style={{ fontSize: 11, color: "#6b7280", background: "#f3f4f6", padding: "1px 6px", borderRadius: 8 }}>
+          <span style={{ fontSize: 11, color: "var(--text-2)", background: "var(--bg)", border: "1px solid var(--border)", padding: "1px 6px", borderRadius: "var(--rs)" }}>
             {contactCount > 0 ? `${contactCount} ${contactCount === 1 ? "Kontakt" : "Kontakte"}` : "Kontakt"}
           </span>
         )}

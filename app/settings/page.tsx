@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Save, Key, Loader2, Sparkles, Globe, CheckCircle2, Trash2, ChevronRight, Sliders, Flame, Search } from "lucide-react";
+import { Save, Key, Loader2, Sparkles, Globe, CheckCircle2, Trash2, ChevronRight, Sliders, Flame, Search, Zap } from "lucide-react";
 import AppShell from "@/components/AppShell";
 
 interface SettingsState {
@@ -297,18 +297,34 @@ export default function SettingsPage() {
   return (
     <AppShell
       title="Globale Einstellungen"
-      titleIcon={<Globe className="w-4 h-4 text-violet-500" />}
+      titleIcon={<Globe className="w-4 h-4" style={{ color: "var(--orange)" }} />}
     >
-      <div className="max-w-2xl mx-auto space-y-6 pb-12">
+      <div className="max-w-2xl mx-auto space-y-5 pb-12">
         {/* ── 1. Eden AI provider card ── */}
-        <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-5 shadow-sm">
+        <div
+          className="p-5 space-y-4"
+          style={{
+            background: "var(--surface)",
+            border: "1px solid var(--border)",
+            borderRadius: "var(--r)",
+            boxShadow: "var(--shadow-sm)",
+          }}
+        >
           <div className="flex items-center gap-2">
-            <Globe className="w-4 h-4 text-violet-500" />
-            <h2 className="font-semibold text-gray-900">Eden AI (LLM Gateway)</h2>
-            <span className="text-xs text-gray-400">Einziger LLM-Provider — ein Key für alle Modelle</span>
+            <Globe className="w-4 h-4" style={{ color: "var(--orange)" }} />
+            <h2 className="font-semibold text-sm" style={{ color: "var(--text-1)" }}>Eden AI (LLM Gateway)</h2>
+            <span className="text-[11px]" style={{ color: "var(--text-3)" }}>Einziger LLM-Provider — ein Key für alle Modelle</span>
           </div>
 
-          <div className="text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded-lg p-3 leading-relaxed">
+          <div
+            className="text-xs p-3 leading-relaxed"
+            style={{
+              background: "var(--bg)",
+              border: "1px solid var(--border-xs)",
+              borderRadius: "var(--rs)",
+              color: "var(--text-2)",
+            }}
+          >
             DataMiner nutzt ausschließlich <b>Eden AI</b> als LLM-Gateway (OpenAI-kompatibel unter <code>/v3</code>).
             Ein einziger API-Key bedient alle Chat- und Reasoning-Modelle (<code>openai/</code>, <code>anthropic/</code>,{" "}
             <code>google/</code>, <code>mistral/</code>, <code>meta/</code> …).
@@ -317,17 +333,17 @@ export default function SettingsPage() {
           {/* Status badges */}
           <div className="flex flex-wrap gap-2">
             {state?.hasKey && (
-              <span className="inline-flex items-center gap-1 text-xs bg-green-50 text-green-700 border border-green-200 rounded-full px-2.5 py-1">
+              <span className="status-pill status-pill-done">
                 <CheckCircle2 className="w-3 h-3" /> Key in DB gespeichert {state.edenApiKeyMasked ? `(${state.edenApiKeyMasked})` : ""}
               </span>
             )}
             {state?.envKeyPresent && (
-              <span className="inline-flex items-center gap-1 text-xs bg-blue-50 text-blue-700 border border-blue-200 rounded-full px-2.5 py-1">
+              <span className="status-pill status-pill-done" style={{ background: "var(--bg)", color: "var(--text-2)" }}>
                 <Key className="w-3 h-3" /> EDEN_API_KEY in Env (Fallback)
               </span>
             )}
             {!state?.hasKey && !state?.envKeyPresent && (
-              <span className="inline-flex items-center gap-1 text-xs bg-amber-50 text-amber-700 border border-amber-200 rounded-full px-2.5 py-1">
+              <span className="status-pill status-pill-pending">
                 Kein Key — LLM-Läufe schlagen fehl, bis du einen setzt
               </span>
             )}
@@ -335,50 +351,57 @@ export default function SettingsPage() {
 
           {/* Key input */}
           <div>
-            <label className="text-xs font-medium text-gray-500 uppercase tracking-wide flex items-center gap-1">
-              <Key className="w-3 h-3" /> Eden AI API Key
+            <label className="text-[11px] font-semibold uppercase tracking-wider block mb-1" style={{ color: "var(--text-3)" }}>
+              Eden AI API Key
             </label>
             <input
               type="password"
               value={edenApiKey}
               onChange={(e) => setEdenApiKey(e.target.value)}
               placeholder={state?.hasKey ? `Gespeichert: ${state.edenApiKeyMasked}` : "sk-eden-live-..."}
-              className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-violet-500"
+              className="w-full border rounded px-3 py-1.5 text-xs font-mono focus:outline-none"
+              style={{
+                borderColor: "var(--border)",
+                background: "var(--bg)",
+                color: "var(--text-1)",
+              }}
             />
-            <p className="text-xs text-gray-400 mt-1">
+            <p className="text-[11px] mt-1" style={{ color: "var(--text-3)" }}>
               Wird serverseitig AES-verschlüsselt gespeichert.
             </p>
           </div>
 
           {/* Region */}
           <div>
-            <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">Region / Data Residency</label>
-            <div className="mt-1 flex gap-2">
+            <label className="text-[11px] font-semibold uppercase tracking-wider block mb-1" style={{ color: "var(--text-3)" }}>Region / Data Residency</label>
+            <div className="flex gap-2">
               {(["eu", "us"] as const).map((r) => (
                 <button
                   key={r}
                   onClick={() => setEdenRegion(r)}
-                  className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
-                    edenRegion === r
-                      ? "bg-violet-600 text-white border-violet-600"
-                      : "bg-white text-gray-600 border-gray-300 hover:bg-gray-50"
-                  }`}
+                  className="btn-v2"
+                  style={{
+                    background: edenRegion === r ? "var(--orange-soft)" : "var(--surface)",
+                    borderColor: edenRegion === r ? "var(--orange)" : "var(--border)",
+                    color: edenRegion === r ? "var(--orange)" : "var(--text-2)",
+                    fontWeight: edenRegion === r ? 600 : 400,
+                  }}
                 >
                   {r === "eu" ? "EU (api.eu.edenai.run)" : "US (api.edenai.run)"}
                 </button>
               ))}
             </div>
-            <p className="text-xs text-gray-400 mt-1">
+            <p className="text-[11px] mt-1" style={{ color: "var(--text-3)" }}>
               EU = Data Residency (gefiltert auf EU-Provider). US = voller Katalog inkl. OpenAI.
             </p>
           </div>
 
           {/* Actions */}
-          <div className="flex items-center gap-3 flex-wrap">
+          <div className="flex items-center gap-2 flex-wrap pt-2 border-t" style={{ borderColor: "var(--border-xs)" }}>
             <button
               onClick={saveEden}
               disabled={savingEden || (!edenApiKey.trim() && edenRegion === state?.edenRegion)}
-              className="flex items-center gap-2 bg-violet-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-violet-700 disabled:opacity-50 transition-colors shadow-2xs"
+              className="btn-v2 btn-v2-primary"
             >
               {savingEden ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
               {savedEdenMsg ? "Gespeichert ✓" : "Speichern"}
@@ -386,7 +409,7 @@ export default function SettingsPage() {
             <button
               onClick={runEdenTest}
               disabled={testingEden}
-              className="flex items-center gap-2 border border-violet-300 text-violet-700 bg-violet-50 px-3 py-2 rounded-lg text-sm font-medium hover:bg-violet-100 disabled:opacity-50 transition-colors"
+              className="btn-v2"
             >
               {testingEden ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
               {testingEden ? "Teste…" : "Verbindung testen"}
@@ -395,26 +418,34 @@ export default function SettingsPage() {
               <button
                 onClick={removeEdenKey}
                 disabled={savingEden}
-                className="flex items-center gap-1.5 border border-red-200 text-red-600 bg-red-50 px-3 py-2 rounded-lg text-sm font-medium hover:bg-red-100 disabled:opacity-50 ml-auto transition-colors"
+                className="btn-v2 ml-auto"
+                style={{ color: "var(--danger)", background: "var(--danger-soft)", borderColor: "var(--danger-soft)" }}
               >
                 <Trash2 className="w-3.5 h-3.5" /> Key löschen
               </button>
             )}
           </div>
 
-          {edenError && <div className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{edenError}</div>}
+          {edenError && <div className="text-xs p-2 rounded" style={{ background: "var(--danger-soft)", color: "var(--danger)" }}>{edenError}</div>}
 
           {edenTestResult && (
-            <div className={`rounded-lg border p-3 text-xs space-y-2 ${edenTestResult.ok ? "border-green-200 bg-green-50" : "border-red-200 bg-red-50"}`}>
-              <div className={`font-semibold ${edenTestResult.ok ? "text-green-700" : "text-red-700"}`}>
+            <div
+              className="rounded p-3 text-xs space-y-1.5"
+              style={{
+                background: edenTestResult.ok ? "var(--green-soft)" : "var(--danger-soft)",
+                border: `1px solid ${edenTestResult.ok ? "var(--green-mid)" : "var(--danger)"}`,
+                color: edenTestResult.ok ? "var(--green)" : "var(--danger)",
+              }}
+            >
+              <div className="font-semibold">
                 {edenTestResult.ok ? "✓ Verbindung erfolgreich" : "✗ Verbindung fehlgeschlagen"}
-                <span className="font-normal text-gray-500"> ({edenTestResult.region.toUpperCase()})</span>
+                <span className="font-normal" style={{ color: "var(--text-3)" }}> ({edenTestResult.region.toUpperCase()})</span>
               </div>
-              {edenTestResult.error && <div className="text-red-700">{edenTestResult.error}</div>}
+              {edenTestResult.error && <div>{edenTestResult.error}</div>}
               {Object.entries(edenTestResult.checks).map(([name, c]) => (
                 <div key={name} className="flex items-start gap-2">
-                  <span className={c.ok ? "text-green-600" : "text-red-600"}>{c.ok ? "✓" : "✗"}</span>
-                  <span className="text-gray-700">
+                  <span>{c.ok ? "✓" : "✗"}</span>
+                  <span style={{ color: "var(--text-1)" }}>
                     {name === "catalog" && <><b>Katalog:</b> {c.ok ? `${c.count} Modelle` : c.error}</>}
                     {name === "chat" && <><b>{`Chat${c.model ? ` (${c.model})` : ""}`}</b>: {c.ok ? `${c.preview || "ok"} · ${c.latencyMs}ms${c.costUsd ? ` · $${Number(c.costUsd).toFixed(6)}` : ""}` : c.error}</>}
                   </span>
@@ -425,30 +456,40 @@ export default function SettingsPage() {
         </div>
 
         {/* ── 2. Firecrawl Scraper & Search ── */}
-        <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-4 shadow-sm">
+        <div
+          className="p-5 space-y-4"
+          style={{
+            background: "var(--surface)",
+            border: "1px solid var(--border)",
+            borderRadius: "var(--r)",
+            boxShadow: "var(--shadow-sm)",
+          }}
+        >
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-lg bg-orange-50 text-orange-600 flex items-center justify-center border border-orange-100">
+              <div
+                className="w-7 h-7 rounded flex items-center justify-center"
+                style={{ background: "var(--orange-soft)", color: "var(--orange)" }}
+              >
                 <Flame className="w-4 h-4" />
               </div>
               <div>
-                <h3 className="text-sm font-semibold text-gray-900">Firecrawl</h3>
-                <p className="text-xs text-gray-400">Web-Scraper & Web-Search API</p>
+                <h3 className="text-xs font-semibold" style={{ color: "var(--text-1)" }}>Firecrawl</h3>
+                <p className="text-[11px]" style={{ color: "var(--text-3)" }}>Web-Scraper & Web-Search API</p>
               </div>
             </div>
 
-            {/* Badges */}
             <div>
               {state?.hasFirecrawlKey ? (
-                <span className="inline-flex items-center gap-1 text-[11px] bg-green-50 text-green-700 border border-green-200 rounded-full px-2.5 py-0.5 font-medium">
+                <span className="status-pill status-pill-done">
                   <CheckCircle2 className="w-3 h-3" /> In DB ({state.firecrawlApiKeyMasked})
                 </span>
               ) : state?.firecrawlEnvPresent ? (
-                <span className="inline-flex items-center gap-1 text-[11px] bg-blue-50 text-blue-700 border border-blue-200 rounded-full px-2.5 py-0.5 font-medium">
+                <span className="status-pill status-pill-done" style={{ background: "var(--bg)", color: "var(--text-2)" }}>
                   <Key className="w-3 h-3" /> ENV: FIRECRAWL_API_KEY
                 </span>
               ) : (
-                <span className="text-[11px] bg-amber-50 text-amber-700 border border-amber-200 rounded-full px-2 py-0.5">
+                <span className="status-pill status-pill-pending">
                   Nicht hinterlegt (Fallback: Eden AI)
                 </span>
               )}
@@ -456,7 +497,7 @@ export default function SettingsPage() {
           </div>
 
           <div className="pt-1">
-            <label className="text-[11px] font-semibold text-gray-600 uppercase tracking-wider block mb-1">
+            <label className="text-[11px] font-semibold uppercase tracking-wider block mb-1" style={{ color: "var(--text-3)" }}>
               Firecrawl API Key
             </label>
             <input
@@ -470,15 +511,20 @@ export default function SettingsPage() {
                   ? "In ENV gesetzt (FIRECRAWL_API_KEY)"
                   : "fc-..."
               }
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-orange-500 bg-white"
+              className="w-full border rounded px-3 py-1.5 text-xs font-mono focus:outline-none"
+              style={{
+                borderColor: "var(--border)",
+                background: "var(--bg)",
+                color: "var(--text-1)",
+              }}
             />
           </div>
 
-          <div className="pt-2 flex items-center gap-2 border-t border-gray-100">
+          <div className="pt-2 flex items-center gap-2 border-t" style={{ borderColor: "var(--border-xs)" }}>
             <button
               onClick={saveFirecrawl}
               disabled={savingFirecrawl || !firecrawlApiKey.trim()}
-              className="flex items-center gap-1.5 bg-orange-600 text-white px-3.5 py-1.5 rounded-lg text-xs font-medium hover:bg-orange-700 disabled:opacity-40 transition-colors shadow-2xs"
+              className="btn-v2 btn-v2-primary"
             >
               {savingFirecrawl ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
               {savedFirecrawlMsg ? "Gespeichert ✓" : "Speichern"}
@@ -490,7 +536,7 @@ export default function SettingsPage() {
                 testingFirecrawl ||
                 (!firecrawlApiKey.trim() && !state?.hasFirecrawlKey && !state?.firecrawlEnvPresent)
               }
-              className="flex items-center gap-1.5 border border-orange-200 text-orange-700 bg-orange-50 px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-orange-100 disabled:opacity-40 transition-colors"
+              className="btn-v2"
             >
               {testingFirecrawl ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Flame className="w-3.5 h-3.5" />}
               {testingFirecrawl ? "Teste Scraper..." : "Scraper testen"}
@@ -500,20 +546,28 @@ export default function SettingsPage() {
               <button
                 onClick={removeFirecrawlKey}
                 disabled={savingFirecrawl}
-                className="flex items-center gap-1 border border-red-200 text-red-600 bg-red-50 hover:bg-red-100 px-2.5 py-1.5 rounded-lg text-xs font-medium disabled:opacity-40 ml-auto transition-colors"
+                className="btn-v2 ml-auto"
+                style={{ color: "var(--danger)", background: "var(--danger-soft)", borderColor: "var(--danger-soft)" }}
               >
                 <Trash2 className="w-3.5 h-3.5" /> Key löschen
               </button>
             )}
           </div>
 
-          {firecrawlError && <div className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{firecrawlError}</div>}
+          {firecrawlError && <div className="text-xs p-2 rounded" style={{ background: "var(--danger-soft)", color: "var(--danger)" }}>{firecrawlError}</div>}
 
           {firecrawlTestResult && (
-            <div className={`rounded-lg border p-3 text-xs flex items-center gap-2 ${firecrawlTestResult.ok ? "border-green-200 bg-green-50 text-green-800" : "border-red-200 bg-red-50 text-red-700"}`}>
+            <div
+              className="rounded p-2.5 text-xs flex items-center gap-2"
+              style={{
+                background: firecrawlTestResult.ok ? "var(--green-soft)" : "var(--danger-soft)",
+                border: `1px solid ${firecrawlTestResult.ok ? "var(--green-mid)" : "var(--danger)"}`,
+                color: firecrawlTestResult.ok ? "var(--green)" : "var(--danger)",
+              }}
+            >
               <span>{firecrawlTestResult.ok ? "✓" : "✗"}</span>
               {firecrawlTestResult.ok ? (
-                <span>Erfolgreich: <em>{firecrawlTestResult.sample}</em> · <span className="text-gray-500">{firecrawlTestResult.note}</span></span>
+                <span>Erfolgreich: <em>{firecrawlTestResult.sample}</em> · <span style={{ color: "var(--text-3)" }}>{firecrawlTestResult.note}</span></span>
               ) : (
                 <span>{firecrawlTestResult.error}</span>
               )}
@@ -522,29 +576,40 @@ export default function SettingsPage() {
         </div>
 
         {/* ── 3. Serper.dev Widget ── */}
-        <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-4 shadow-sm">
+        <div
+          className="p-5 space-y-4"
+          style={{
+            background: "var(--surface)",
+            border: "1px solid var(--border)",
+            borderRadius: "var(--r)",
+            boxShadow: "var(--shadow-sm)",
+          }}
+        >
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center border border-blue-100">
+              <div
+                className="w-7 h-7 rounded flex items-center justify-center"
+                style={{ background: "var(--bg)", color: "var(--text-1)" }}
+              >
                 <Search className="w-4 h-4" />
               </div>
               <div>
-                <h3 className="text-sm font-semibold text-gray-900">Serper.dev</h3>
-                <p className="text-xs text-gray-400">Google Suche + Google Places (2.500 free/Monat)</p>
+                <h3 className="text-xs font-semibold" style={{ color: "var(--text-1)" }}>Serper.dev</h3>
+                <p className="text-[11px]" style={{ color: "var(--text-3)" }}>Google Suche + Google Places (2.500 free/Monat)</p>
               </div>
             </div>
 
             <div>
               {state?.serperApiKeyMasked ? (
-                <span className="inline-flex items-center gap-1 text-[11px] bg-green-50 text-green-700 border border-green-200 rounded-full px-2.5 py-0.5 font-medium">
+                <span className="status-pill status-pill-done">
                   <CheckCircle2 className="w-3 h-3" /> In DB ({state.serperApiKeyMasked})
                 </span>
               ) : state?.serperEnvPresent ? (
-                <span className="inline-flex items-center gap-1 text-[11px] bg-blue-50 text-blue-700 border border-blue-200 rounded-full px-2.5 py-0.5 font-medium">
+                <span className="status-pill status-pill-done" style={{ background: "var(--bg)", color: "var(--text-2)" }}>
                   <Key className="w-3 h-3" /> ENV: SERPER_API_KEY
                 </span>
               ) : (
-                <span className="text-[11px] bg-amber-50 text-amber-700 border border-amber-200 rounded-full px-2 py-0.5">
+                <span className="status-pill status-pill-pending">
                   Nicht hinterlegt
                 </span>
               )}
@@ -552,7 +617,7 @@ export default function SettingsPage() {
           </div>
 
           <div className="pt-1">
-            <label className="text-[11px] font-semibold text-gray-600 uppercase tracking-wider block mb-1">
+            <label className="text-[11px] font-semibold uppercase tracking-wider block mb-1" style={{ color: "var(--text-3)" }}>
               Serper API Key
             </label>
             <input
@@ -566,15 +631,20 @@ export default function SettingsPage() {
                   ? "In ENV gesetzt (SERPER_API_KEY)"
                   : "sk-..."
               }
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+              className="w-full border rounded px-3 py-1.5 text-xs font-mono focus:outline-none"
+              style={{
+                borderColor: "var(--border)",
+                background: "var(--bg)",
+                color: "var(--text-1)",
+              }}
             />
           </div>
 
-          <div className="pt-2 flex items-center gap-2 border-t border-gray-100 flex-wrap">
+          <div className="pt-2 flex items-center gap-2 border-t flex-wrap" style={{ borderColor: "var(--border-xs)" }}>
             <button
               onClick={() => saveSingleSearchKey("serperApiKey", serperApiKey)}
               disabled={savingSearchKey.serper || !serperApiKey.trim()}
-              className="flex items-center gap-1.5 bg-blue-600 text-white px-3.5 py-1.5 rounded-lg text-xs font-medium hover:bg-blue-700 disabled:opacity-40 transition-colors shadow-2xs"
+              className="btn-v2 btn-v2-primary"
             >
               {savingSearchKey.serper ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
               {savedSearchKeyMsg.serper ? "Gespeichert ✓" : "Speichern"}
@@ -586,7 +656,7 @@ export default function SettingsPage() {
                 searchTesting.serper ||
                 (!serperApiKey.trim() && !state?.serperApiKeyMasked && !state?.serperEnvPresent)
               }
-              className="flex items-center gap-1 border border-gray-200 text-gray-700 bg-gray-50 hover:bg-gray-100 px-3 py-1.5 rounded-lg text-xs font-medium disabled:opacity-40 transition-colors"
+              className="btn-v2"
             >
               {searchTesting.serper ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />}
               Web-Suche testen
@@ -598,7 +668,7 @@ export default function SettingsPage() {
                 searchTesting["serper-places"] ||
                 (!serperApiKey.trim() && !state?.serperApiKeyMasked && !state?.serperEnvPresent)
               }
-              className="flex items-center gap-1 border border-gray-200 text-gray-700 bg-gray-50 hover:bg-gray-100 px-3 py-1.5 rounded-lg text-xs font-medium disabled:opacity-40 transition-colors"
+              className="btn-v2"
             >
               {searchTesting["serper-places"] ? (
                 <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -612,7 +682,8 @@ export default function SettingsPage() {
               <button
                 onClick={() => removeSingleSearchKey("serper")}
                 disabled={savingSearchKey.serper}
-                className="flex items-center gap-1 border border-red-200 text-red-600 bg-red-50 hover:bg-red-100 px-2.5 py-1.5 rounded-lg text-xs font-medium disabled:opacity-40 ml-auto transition-colors"
+                className="btn-v2 ml-auto"
+                style={{ color: "var(--danger)", background: "var(--danger-soft)", borderColor: "var(--danger-soft)" }}
               >
                 <Trash2 className="w-3.5 h-3.5" /> Key löschen
               </button>
@@ -624,17 +695,18 @@ export default function SettingsPage() {
               searchTestResults[tp] && (
                 <div
                   key={tp}
-                  className={`text-xs rounded-lg px-3 py-2 flex items-center gap-2 ${
-                    searchTestResults[tp]!.ok
-                      ? "bg-green-50 border border-green-200 text-green-800"
-                      : "bg-red-50 border border-red-200 text-red-700"
-                  }`}
+                  className="rounded p-2.5 text-xs flex items-center gap-2"
+                  style={{
+                    background: searchTestResults[tp]!.ok ? "var(--green-soft)" : "var(--danger-soft)",
+                    border: `1px solid ${searchTestResults[tp]!.ok ? "var(--green-mid)" : "var(--danger)"}`,
+                    color: searchTestResults[tp]!.ok ? "var(--green)" : "var(--danger)",
+                  }}
                 >
                   <span>{searchTestResults[tp]!.ok ? "✓" : "✗"}</span>
                   {searchTestResults[tp]!.ok ? (
                     <span>
                       {searchTestResults[tp]!.hits} Treffer · <em>{searchTestResults[tp]!.sample}</em> ·{" "}
-                      <span className="text-gray-500">{searchTestResults[tp]!.note}</span>
+                      <span style={{ color: "var(--text-3)" }}>{searchTestResults[tp]!.note}</span>
                     </span>
                   ) : (
                     <span>{searchTestResults[tp]!.error}</span>
@@ -645,29 +717,40 @@ export default function SettingsPage() {
         </div>
 
         {/* ── 4. SerpApi Widget ── */}
-        <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-4 shadow-sm">
+        <div
+          className="p-5 space-y-4"
+          style={{
+            background: "var(--surface)",
+            border: "1px solid var(--border)",
+            borderRadius: "var(--r)",
+            boxShadow: "var(--shadow-sm)",
+          }}
+        >
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center border border-emerald-100">
+              <div
+                className="w-7 h-7 rounded flex items-center justify-center"
+                style={{ background: "var(--green-soft)", color: "var(--green)" }}
+              >
                 <Globe className="w-4 h-4" />
               </div>
               <div>
-                <h3 className="text-sm font-semibold text-gray-900">SerpApi</h3>
-                <p className="text-xs text-gray-400">Google Maps structured (100 free/Monat)</p>
+                <h3 className="text-xs font-semibold" style={{ color: "var(--text-1)" }}>SerpApi</h3>
+                <p className="text-[11px]" style={{ color: "var(--text-3)" }}>Google Maps structured (100 free/Monat)</p>
               </div>
             </div>
 
             <div>
               {state?.serpApiKeyMasked ? (
-                <span className="inline-flex items-center gap-1 text-[11px] bg-green-50 text-green-700 border border-green-200 rounded-full px-2.5 py-0.5 font-medium">
+                <span className="status-pill status-pill-done">
                   <CheckCircle2 className="w-3 h-3" /> In DB ({state.serpApiKeyMasked})
                 </span>
               ) : state?.serpEnvPresent ? (
-                <span className="inline-flex items-center gap-1 text-[11px] bg-blue-50 text-blue-700 border border-blue-200 rounded-full px-2.5 py-0.5 font-medium">
+                <span className="status-pill status-pill-done" style={{ background: "var(--bg)", color: "var(--text-2)" }}>
                   <Key className="w-3 h-3" /> ENV: SERP_API_KEY
                 </span>
               ) : (
-                <span className="text-[11px] bg-amber-50 text-amber-700 border border-amber-200 rounded-full px-2 py-0.5">
+                <span className="status-pill status-pill-pending">
                   Nicht hinterlegt
                 </span>
               )}
@@ -675,7 +758,7 @@ export default function SettingsPage() {
           </div>
 
           <div className="pt-1">
-            <label className="text-[11px] font-semibold text-gray-600 uppercase tracking-wider block mb-1">
+            <label className="text-[11px] font-semibold uppercase tracking-wider block mb-1" style={{ color: "var(--text-3)" }}>
               SerpApi Key
             </label>
             <input
@@ -689,15 +772,20 @@ export default function SettingsPage() {
                   ? "In ENV gesetzt (SERP_API_KEY)"
                   : "..."
               }
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white"
+              className="w-full border rounded px-3 py-1.5 text-xs font-mono focus:outline-none"
+              style={{
+                borderColor: "var(--border)",
+                background: "var(--bg)",
+                color: "var(--text-1)",
+              }}
             />
           </div>
 
-          <div className="pt-2 flex items-center gap-2 border-t border-gray-100">
+          <div className="pt-2 flex items-center gap-2 border-t" style={{ borderColor: "var(--border-xs)" }}>
             <button
               onClick={() => saveSingleSearchKey("serpApiKey", serpApiKey)}
               disabled={savingSearchKey.serp || !serpApiKey.trim()}
-              className="flex items-center gap-1.5 bg-emerald-600 text-white px-3.5 py-1.5 rounded-lg text-xs font-medium hover:bg-emerald-700 disabled:opacity-40 transition-colors shadow-2xs"
+              className="btn-v2 btn-v2-primary"
             >
               {savingSearchKey.serp ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
               {savedSearchKeyMsg.serp ? "Gespeichert ✓" : "Speichern"}
@@ -709,7 +797,7 @@ export default function SettingsPage() {
                 searchTesting.serp ||
                 (!serpApiKey.trim() && !state?.serpApiKeyMasked && !state?.serpEnvPresent)
               }
-              className="flex items-center gap-1 border border-gray-200 text-gray-700 bg-gray-50 hover:bg-gray-100 px-3 py-1.5 rounded-lg text-xs font-medium disabled:opacity-40 transition-colors"
+              className="btn-v2"
             >
               {searchTesting.serp ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />}
               Testen
@@ -719,7 +807,8 @@ export default function SettingsPage() {
               <button
                 onClick={() => removeSingleSearchKey("serp")}
                 disabled={savingSearchKey.serp}
-                className="flex items-center gap-1 border border-red-200 text-red-600 bg-red-50 hover:bg-red-100 px-2.5 py-1.5 rounded-lg text-xs font-medium disabled:opacity-40 ml-auto transition-colors"
+                className="btn-v2 ml-auto"
+                style={{ color: "var(--danger)", background: "var(--danger-soft)", borderColor: "var(--danger-soft)" }}
               >
                 <Trash2 className="w-3.5 h-3.5" /> Key löschen
               </button>
@@ -728,17 +817,18 @@ export default function SettingsPage() {
 
           {searchTestResults.serp && (
             <div
-              className={`rounded-lg border p-3 text-xs flex items-center gap-2 ${
-                searchTestResults.serp.ok
-                  ? "bg-green-50 border border-green-200 text-green-800"
-                  : "border-red-200 bg-red-50 text-red-700"
-              }`}
+              className="rounded p-2.5 text-xs flex items-center gap-2"
+              style={{
+                background: searchTestResults.serp.ok ? "var(--green-soft)" : "var(--danger-soft)",
+                border: `1px solid ${searchTestResults.serp.ok ? "var(--green-mid)" : "var(--danger)"}`,
+                color: searchTestResults.serp.ok ? "var(--green)" : "var(--danger)",
+              }}
             >
               <span>{searchTestResults.serp.ok ? "✓" : "✗"}</span>
               {searchTestResults.serp.ok ? (
                 <span>
                   {searchTestResults.serp.hits} Treffer · <em>{searchTestResults.serp.sample}</em> ·{" "}
-                  <span className="text-gray-500">{searchTestResults.serp.note}</span>
+                  <span style={{ color: "var(--text-3)" }}>{searchTestResults.serp.note}</span>
                 </span>
               ) : (
                 <span>{searchTestResults.serp.error}</span>
@@ -748,29 +838,40 @@ export default function SettingsPage() {
         </div>
 
         {/* ── 5. Brave Search Widget ── */}
-        <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-4 shadow-sm">
+        <div
+          className="p-5 space-y-4"
+          style={{
+            background: "var(--surface)",
+            border: "1px solid var(--border)",
+            borderRadius: "var(--r)",
+            boxShadow: "var(--shadow-sm)",
+          }}
+        >
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center border border-amber-100">
+              <div
+                className="w-7 h-7 rounded flex items-center justify-center"
+                style={{ background: "var(--orange-soft)", color: "var(--orange)" }}
+              >
                 <Search className="w-4 h-4" />
               </div>
               <div>
-                <h3 className="text-sm font-semibold text-gray-900">Brave Search</h3>
-                <p className="text-xs text-gray-400">Unabhängiger Web-Search Layer (2.000 free/Monat)</p>
+                <h3 className="text-xs font-semibold" style={{ color: "var(--text-1)" }}>Brave Search</h3>
+                <p className="text-[11px]" style={{ color: "var(--text-3)" }}>Unabhängiger Web-Search Layer (2.000 free/Monat)</p>
               </div>
             </div>
 
             <div>
               {state?.braveApiKeyMasked ? (
-                <span className="inline-flex items-center gap-1 text-[11px] bg-green-50 text-green-700 border border-green-200 rounded-full px-2.5 py-0.5 font-medium">
+                <span className="status-pill status-pill-done">
                   <CheckCircle2 className="w-3 h-3" /> In DB ({state.braveApiKeyMasked})
                 </span>
               ) : state?.braveEnvPresent ? (
-                <span className="inline-flex items-center gap-1 text-[11px] bg-blue-50 text-blue-700 border border-blue-200 rounded-full px-2.5 py-0.5 font-medium">
+                <span className="status-pill status-pill-done" style={{ background: "var(--bg)", color: "var(--text-2)" }}>
                   <Key className="w-3 h-3" /> ENV: BRAVE_API_KEY
                 </span>
               ) : (
-                <span className="text-[11px] bg-amber-50 text-amber-700 border border-amber-200 rounded-full px-2 py-0.5">
+                <span className="status-pill status-pill-pending">
                   Nicht hinterlegt
                 </span>
               )}
@@ -778,7 +879,7 @@ export default function SettingsPage() {
           </div>
 
           <div className="pt-1">
-            <label className="text-[11px] font-semibold text-gray-600 uppercase tracking-wider block mb-1">
+            <label className="text-[11px] font-semibold uppercase tracking-wider block mb-1" style={{ color: "var(--text-3)" }}>
               Brave Search Key
             </label>
             <input
@@ -792,15 +893,20 @@ export default function SettingsPage() {
                   ? "In ENV gesetzt (BRAVE_API_KEY)"
                   : "BSA..."
               }
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-amber-500 bg-white"
+              className="w-full border rounded px-3 py-1.5 text-xs font-mono focus:outline-none"
+              style={{
+                borderColor: "var(--border)",
+                background: "var(--bg)",
+                color: "var(--text-1)",
+              }}
             />
           </div>
 
-          <div className="pt-2 flex items-center gap-2 border-t border-gray-100">
+          <div className="pt-2 flex items-center gap-2 border-t" style={{ borderColor: "var(--border-xs)" }}>
             <button
               onClick={() => saveSingleSearchKey("braveApiKey", braveApiKey)}
               disabled={savingSearchKey.brave || !braveApiKey.trim()}
-              className="flex items-center gap-1.5 bg-amber-600 text-white px-3.5 py-1.5 rounded-lg text-xs font-medium hover:bg-amber-700 disabled:opacity-40 transition-colors shadow-2xs"
+              className="btn-v2 btn-v2-primary"
             >
               {savingSearchKey.brave ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
               {savedSearchKeyMsg.brave ? "Gespeichert ✓" : "Speichern"}
@@ -812,7 +918,7 @@ export default function SettingsPage() {
                 searchTesting.brave ||
                 (!braveApiKey.trim() && !state?.braveApiKeyMasked && !state?.braveEnvPresent)
               }
-              className="flex items-center gap-1 border border-gray-200 text-gray-700 bg-gray-50 hover:bg-gray-100 px-3 py-1.5 rounded-lg text-xs font-medium disabled:opacity-40 transition-colors"
+              className="btn-v2"
             >
               {searchTesting.brave ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />}
               Testen
@@ -822,7 +928,8 @@ export default function SettingsPage() {
               <button
                 onClick={() => removeSingleSearchKey("brave")}
                 disabled={savingSearchKey.brave}
-                className="flex items-center gap-1 border border-red-200 text-red-600 bg-red-50 hover:bg-red-100 px-2.5 py-1.5 rounded-lg text-xs font-medium disabled:opacity-40 ml-auto transition-colors"
+                className="btn-v2 ml-auto"
+                style={{ color: "var(--danger)", background: "var(--danger-soft)", borderColor: "var(--danger-soft)" }}
               >
                 <Trash2 className="w-3.5 h-3.5" /> Key löschen
               </button>
@@ -831,17 +938,18 @@ export default function SettingsPage() {
 
           {searchTestResults.brave && (
             <div
-              className={`rounded-lg border p-3 text-xs flex items-center gap-2 ${
-                searchTestResults.brave.ok
-                  ? "bg-green-50 border border-green-200 text-green-800"
-                  : "border-red-200 bg-red-50 text-red-700"
-              }`}
+              className="rounded p-2.5 text-xs flex items-center gap-2"
+              style={{
+                background: searchTestResults.brave.ok ? "var(--green-soft)" : "var(--danger-soft)",
+                border: `1px solid ${searchTestResults.brave.ok ? "var(--green-mid)" : "var(--danger)"}`,
+                color: searchTestResults.brave.ok ? "var(--green)" : "var(--danger)",
+              }}
             >
               <span>{searchTestResults.brave.ok ? "✓" : "✗"}</span>
               {searchTestResults.brave.ok ? (
                 <span>
                   {searchTestResults.brave.hits} Treffer · <em>{searchTestResults.brave.sample}</em> ·{" "}
-                  <span className="text-gray-500">{searchTestResults.brave.note}</span>
+                  <span style={{ color: "var(--text-3)" }}>{searchTestResults.brave.note}</span>
                 </span>
               ) : (
                 <span>{searchTestResults.brave.error}</span>
@@ -851,29 +959,40 @@ export default function SettingsPage() {
         </div>
 
         {/* ── 6. Apify Widget ── */}
-        <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-4 shadow-sm">
+        <div
+          className="p-5 space-y-4"
+          style={{
+            background: "var(--surface)",
+            border: "1px solid var(--border)",
+            borderRadius: "var(--r)",
+            boxShadow: "var(--shadow-sm)",
+          }}
+        >
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-lg bg-cyan-50 text-cyan-600 flex items-center justify-center border border-cyan-100">
+              <div
+                className="w-7 h-7 rounded flex items-center justify-center"
+                style={{ background: "var(--bg)", color: "var(--text-1)" }}
+              >
                 <Globe className="w-4 h-4" />
               </div>
               <div>
-                <h3 className="text-sm font-semibold text-gray-900">Apify</h3>
-                <p className="text-xs text-gray-400">Google Maps Scraper Actor (&gt;120 Treffer pro Lauf)</p>
+                <h3 className="text-xs font-semibold" style={{ color: "var(--text-1)" }}>Apify</h3>
+                <p className="text-[11px]" style={{ color: "var(--text-3)" }}>Google Maps Scraper Actor (&gt;120 Treffer pro Lauf)</p>
               </div>
             </div>
 
             <div>
               {state?.apifyApiTokenMasked ? (
-                <span className="inline-flex items-center gap-1 text-[11px] bg-green-50 text-green-700 border border-green-200 rounded-full px-2.5 py-0.5 font-medium">
+                <span className="status-pill status-pill-done">
                   <CheckCircle2 className="w-3 h-3" /> In DB ({state.apifyApiTokenMasked})
                 </span>
               ) : state?.apifyEnvPresent ? (
-                <span className="inline-flex items-center gap-1 text-[11px] bg-blue-50 text-blue-700 border border-blue-200 rounded-full px-2.5 py-0.5 font-medium">
+                <span className="status-pill status-pill-done" style={{ background: "var(--bg)", color: "var(--text-2)" }}>
                   <Key className="w-3 h-3" /> ENV: APIFY_API_TOKEN
                 </span>
               ) : (
-                <span className="text-[11px] bg-amber-50 text-amber-700 border border-amber-200 rounded-full px-2 py-0.5">
+                <span className="status-pill status-pill-pending">
                   Nicht hinterlegt
                 </span>
               )}
@@ -881,7 +1000,7 @@ export default function SettingsPage() {
           </div>
 
           <div className="pt-1">
-            <label className="text-[11px] font-semibold text-gray-600 uppercase tracking-wider block mb-1">
+            <label className="text-[11px] font-semibold uppercase tracking-wider block mb-1" style={{ color: "var(--text-3)" }}>
               Apify API Token
             </label>
             <input
@@ -895,15 +1014,20 @@ export default function SettingsPage() {
                   ? "In ENV gesetzt (APIFY_API_TOKEN)"
                   : "apify_api_..."
               }
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-cyan-500 bg-white"
+              className="w-full border rounded px-3 py-1.5 text-xs font-mono focus:outline-none"
+              style={{
+                borderColor: "var(--border)",
+                background: "var(--bg)",
+                color: "var(--text-1)",
+              }}
             />
           </div>
 
-          <div className="pt-2 flex items-center gap-2 border-t border-gray-100">
+          <div className="pt-2 flex items-center gap-2 border-t" style={{ borderColor: "var(--border-xs)" }}>
             <button
               onClick={() => saveSingleSearchKey("apifyApiToken", apifyApiToken)}
               disabled={savingSearchKey.apify || !apifyApiToken.trim()}
-              className="flex items-center gap-1.5 bg-cyan-600 text-white px-3.5 py-1.5 rounded-lg text-xs font-medium hover:bg-cyan-700 disabled:opacity-40 transition-colors shadow-2xs"
+              className="btn-v2 btn-v2-primary"
             >
               {savingSearchKey.apify ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
               {savedSearchKeyMsg.apify ? "Gespeichert ✓" : "Speichern"}
@@ -915,7 +1039,7 @@ export default function SettingsPage() {
                 searchTesting.apify ||
                 (!apifyApiToken.trim() && !state?.apifyApiTokenMasked && !state?.apifyEnvPresent)
               }
-              className="flex items-center gap-1 border border-gray-200 text-gray-700 bg-gray-50 hover:bg-gray-100 px-3 py-1.5 rounded-lg text-xs font-medium disabled:opacity-40 transition-colors"
+              className="btn-v2"
             >
               {searchTesting.apify ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />}
               Testen
@@ -925,7 +1049,8 @@ export default function SettingsPage() {
               <button
                 onClick={() => removeSingleSearchKey("apify")}
                 disabled={savingSearchKey.apify}
-                className="flex items-center gap-1 border border-red-200 text-red-600 bg-red-50 hover:bg-red-100 px-2.5 py-1.5 rounded-lg text-xs font-medium disabled:opacity-40 ml-auto transition-colors"
+                className="btn-v2 ml-auto"
+                style={{ color: "var(--danger)", background: "var(--danger-soft)", borderColor: "var(--danger-soft)" }}
               >
                 <Trash2 className="w-3.5 h-3.5" /> Token löschen
               </button>
@@ -934,17 +1059,18 @@ export default function SettingsPage() {
 
           {searchTestResults.apify && (
             <div
-              className={`rounded-lg border p-3 text-xs flex items-center gap-2 ${
-                searchTestResults.apify.ok
-                  ? "bg-green-50 border border-green-200 text-green-800"
-                  : "border-red-200 bg-red-50 text-red-700"
-              }`}
+              className="rounded p-2.5 text-xs flex items-center gap-2"
+              style={{
+                background: searchTestResults.apify.ok ? "var(--green-soft)" : "var(--danger-soft)",
+                border: `1px solid ${searchTestResults.apify.ok ? "var(--green-mid)" : "var(--danger)"}`,
+                color: searchTestResults.apify.ok ? "var(--green)" : "var(--danger)",
+              }}
             >
               <span>{searchTestResults.apify.ok ? "✓" : "✗"}</span>
               {searchTestResults.apify.ok ? (
                 <span>
                   {searchTestResults.apify.hits} Treffer · <em>{searchTestResults.apify.sample}</em> ·{" "}
-                  <span className="text-gray-500">{searchTestResults.apify.note}</span>
+                  <span style={{ color: "var(--text-3)" }}>{searchTestResults.apify.note}</span>
                 </span>
               ) : (
                 <span>{searchTestResults.apify.error}</span>
@@ -954,28 +1080,59 @@ export default function SettingsPage() {
         </div>
 
         {/* ── Sub-pages Navigation ── */}
-        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
+        <div
+          className="overflow-hidden"
+          style={{
+            background: "var(--surface)",
+            border: "1px solid var(--border)",
+            borderRadius: "var(--r)",
+            boxShadow: "var(--shadow-sm)",
+          }}
+        >
           <button
             onClick={() => router.push("/settings/models")}
-            className="w-full flex items-center gap-3 px-5 py-4 hover:bg-gray-50 transition-colors text-left"
+            className="w-full flex items-center gap-3 px-5 py-3.5 transition-colors text-left cursor-pointer"
+            onMouseEnter={e => e.currentTarget.style.background = "#faf9f7"}
+            onMouseLeave={e => e.currentTarget.style.background = "transparent"}
           >
-            <Sliders className="w-4 h-4 text-violet-500 flex-shrink-0" />
-            <div className="flex-1">
-              <div className="text-sm font-medium text-gray-900">Modell-Auswahl</div>
-              <div className="text-xs text-gray-400">Welche KI-Modelle im Spalten-Editor angeboten werden</div>
+            <Sliders className="w-4 h-4 flex-shrink-0" style={{ color: "var(--orange)" }} />
+            <div className="flex-1 min-w-0">
+              <div className="text-xs font-semibold" style={{ color: "var(--text-1)" }}>Modell-Auswahl</div>
+              <div className="text-[11px]" style={{ color: "var(--text-3)" }}>Modelle anpassen & konfigurieren</div>
             </div>
-            <ChevronRight className="w-4 h-4 text-gray-300" />
+            <ChevronRight className="w-4 h-4" style={{ color: "var(--text-3)" }} />
           </button>
+
+          <div style={{ height: 1, background: "var(--border-xs)" }} />
+
+          <button
+            onClick={() => router.push("/settings/planner")}
+            className="w-full flex items-center gap-3 px-5 py-3.5 transition-colors text-left cursor-pointer"
+            onMouseEnter={e => e.currentTarget.style.background = "#faf9f7"}
+            onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+          >
+            <Sparkles className="w-4 h-4 flex-shrink-0" style={{ color: "var(--orange)" }} />
+            <div className="flex-1 min-w-0">
+              <div className="text-xs font-semibold" style={{ color: "var(--text-1)" }}>Planner Prompt</div>
+              <div className="text-[11px]" style={{ color: "var(--text-3)" }}>System-Prompt für automatische Suchschritte bearbeiten & testen</div>
+            </div>
+            <ChevronRight className="w-4 h-4" style={{ color: "var(--text-3)" }} />
+          </button>
+
+          <div style={{ height: 1, background: "var(--border-xs)" }} />
+
           <button
             onClick={() => router.push("/settings/llm-test")}
-            className="w-full flex items-center gap-3 px-5 py-4 hover:bg-gray-50 transition-colors text-left border-t border-gray-100"
+            className="w-full flex items-center gap-3 px-5 py-3.5 transition-colors text-left cursor-pointer"
+            onMouseEnter={e => e.currentTarget.style.background = "#faf9f7"}
+            onMouseLeave={e => e.currentTarget.style.background = "transparent"}
           >
-            <Sparkles className="w-4 h-4 text-violet-500 flex-shrink-0" />
-            <div className="flex-1">
-              <div className="text-sm font-medium text-gray-900">LLM Provider Smoke Test</div>
-              <div className="text-xs text-gray-400">Teste alle konfigurierten Modelle auf Latenz & Kosten</div>
+            <Zap className="w-4 h-4 flex-shrink-0" style={{ color: "var(--orange)" }} />
+            <div className="flex-1 min-w-0">
+              <div className="text-xs font-semibold" style={{ color: "var(--text-1)" }}>LLM Provider Testing</div>
+              <div className="text-[11px]" style={{ color: "var(--text-3)" }}>Modelle auf Erreichbarkeit, Latenz & Kosten prüfen</div>
             </div>
-            <ChevronRight className="w-4 h-4 text-gray-300" />
+            <ChevronRight className="w-4 h-4" style={{ color: "var(--text-3)" }} />
           </button>
         </div>
       </div>

@@ -53,11 +53,11 @@ export default function CostDashboard({ totals, rowCount }: CostDashboardProps) 
         title="Kosten-Details anzeigen"
         style={{
           display: "inline-flex", alignItems: "center", gap: 5,
-          padding: "2px 9px", borderRadius: 99,
-          border: `1px solid ${open ? "#7c3aed" : "#ddd6fe"}`,
-          background: open ? "#f5f3ff" : "#faf5ff",
-          cursor: "pointer", fontSize: 12, fontWeight: 600,
-          color: "#6d28d9", lineHeight: 1.6,
+          padding: "2px 8px", borderRadius: 99,
+          border: `1px solid ${open ? "var(--orange)" : "var(--border)"}`,
+          background: open ? "var(--orange-soft)" : "var(--surface)",
+          cursor: "pointer", fontSize: 11.5, fontWeight: 500,
+          color: open ? "var(--orange)" : "var(--text-2)", lineHeight: 1.5,
         }}
       >
         <span style={{ fontSize: 11 }}>💰</span>
@@ -68,24 +68,24 @@ export default function CostDashboard({ totals, rowCount }: CostDashboardProps) 
       {open && (
         <div style={{
           position: "absolute", top: "calc(100% + 6px)", left: 0,
-          background: "#fff", borderRadius: 10,
-          border: "1px solid #e5e7eb",
-          boxShadow: "0 8px 28px rgba(0,0,0,0.13)",
-          zIndex: 600, minWidth: 230, padding: "14px 16px",
+          background: "var(--surface)", borderRadius: 8,
+          border: "1px solid var(--border)",
+          boxShadow: "var(--shadow)",
+          zIndex: 600, minWidth: 230, padding: "12px 14px",
         }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: "#6d28d9", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 10 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "var(--orange)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 10 }}>
             Kosten-Übersicht
           </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-            {totalCostEur > 0 && <KpiRow label="Gesamt (EUR)" value={`€ ${fmtEur(totalCostEur)}`} color="#92400e" bg="#fef3c7" />}
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {totalCostEur > 0 && <KpiRow label="Gesamt (EUR)" value={`€ ${fmtEur(totalCostEur)}`} color="var(--orange)" bg="var(--orange-soft)" />}
             {totalCostUsd > 0 && <KpiRow label="Gesamt (USD)" value={`$ ${fmt(totalCostUsd)}`} color="#1d4ed8" bg="#eff6ff" />}
-            {totalTokens > 0 && <KpiRow label="Tokens" value={totalTokens.toLocaleString("de-DE")} color="#6d28d9" bg="#f5f3ff" />}
+            {totalTokens > 0 && <KpiRow label="Tokens" value={totalTokens.toLocaleString("de-DE")} color="var(--text-1)" bg="var(--bg)" />}
             {avgCostPerRow !== null && rowCount > 1 && (
-              <KpiRow label={`Ø pro Zeile (${rowCount})`} value={`$ ${fmt(avgCostPerRow)}`} color="#166534" bg="#f0fdf4" />
+              <KpiRow label={`Ø pro Zeile (${rowCount})`} value={`$ ${fmt(avgCostPerRow)}`} color="var(--green)" bg="var(--green-soft)" />
             )}
           </div>
-          <div style={{ fontSize: 10, color: "#9ca3af", marginTop: 10, lineHeight: 1.4 }}>
-            Von Eden AI gemeldete Kosten · EUR ≈ USD × 0,91
+          <div style={{ fontSize: 10, color: "var(--text-3)", marginTop: 10, lineHeight: 1.4 }}>
+            Von Providern erfasste Kosten · EUR ≈ USD × 0,91
           </div>
         </div>
       )}

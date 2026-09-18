@@ -140,31 +140,37 @@ export default function PlannerSettingsPage() {
 
 
   return (
-    <AppShell title="Planner Prompt" titleIcon={<Sparkles className="w-4 h-4 text-violet-500" />}>
-      <div className="max-w-5xl mx-auto space-y-6">
+    <AppShell title="Planner Prompt" titleIcon={<Sparkles className="w-4 h-4" style={{ color: "var(--orange)" }} />}>
+      <div className="max-w-5xl mx-auto space-y-5 pb-12">
 
         {/* Header info */}
-        <div className="flex items-start gap-3 p-4 bg-violet-50 border border-violet-100 rounded-xl">
-          <Info className="w-4 h-4 text-violet-500 mt-0.5 shrink-0" />
-          <div className="text-sm text-violet-800 space-y-1">
-            <p className="font-medium">Custom Planner System Prompt</p>
-            <p className="text-violet-600">
-              Override the built-in LLM instruction for discovery planning. Leave empty to use the default.
-              The active prompt is used for all new agent runs and manual plan generation.
+        <div
+          className="flex items-start gap-3 p-3.5 rounded text-xs leading-relaxed"
+          style={{
+            background: "var(--orange-soft)",
+            border: "1px solid var(--orange-mid)",
+            color: "var(--orange)",
+          }}
+        >
+          <Info className="w-4 h-4 mt-0.5 shrink-0" />
+          <div className="space-y-0.5">
+            <p className="font-semibold text-xs">Custom Planner System Prompt</p>
+            <p style={{ color: "var(--text-2)" }}>
+              System-Prompt für die automatische Recherche-Planung überschreiben. Leer lassen für den Standard.
             </p>
           </div>
         </div>
 
-        <div className="grid grid-cols-3 gap-6">
+        <div className="grid grid-cols-3 gap-5">
           {/* Left 2/3: Editor */}
-          <div className="col-span-2 space-y-3">
+          <div className="col-span-2 space-y-2.5">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <span className="text-sm font-semibold text-gray-800">System Prompt</span>
+                <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--text-3)" }}>System Prompt</span>
                 {isOverrideActive ? (
-                  <span className="text-xs bg-violet-100 text-violet-700 px-2 py-0.5 rounded-full font-medium">Override aktiv</span>
+                  <span className="status-pill status-pill-done" style={{ background: "var(--orange-soft)", color: "var(--orange)" }}>Override aktiv</span>
                 ) : (
-                  <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">Built-in Default</span>
+                  <span className="status-pill status-pill-done" style={{ background: "var(--bg)", color: "var(--text-3)" }}>Standard</span>
                 )}
               </div>
             </div>
@@ -172,43 +178,46 @@ export default function PlannerSettingsPage() {
             <textarea
               value={editorValue}
               onChange={(e) => handleEditorChange(e.target.value)}
-              placeholder="Loading…"
-              className="w-full h-[520px] font-mono text-xs leading-relaxed bg-white text-gray-900 caret-gray-900 border border-gray-200 rounded-xl p-4 resize-none focus:outline-none focus:ring-2 focus:ring-violet-500"
+              placeholder="Laden…"
+              className="w-full h-[500px] font-mono text-xs leading-relaxed p-3.5 resize-none focus:outline-none"
+              style={{
+                background: "var(--surface)",
+                border: "1px solid var(--border)",
+                borderRadius: "var(--r)",
+                color: "var(--text-1)",
+              }}
               spellCheck={false}
             />
 
-            <p className="text-xs text-gray-400">
+            <p className="text-[11px]" style={{ color: "var(--text-3)" }}>
               {isOverrideActive
-                ? `${editorValue.length} chars · Override active — this replaces the built-in prompt`
-                : "Matches built-in default — no override stored"}
+                ? `${editorValue.length} Zeichen · Eigener Prompt aktiv`
+                : "Entspricht dem integrierten Standard"}
             </p>
 
             <div className="flex items-center gap-2">
               <button
                 onClick={handleSave}
                 disabled={saving || !isDirty}
-                className={`flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
-                  isDirty
-                    ? "bg-violet-600 text-white hover:bg-violet-700"
-                    : "bg-gray-100 text-gray-400 cursor-not-allowed"
-                }`}
+                className="btn-v2 btn-v2-primary"
               >
-                {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : savedMsg ? <CheckCircle2 className="w-4 h-4" /> : <Save className="w-4 h-4" />}
+                {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : savedMsg ? <CheckCircle2 className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}
                 {savedMsg ? "Gespeichert" : "Speichern"}
               </button>
               {isDirty && (
                 <button
                   onClick={handleReset}
-                  className="flex items-center gap-1.5 px-4 py-2 text-sm text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+                  className="btn-v2"
                 >
-                  <RotateCcw className="w-4 h-4" />
+                  <RotateCcw className="w-3.5 h-3.5" />
                   Reset
                 </button>
               )}
               {isOverrideActive && (
                 <button
                   onClick={handleClearOverride}
-                  className="flex items-center gap-1.5 px-4 py-2 text-sm text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors"
+                  className="btn-v2"
+                  style={{ color: "var(--danger)" }}
                 >
                   Auf Default zurück
                 </button>
@@ -217,77 +226,89 @@ export default function PlannerSettingsPage() {
           </div>
 
           {/* Right 1/3: Test panel */}
-          <div className="col-span-1 space-y-3">
-            <span className="text-sm font-semibold text-gray-800">Live Test</span>
+          <div className="col-span-1 space-y-2.5">
+            <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: "var(--text-3)" }}>Live Test</span>
 
-            <div className="space-y-2.5">
+            <div
+              className="p-3.5 space-y-2.5"
+              style={{
+                background: "var(--surface)",
+                border: "1px solid var(--border)",
+                borderRadius: "var(--r)",
+                boxShadow: "var(--shadow-sm)",
+              }}
+            >
               <div>
-                <label className="text-xs text-gray-500 mb-1 block">Research Goal</label>
+                <label className="text-[11px] mb-1 block font-medium" style={{ color: "var(--text-2)" }}>Such-Ziel</label>
                 <input
                   type="text"
                   value={testPrompt}
                   onChange={(e) => setTestPrompt(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && handleTest()}
-                  placeholder="e.g. Hausbauunternehmen Rostock"
-                  className="w-full px-3 py-2 text-sm text-gray-900 caret-gray-900 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-400"
+                  placeholder="z.B. Hausbauunternehmen Rostock"
+                  className="w-full px-2.5 py-1.5 text-xs border rounded focus:outline-none"
+                  style={{ borderColor: "var(--border)", background: "var(--bg)", color: "var(--text-1)" }}
                 />
               </div>
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2">
                 <div className="flex-1">
-                  <label className="text-xs text-gray-500 mb-1 block">Max Results</label>
+                  <label className="text-[11px] mb-1 block font-medium" style={{ color: "var(--text-2)" }}>Max Treffer</label>
                   <input
                     type="number"
                     value={maxResults}
                     onChange={(e) => setMaxResults(Number(e.target.value))}
                     min={10}
                     max={5000}
-                    className="w-full px-3 py-2 text-sm text-gray-900 caret-gray-900 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-400"
+                    className="w-full px-2.5 py-1.5 text-xs border rounded focus:outline-none"
+                    style={{ borderColor: "var(--border)", background: "var(--bg)", color: "var(--text-1)" }}
                   />
                 </div>
-                <div className="pt-5">
+                <div className="pt-4">
                   <button
                     onClick={handleTest}
                     disabled={testing || !testPrompt.trim()}
-                    className="flex items-center gap-2 px-4 py-2 bg-violet-600 text-white text-sm font-medium rounded-lg hover:bg-violet-700 disabled:opacity-50 transition-colors"
+                    className="btn-v2 btn-v2-primary"
                   >
-                    {testing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
+                    {testing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
                     Test
                   </button>
                 </div>
               </div>
 
               {!isOverrideActive && (
-                <div className="flex items-center gap-2 text-xs text-amber-600 bg-amber-50 border border-amber-100 px-3 py-2 rounded-lg">
-                  <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-                  Testing with built-in default (no override active)
+                <div className="text-[11px] p-2 rounded flex items-center gap-1.5" style={{ background: "var(--warn-soft)", color: "var(--warn)" }}>
+                  <AlertTriangle className="w-3 h-3 shrink-0" />
+                  Testet mit Default-Prompt
                 </div>
               )}
             </div>
 
             {/* Results */}
             {testing && (
-              <div className="flex items-center gap-2 text-sm text-gray-500 py-4">
-                <Loader2 className="w-4 h-4 animate-spin" />
-                Planning…
+              <div className="flex items-center gap-2 text-xs py-3" style={{ color: "var(--text-3)" }}>
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                Plane…
               </div>
             )}
 
             {testResult && !testing && (
-              <div className="space-y-3">
+              <div className="space-y-2.5">
                 {testResult.error ? (
-                  <div className="flex items-start gap-2 p-3 bg-red-50 border border-red-100 rounded-lg text-sm text-red-700">
-                    <XCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                  <div className="flex items-start gap-2 p-2.5 rounded text-xs" style={{ background: "var(--danger-soft)", color: "var(--danger)" }}>
+                    <XCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
                     {testResult.error}
                   </div>
                 ) : testResult.plan ? (
                   <>
-                    {/* Summary bar */}
-                    <div className="flex items-center gap-3 p-3 bg-gray-50 border border-gray-100 rounded-xl text-sm">
-                      <CheckCircle2 className="w-4 h-4 text-green-500 shrink-0" />
+                    <div
+                      className="flex items-center gap-2.5 p-3 rounded text-xs"
+                      style={{ background: "var(--surface)", border: "1px solid var(--border)" }}
+                    >
+                      <CheckCircle2 className="w-4 h-4 shrink-0" style={{ color: "var(--green)" }} />
                       <div className="flex-1 min-w-0">
-                        <p className="font-medium text-gray-800 truncate">{testResult.plan.goal}</p>
-                        <p className="text-xs text-gray-500">
-                          {testResult.plan.steps.length} Steps · ~{testResult.plan.estimatedRows} estimated rows · {testResult.latencyMs}ms
+                        <p className="font-semibold truncate" style={{ color: "var(--text-1)" }}>{testResult.plan.goal}</p>
+                        <p className="text-[11px]" style={{ color: "var(--text-3)" }}>
+                          {testResult.plan.steps.length} Steps · ~{testResult.plan.estimatedRows} Zeilen · {testResult.latencyMs}ms
                         </p>
                       </div>
                     </div>

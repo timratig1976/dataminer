@@ -303,14 +303,16 @@ export async function searchViaSerpApi(
     if (page.length === 0) break;  // no more results
 
     for (const r of page) {
-      if (!seen.has(r.url)) {
-        seen.add(r.url);
+      const key = r.url.toLowerCase().replace(/\/+$/, "");
+      if (!seen.has(key)) {
+        seen.add(key);
         allResults.push(r);
+        if (allResults.length >= maxResults) break;
       }
     }
 
     // If we got fewer results than requested, Google has no more
-    if (page.length < pageSize) break;
+    if (page.length < pageSize || allResults.length >= maxResults) break;
 
     // Safety: max 20 pages (200 results) per query — Google supports up to start=190
     if (start >= 190) break;

@@ -1441,49 +1441,84 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
     <ErrorBoundary>
     {caseContextValue ? (
       <CaseContext.Provider value={caseContextValue}>
-    <div style={{display:"flex",height:"100vh",background:"#f9fafb",overflow:"hidden",fontSize:14,color:"#1f2937"}}>
+    <div style={{display:"flex",height:"100vh",background:"var(--bg)",overflow:"hidden",fontSize:13,color:"var(--text-1)",fontFamily:"var(--f)"}}>
 
       {/* ════ SIDEBAR ════ */}
-      <div style={{width:220,background:"#fff",borderRight:"1px solid #e5e7eb",display:"flex",flexDirection:"column",flexShrink:0}}>
+      <div style={{width:210,minWidth:210,background:"var(--surface)",borderRight:"1px solid var(--border)",display:"flex",flexDirection:"column",flexShrink:0,padding:"16px 0"}}>
         {/* Logo row */}
-        <div style={{padding:"12px 16px",borderBottom:"1px solid #f3f4f6"}}>
+        <div style={{padding:"0 16px 14px",borderBottom:"1px solid var(--border-xs)"}}>
           <button onClick={() => router.push("/dashboard")}
-            style={{display:"flex",alignItems:"center",gap:8,background:"none",border:"none",cursor:"pointer",padding:0,width:"100%",textAlign:"left"}}
-            onMouseEnter={e=>(e.currentTarget.style.opacity="0.75")}
+            style={{display:"flex",alignItems:"center",gap:9,background:"none",border:"none",cursor:"pointer",padding:0,width:"100%",textAlign:"left"}}
+            onMouseEnter={e=>(e.currentTarget.style.opacity="0.85")}
             onMouseLeave={e=>(e.currentTarget.style.opacity="1")}>
-            <div style={{width:24,height:24,background:"#7c3aed",borderRadius:4,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:12,fontWeight:700,flexShrink:0}}>D</div>
-            <span style={{fontWeight:600,fontSize:14,color:"#111827"}}>DataMiner</span>
+            <div style={{width:26,height:26,background:"var(--orange)",borderRadius:6,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:11,fontWeight:700,flexShrink:0}}>D</div>
+            <span style={{fontWeight:600,fontSize:13.5,letterSpacing:"-0.3px",color:"var(--text-1)"}}>DataMiner</span>
           </button>
         </div>
-        {/* New case */}
-        <div style={{padding:"8px 12px",borderBottom:"1px solid #f3f4f6"}}>
+
+        {/* Section: New Case & Case Info */}
+        <div style={{padding:"14px 14px 6px",flex:1,overflowY:"auto"}}>
           <button onClick={() => router.push("/cases")}
-            style={{width:"100%",display:"flex",alignItems:"center",gap:6,padding:"6px 8px",borderRadius:6,border:"none",background:"none",cursor:"pointer",fontSize:13,color:"#4b5563",textAlign:"left"}}
-            onMouseEnter={e=>(e.currentTarget.style.background="#f5f3ff",e.currentTarget.style.color="#7c3aed")}
-            onMouseLeave={e=>(e.currentTarget.style.background="none",e.currentTarget.style.color="#4b5563")}>
-            <Plus style={{width:14,height:14}} /> Neuer Case
+            style={{width:"100%",display:"flex",alignItems:"center",gap:6,padding:"6px 9px",borderRadius:"var(--rs)",border:"1px dashed var(--border)",background:"transparent",cursor:"pointer",fontSize:12,color:"var(--text-3)",textAlign:"left",marginBottom:12,transition:"all 0.12s"}}
+            onMouseEnter={e=>{e.currentTarget.style.borderColor="var(--orange)";e.currentTarget.style.color="var(--orange)";e.currentTarget.style.background="var(--orange-soft)";}}
+            onMouseLeave={e=>{e.currentTarget.style.borderColor="var(--border)";e.currentTarget.style.color="var(--text-3)";e.currentTarget.style.background="transparent";}}>
+            <Plus style={{width:13,height:13}} /> Neuer Case
           </button>
-        </div>
-        {/* Case item — active */}
-        <div style={{flex:1,overflowY:"auto"}}>
-          <div style={{margin:"8px 12px",borderRadius:8,background:"#f5f3ff",color:"#111827",padding:"10px 14px",cursor:"pointer",borderLeft:"3px solid #7c3aed"}}>
-            <div style={{fontWeight:600,fontSize:13,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>📁 {caseData.name}</div>
-<div style={{fontSize:11,color:"#6b7280",marginTop:2}}>{dataRows.length} Zeilen{catalogRows.length > 0 ? ` · ${catalogRows.length} Kataloge` : ""} · {new Date(caseData.updatedAt).toLocaleDateString("de-DE")}</div>
+
+          <div style={{display:"flex",flexDirection:"column",gap:2,marginBottom:12}}>
+            <button onClick={() => router.push("/dashboard")}
+              style={{width:"100%",display:"flex",alignItems:"center",gap:8,padding:"5px 8px",borderRadius:"var(--rs)",border:"none",background:"transparent",cursor:"pointer",fontSize:12,color:"var(--text-2)",textAlign:"left"}}
+              onMouseEnter={e=>e.currentTarget.style.background="var(--bg)"}
+              onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+              <Database style={{width:13,height:13,color:"var(--text-3)"}} /> Dashboard
+            </button>
+            <button onClick={() => router.push("/cases")}
+              style={{width:"100%",display:"flex",alignItems:"center",gap:8,padding:"5px 8px",borderRadius:"var(--rs)",border:"none",background:"transparent",cursor:"pointer",fontSize:12,color:"var(--text-2)",textAlign:"left"}}
+              onMouseEnter={e=>e.currentTarget.style.background="var(--bg)"}
+              onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+              <Database style={{width:13,height:13,color:"var(--text-3)"}} /> Alle Cases
+            </button>
+          </div>
+
+          <div style={{fontSize:10,fontWeight:600,letterSpacing:"0.07em",textTransform:"uppercase",color:"var(--text-3)",marginBottom:6,paddingLeft:4}}>
+            Aktueller Case
+          </div>
+          {/* Active Case Row */}
+          <div style={{padding:"7px 9px",borderRadius:"var(--rs)",background:"var(--orange-soft)",cursor:"pointer"}}>
+            <div style={{fontWeight:600,fontSize:12.5,color:"var(--orange)",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}} title={caseData.name}>
+              {caseData.name}
+            </div>
+            <div style={{fontSize:11,color:"var(--text-3)",marginTop:2}}>
+              {dataRows.length} Zeilen{catalogRows.length > 0 ? ` · ${catalogRows.length} Kataloge` : ""}
+            </div>
           </div>
         </div>
+
         {/* Bottom icons */}
-        <div style={{padding:"10px 12px",borderTop:"1px solid #f3f4f6",display:"flex",alignItems:"center",gap:4}}>
+        <div style={{padding:"8px 12px 0",borderTop:"1px solid var(--border-xs)",display:"flex",alignItems:"center",justifyContent:"space-around"}}>
           <button title="API & Region" onClick={() => router.push("/settings")}
-            style={{padding:6,borderRadius:6,border:"none",background:"none",cursor:"pointer",color:"#9ca3af",display:"flex",alignItems:"center"}}
-            onMouseEnter={e=>(e.currentTarget.style.color="#7c3aed",e.currentTarget.style.background="#f5f3ff")}
-            onMouseLeave={e=>(e.currentTarget.style.color="#9ca3af",e.currentTarget.style.background="none")}>
+            style={{padding:6,borderRadius:4,border:"none",background:"none",cursor:"pointer",color:"var(--text-3)",display:"flex",alignItems:"center"}}
+            onMouseEnter={e=>{e.currentTarget.style.color="var(--orange)";e.currentTarget.style.background="var(--orange-soft)";}}
+            onMouseLeave={e=>{e.currentTarget.style.color="var(--text-3)";e.currentTarget.style.background="none";}}>
             <Settings style={{width:15,height:15}} />
           </button>
           <button title="Modell-Auswahl" onClick={() => router.push("/settings/models")}
-            style={{padding:6,borderRadius:6,border:"none",background:"none",cursor:"pointer",color:"#9ca3af",display:"flex",alignItems:"center"}}
-            onMouseEnter={e=>(e.currentTarget.style.color="#7c3aed",e.currentTarget.style.background="#f5f3ff")}
-            onMouseLeave={e=>(e.currentTarget.style.color="#9ca3af",e.currentTarget.style.background="none")}>
+            style={{padding:6,borderRadius:4,border:"none",background:"none",cursor:"pointer",color:"var(--text-3)",display:"flex",alignItems:"center"}}
+            onMouseEnter={e=>{e.currentTarget.style.color="var(--orange)";e.currentTarget.style.background="var(--orange-soft)";}}
+            onMouseLeave={e=>{e.currentTarget.style.color="var(--text-3)";e.currentTarget.style.background="none";}}>
             <Sliders style={{width:15,height:15}} />
+          </button>
+          <button title="Planner Prompt" onClick={() => router.push("/settings/planner")}
+            style={{padding:6,borderRadius:4,border:"none",background:"none",cursor:"pointer",color:"var(--text-3)",display:"flex",alignItems:"center"}}
+            onMouseEnter={e=>{e.currentTarget.style.color="var(--orange)";e.currentTarget.style.background="var(--orange-soft)";}}
+            onMouseLeave={e=>{e.currentTarget.style.color="var(--text-3)";e.currentTarget.style.background="none";}}>
+            <Sparkles style={{width:15,height:15}} />
+          </button>
+          <button title="LLM-Testing" onClick={() => router.push("/settings/llm-test")}
+            style={{padding:6,borderRadius:4,border:"none",background:"none",cursor:"pointer",color:"var(--text-3)",display:"flex",alignItems:"center"}}
+            onMouseEnter={e=>{e.currentTarget.style.color="var(--orange)";e.currentTarget.style.background="var(--orange-soft)";}}
+            onMouseLeave={e=>{e.currentTarget.style.color="var(--text-3)";e.currentTarget.style.background="none";}}>
+            <Zap style={{width:15,height:15}} />
           </button>
         </div>
       </div>
@@ -1492,211 +1527,224 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
       <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
 
         {/* ── Case header ── */}
-        <div style={{background:"#fff",borderBottom:"1px solid #e5e7eb",padding:"16px 28px 0",flexShrink:0}}>
-          <div style={{marginBottom:6}}>
-            <div style={{fontSize:16,fontWeight:700,color:"#111"}}>
-              <InlineCaseName name={caseData.name} onSave={async (newName) => {
-                const updated = await updateCase({ name: newName });
-                setCaseData(updated);
-              }} />
+        <div style={{background:"var(--surface)",borderBottom:"1px solid var(--border)",padding:"16px 24px 0",flexShrink:0}}>
+          <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:12}}>
+            <div>
+              <div style={{fontSize:16,fontWeight:600,letterSpacing:"-0.4px",color:"var(--text-1)"}}>
+                <InlineCaseName name={caseData.name} onSave={async (newName) => {
+                  const updated = await updateCase({ name: newName });
+                  setCaseData(updated);
+                }} />
+              </div>
+              <div style={{display:"flex",alignItems:"center",gap:14,marginTop:3,flexWrap:"wrap"}}>
+                <span style={{fontSize:11.5,color:"var(--text-3)"}}>{dataRows.length} Zeilen</span>
+                {catalogRows.length > 0 && <span style={{fontSize:11.5,color:"var(--text-3)"}}>{catalogRows.length} Kataloge</span>}
+                <span style={{fontSize:11.5,color:"var(--text-3)"}}>{sourceColumns.length} Quellspalten</span>
+                <span style={{fontSize:11.5,color:"var(--green)",fontWeight:500}}>{caseData.aiColumns.length} KI-Spalten</span>
+                <CostDashboard totals={totals} rowCount={rows.length} colCount={caseData.aiColumns.length} />
+              </div>
             </div>
-            <div style={{fontSize:12,color:"#6b7280",marginTop:2,display:"flex",alignItems:"center",gap:8}}>
-              <span>{new Date(caseData.createdAt).toLocaleDateString("de-DE")} · {dataRows.length} Zeilen{catalogRows.length > 0 ? ` + ${catalogRows.length} Kataloge` : ""} · {sourceColumns.length} Quellspalten · {caseData.aiColumns.length} KI-Spalten</span>
-              <CostDashboard totals={totals} rowCount={rows.length} colCount={caseData.aiColumns.length} />
-            </div>
-          </div>
-          {/* Tabs */}
-          <div style={{display:"flex",gap:0,marginTop:4,alignItems:"center"}}>
-            {tabs.map(t => (
-              <button key={t} onClick={() => setActiveTab(t)}
-                style={{padding:"6px 16px",border:"none",borderBottom: activeTab===t ? "2px solid #6d28d9" : "2px solid transparent",background:"none",cursor:"pointer",fontSize:13,fontWeight:500,color: activeTab===t ? "#6d28d9" : "#6b7280",marginBottom:-1}}>
-                {tabIcon(t)}{t}
-              </button>
-            ))}
-            {/* View mode toggle — only visible in Firmen tab when columnGroups exist */}
-            {activeTab === "Firmen" && hasColumnGroups && (
-              <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:6}}>
-                <span style={{fontSize:11,color:"#9ca3af"}}>Ansicht:</span>
+
+            {/* View mode toggle (Flach / Gruppiert) */}
+            {hasColumnGroups && (
+              <div style={{display:"flex",gap:2,background:"var(--bg)",border:"1px solid var(--border)",borderRadius:"var(--rs)",padding:3}}>
                 <button
                   onClick={() => setViewMode("flat")}
-                  style={{fontSize:11,padding:"2px 8px",borderRadius:4,border:"1px solid",cursor:"pointer",
-                    borderColor: viewMode==="flat" ? "#7c3aed" : "#d1d5db",
-                    background: viewMode==="flat" ? "#f5f3ff" : "#fff",
-                    color: viewMode==="flat" ? "#7c3aed" : "#6b7280"}}
-                >📋 Flach</button>
+                  style={{
+                    padding:"4px 10px",borderRadius:3,fontSize:11.5,cursor:"pointer",border:"none",transition:"0.1s",
+                    background: viewMode==="flat" ? "var(--surface)" : "transparent",
+                    color: viewMode==="flat" ? "var(--text-1)" : "var(--text-2)",
+                    boxShadow: viewMode==="flat" ? "var(--shadow-sm)" : "none",
+                    fontWeight: viewMode==="flat" ? 500 : 400,
+                  }}
+                >
+                  Flach
+                </button>
                 <button
                   onClick={() => setViewMode("grouped")}
-                  style={{fontSize:11,padding:"2px 8px",borderRadius:4,border:"1px solid",cursor:"pointer",
-                    borderColor: viewMode==="grouped" ? "#7c3aed" : "#d1d5db",
-                    background: viewMode==="grouped" ? "#f5f3ff" : "#fff",
-                    color: viewMode==="grouped" ? "#7c3aed" : "#6b7280"}}
-                >📂 Gruppiert</button>
+                  style={{
+                    padding:"4px 10px",borderRadius:3,fontSize:11.5,cursor:"pointer",border:"none",transition:"0.1s",
+                    background: viewMode==="grouped" ? "var(--surface)" : "transparent",
+                    color: viewMode==="grouped" ? "var(--text-1)" : "var(--text-2)",
+                    boxShadow: viewMode==="grouped" ? "var(--shadow-sm)" : "none",
+                    fontWeight: viewMode==="grouped" ? 500 : 400,
+                  }}
+                >
+                  Gruppiert
+                </button>
               </div>
             )}
+          </div>
+
+          {/* Tabs */}
+          <div style={{display:"flex",gap:0}}>
+            {tabs.map(t => (
+              <button key={t} onClick={() => setActiveTab(t)}
+                style={{
+                  padding:"8px 14px",fontSize:12.5,cursor:"pointer",border:"none",background:"none",transition:"0.1s",
+                  borderBottom: activeTab===t ? "2px solid var(--orange)" : "2px solid transparent",
+                  color: activeTab===t ? "var(--orange)" : "var(--text-2)",
+                  fontWeight: activeTab===t ? 600 : 400,
+                  marginBottom:-1,
+                }}
+                onMouseEnter={e=>{if(activeTab!==t)e.currentTarget.style.color="var(--text-1)";}}
+                onMouseLeave={e=>{if(activeTab!==t)e.currentTarget.style.color="var(--text-2)";}}>
+                {t}
+              </button>
+            ))}
           </div>
         </div>
 
         {/* ══ TAB: TABELLE — shared toolbar + conditional content ══ */}
         {activeTab === "Firmen" && (<>
 
-          {/* ── Compact toolbar — always visible regardless of view mode ── */}
-          <div style={{background:"#fff",borderBottom:"1px solid #e5e7eb",flexShrink:0}}>
+          {/* ── Toolbar wrapper ── */}
+          <div style={{background:"var(--surface)",borderBottom:"1px solid var(--border)",flexShrink:0}}>
+            <div style={{padding:"9px 24px",display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
 
-            {/* Single toolbar row */}
-            <div style={{padding:"8px 16px",display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+            {/* ── Buttons ── */}
+            <button onClick={() => setShowImport(true)} title="CSV, XLSX oder JSON importieren" className="btn-v2">
+              <Upload style={{width:12,height:12}} /> Import
+            </button>
+            <button onClick={() => setShowAppend(true)}
+              title="KI-gesteuerte Discovery: Google Search, Maps, Kataloge — Plan erstellen & ausführen"
+              className="btn-v2">
+              <Search style={{width:12,height:12}} /> Suchen &amp; Crawlen
+            </button>
+            <button onClick={() => setShowAgentGoal(true)}
+              title="Ziel-basierte Suche: Definiere Anzahl & Ziel, KI plant und führt automatisch mehrere Runden aus"
+              className="btn-v2">
+              🎯 Ziel-Suche {agentKeyStatus && !agentKeyStatus.anySearchConfigured && <span title="Keine Such-API-Keys konfiguriert" style={{fontSize:11,marginLeft:2}}>⚠️</span>}
+            </button>
 
-              {/* ── Daten-Gruppe ── */}
-              <span style={{fontSize:10,color:"#9ca3af",fontWeight:600,textTransform:"uppercase",letterSpacing:"0.04em"}}>Daten</span>
-              <button onClick={() => setShowImport(true)} title="CSV, XLSX oder JSON importieren"
-                style={{display:"flex",alignItems:"center",gap:5,padding:"4px 9px",border:"1px solid #d1d5db",borderRadius:5,background:"#fff",cursor:"pointer",fontSize:12,color:"#374151"}}>
-                <Upload style={{width:11,height:11}} /> Import
-              </button>
-              <button onClick={() => setShowAppend(true)}
-                title="KI-gesteuerte Discovery: Google Search, Maps, Kataloge — Plan erstellen & ausführen, Query-Log sichtbar"
-                style={{display:"flex",alignItems:"center",gap:5,padding:"4px 9px",border:"1px solid #86efac",borderRadius:5,background:"#f0fdf4",cursor:"pointer",fontSize:12,color:"#166534",fontWeight:500}}>
-                🔍 Suchen & Crawlen
-              </button>
+            {/* Agent running badge */}
+            {agentHook.running && !showAgentGoal && agentHook.run && !AGENT_TERMINAL.has(agentHook.run.status) && (
               <button onClick={() => setShowAgentGoal(true)}
-                title="Ziel-basierte Suche: Definiere Anzahl & Ziel, KI plant und führt automatisch mehrere Runden aus"
-                style={{display:"flex",alignItems:"center",gap:5,padding:"4px 9px",border:"1px solid #fda4af",borderRadius:5,background:"#fff1f2",cursor:"pointer",fontSize:12,color:"#be123c",fontWeight:500}}>
-                🎯 Ziel-Suche {agentKeyStatus && !agentKeyStatus.anySearchConfigured && <span title="Keine Such-API-Keys konfiguriert — in den Einstellungen hinterlegen" style={{fontSize:11,marginLeft:2}}>⚠️</span>}
+                title="Ziel-Suche läuft — klicken zum Öffnen"
+                className="btn-v2"
+                style={{background:"var(--orange-soft)",color:"var(--orange)",borderColor:"var(--orange-mid)",fontWeight:600}}>
+                <Loader2 style={{width:12,height:12}} className="animate-spin" />
+                {agentHook.run.uniqueCount} Ergebnisse · läuft…
               </button>
-              {/* Agent running badge — visible when modal is closed */}
-              {agentHook.running && !showAgentGoal && agentHook.run && !AGENT_TERMINAL.has(agentHook.run.status) && (
-                <button onClick={() => setShowAgentGoal(true)}
-                  title="Ziel-Suche läuft — klicken zum Öffnen"
-                  style={{display:"flex",alignItems:"center",gap:5,padding:"4px 10px",border:"1px solid #bfdbfe",borderRadius:5,background:"#eff6ff",cursor:"pointer",fontSize:12,color:"#1d4ed8",fontWeight:600,animation:"pulse 2s infinite"}}>
-                  <Loader2 style={{width:11,height:11}} className="animate-spin" />
-                  {agentHook.run.uniqueCount} Ergebnisse · läuft…
-                </button>
-              )}
-              {/* Email extrapolation — shown when rows have names but no contact_email */}
-              {rows.some(r => r.data["first_name"] && r.data["last_name"] && !r.data["contact_email"]) && (
-                <EmailExtrapolateButton caseId={caseId} onDone={refresh} />
-              )}
-              {/* Catalog deep-crawl — shown when catalog rows exist */}
-              {catalogRows.length > 0 && (
-                <CatalogDeepCrawlButton caseId={caseId} onDone={refresh} catalogCount={catalogRows.length} />
-              )}
-              {/* Domain resolution — shown when no-domain rows exist */}
-              {baseDataRows.some(r => !(r.data["domain"] ?? "").trim() && !String(r.data["search_source"] ?? "").startsWith("maps")) && (
-                <ResolveDomainButton caseId={caseId} onDone={refresh} count={baseDataRows.filter(r => !(r.data["domain"] ?? "").trim() && !String(r.data["search_source"] ?? "").startsWith("maps")).length} />
-              )}
+            )}
 
-              <span style={{width:1,height:16,background:"#e5e7eb",flexShrink:0}}/>
+            {/* Email extrapolation */}
+            {rows.some(r => r.data["first_name"] && r.data["last_name"] && !r.data["contact_email"]) && (
+              <EmailExtrapolateButton caseId={caseId} onDone={refresh} />
+            )}
 
-              {/* ── KI-Gruppe ── */}
-              <span style={{fontSize:10,color:"#9ca3af",fontWeight:600,textTransform:"uppercase",letterSpacing:"0.04em"}}>KI</span>
-              <button onClick={() => setShowAddCol(true)}
-                style={{display:"flex",alignItems:"center",gap:5,padding:"4px 9px",border:"1px solid #c4b5fd",borderRadius:5,background:"#f5f3ff",cursor:"pointer",fontSize:12,color:"#6d28d9"}}>
-                <Plus style={{width:11,height:11}} /> Spalte
+            {/* Catalog deep-crawl */}
+            {catalogRows.length > 0 && (
+              <CatalogDeepCrawlButton caseId={caseId} onDone={refresh} catalogCount={catalogRows.length} />
+            )}
+
+            {/* Domain resolution */}
+            {baseDataRows.some(r => !(r.data["domain"] ?? "").trim() && !String(r.data["search_source"] ?? "").startsWith("maps")) && (
+              <ResolveDomainButton caseId={caseId} onDone={refresh} count={baseDataRows.filter(r => !(r.data["domain"] ?? "").trim() && !String(r.data["search_source"] ?? "").startsWith("maps")).length} />
+            )}
+
+            {/* + Spalte Button */}
+            <button onClick={() => setShowAddCol(true)} className="btn-v2">
+              <Plus style={{width:12,height:12}} /> Spalte
+            </button>
+
+            <div className="tsep-v2" />
+
+            {/* Run primary action */}
+            {runningRowIds.size > 0 ? (
+              <button onClick={stopAll}
+                className="btn-v2"
+                style={{background:"var(--danger)",color:"#fff",borderColor:"var(--danger)",fontWeight:600}}>
+                ■ Stop ({runningRowIds.size})
               </button>
-
-              {/* Divider */}
-              <span style={{width:1,height:18,background:"#e5e7eb",flexShrink:0}}/>
-
-              {/* Run buttons */}
-              {runningRowIds.size > 0 ? (
-                <button onClick={stopAll}
-                  style={{display:"flex",alignItems:"center",gap:5,padding:"4px 12px",background:"#dc2626",color:"#fff",border:"none",borderRadius:5,cursor:"pointer",fontSize:12,fontWeight:600}}>
-                  ■ Stop ({runningRowIds.size})
+            ) : (<>
+              {hasPhaseColumns ? (<>
+                <button onClick={() => runPhase("company")} className="btn-v2 btn-v2-primary">
+                  <Building2 style={{width:12,height:12}}/> Firmen
                 </button>
-              ) : (<>
-                {hasPhaseColumns ? (<>
-                  <button onClick={() => runPhase("company")}
-                    style={{display:"flex",alignItems:"center",gap:5,padding:"4px 12px",background:"#7c3aed",color:"#fff",border:"none",borderRadius:5,cursor:"pointer",fontSize:12,fontWeight:600}}>
-                    <Building2 style={{width:11,height:11}}/> Firmen
-                  </button>
-                  <button onClick={() => runPhase("contact")}
-                    style={{display:"flex",alignItems:"center",gap:5,padding:"4px 12px",background:"#2563eb",color:"#fff",border:"none",borderRadius:5,cursor:"pointer",fontSize:12,fontWeight:600}}>
-                    👤 Kontakte
-                  </button>
-                </>) : (
-                  <div style={{position:"relative",display:"flex",alignItems:"center"}}>
-                    <div style={{display:"flex",borderRadius:6,overflow:"hidden",boxShadow:"0 1px 2px rgba(0,0,0,0.05)"}}>
-                      <button onClick={() => setRunConfirm({ mode: "empty_only" })}
-                        title="Nur leere Zellen füllen (bereits befüllte werden übersprungen)"
-                        style={{display:"flex",alignItems:"center",gap:5,padding:"4px 12px",background:"#7c3aed",color:"#fff",border:"none",borderRight:"1px solid rgba(255,255,255,0.2)",cursor:"pointer",fontSize:12,fontWeight:600}}>
-                        ▶ Ausführen (Nur Leere)
+                <button onClick={() => runPhase("contact")} className="btn-v2 btn-v2-ai">
+                  👤 Kontakte
+                </button>
+              </>) : (
+                <div style={{position:"relative",display:"flex",alignItems:"center"}}>
+                  <div style={{display:"flex",borderRadius:"var(--rs)",overflow:"hidden"}}>
+                    <button onClick={() => setRunConfirm({ mode: "empty_only" })}
+                      title="Nur leere Zellen füllen (bereits befüllte werden übersprungen)"
+                      className="btn-v2 btn-v2-primary"
+                      style={{borderRadius:"var(--rs) 0 0 var(--rs)",borderRight:"1px solid rgba(255,255,255,0.25)"}}>
+                      ▶ Ausführen
+                    </button>
+                    <button onClick={() => setShowRunOptions(v => !v)}
+                      title="Ausführungs-Optionen öffnen"
+                      className="btn-v2 btn-v2-primary"
+                      style={{borderRadius:"0 var(--rs) var(--rs) 0",padding:"5px 7px",fontSize:11}}>
+                      ▾
+                    </button>
+                  </div>
+                  {showRunOptions && (
+                    <div style={{position:"absolute",top:"calc(100% + 4px)",left:0,background:"var(--surface)",border:"1px solid var(--border)",borderRadius:"var(--r)",padding:"12px 14px",boxShadow:"var(--shadow)",zIndex:100,minWidth:220}}>
+                      <div style={{fontSize:10.5,fontWeight:600,color:"var(--text-3)",textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:10}}>Ausführungs-Optionen</div>
+                      <button onClick={() => { setShowRunOptions(false); setRunConfirm({ mode: "empty_only" }); }}
+                        style={{width:"100%",textAlign:"left",padding:"7px 10px",border:"1px solid var(--border)",borderRadius:"var(--rs)",background:"var(--bg)",cursor:"pointer",fontSize:12,color:"var(--text-1)",marginBottom:6,display:"flex",alignItems:"center",gap:6}}>
+                        <span style={{fontSize:14,color:"var(--orange)"}}>◐</span>
+                        <div>
+                          <div style={{fontWeight:600}}>Nur leere Zellen füllen</div>
+                          <div style={{fontSize:10.5,color:"var(--text-3)",marginTop:1}}>Überspringt bereits befüllte Zeilen</div>
+                        </div>
                       </button>
-                      <button onClick={() => setShowRunOptions(v => !v)}
-                        title="Ausführungs-Optionen öffnen"
-                        style={{display:"flex",alignItems:"center",justifyContent:"center",padding:"4px 8px",background:"#6d28d9",color:"#fff",border:"none",cursor:"pointer",fontSize:11}}>
-                        ▾
+                      <button onClick={() => { setShowRunOptions(false); setRunConfirm({ mode: "all_force" }); }}
+                        style={{width:"100%",textAlign:"left",padding:"7px 10px",border:"1px solid var(--danger-soft)",borderRadius:"var(--rs)",background:"var(--danger-soft)",cursor:"pointer",fontSize:12,color:"var(--danger)",marginBottom:8,display:"flex",alignItems:"center",gap:6}}>
+                        <span style={{fontSize:14}}>⚡</span>
+                        <div>
+                          <div style={{fontWeight:600}}>Alle Zellen neu ausführen</div>
+                          <div style={{fontSize:10.5,color:"var(--text-3)",marginTop:1}}>Überschreibt auch vorhandene Werte</div>
+                        </div>
                       </button>
-                    </div>
-                    {showRunOptions && (
-                      <div style={{position:"absolute",top:"calc(100% + 4px)",left:0,background:"#fff",border:"1px solid #e5e7eb",borderRadius:8,padding:"12px 14px",boxShadow:"0 4px 16px rgba(0,0,0,0.12)",zIndex:100,minWidth:220}}>
-                        <div style={{fontSize:11,fontWeight:600,color:"#6b7280",textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:10}}>Ausführungs-Optionen</div>
-                        {/* Option 1: Empty only (empfohlen) */}
-                        <button onClick={() => { setShowRunOptions(false); setRunConfirm({ mode: "empty_only" }); }}
-                          style={{width:"100%",textAlign:"left",padding:"7px 10px",border:"1px solid #e9d5ff",borderRadius:6,background:"#faf5ff",cursor:"pointer",fontSize:12,color:"#6d28d9",marginBottom:6,display:"flex",alignItems:"center",gap:6}}>
-                          <span style={{fontSize:14}}>◐</span>
-                          <div>
-                            <div style={{fontWeight:600}}>Nur leere Zellen füllen</div>
-                            <div style={{fontSize:10,color:"#9ca3af",marginTop:1}}>Überspringt bereits befüllte Zeilen</div>
-                          </div>
-                        </button>
-                        {/* Option 2: All cells (overwrite) */}
-                        <button onClick={() => { setShowRunOptions(false); setRunConfirm({ mode: "all_force" }); }}
-                          style={{width:"100%",textAlign:"left",padding:"7px 10px",border:"1px solid #fee2e2",borderRadius:6,background:"#fff5f5",cursor:"pointer",fontSize:12,color:"#dc2626",marginBottom:8,display:"flex",alignItems:"center",gap:6}}>
-                          <span style={{fontSize:14}}>⚡</span>
-                          <div>
-                            <div style={{fontWeight:600}}>Alle Zellen neu ausführen</div>
-                            <div style={{fontSize:10,color:"#9ca3af",marginTop:1}}>Überschreibt auch vorhandene Werte</div>
-                          </div>
-                        </button>
-                        {/* Concurrency slider */}
-                        <div style={{padding:"4px 2px",borderTop:"1px solid #f3f4f6",marginTop:6,paddingTop:8}}>
-                          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:6}}>
-                            <span style={{fontSize:11,color:"#6b7280",fontWeight:600}}>Parallelität</span>
-                            <span style={{fontSize:12,fontFamily:"monospace",color:"#7c3aed",fontWeight:700}}>{concurrency}x</span>
-                          </div>
-                          <input type="range" min={1} max={20} value={concurrency}
-                            onChange={e => setConcurrency(Number(e.target.value))}
-                            style={{width:"100%",accentColor:"#7c3aed"}} />
-                          <div style={{display:"flex",justifyContent:"space-between",fontSize:10,color:"#9ca3af",marginTop:2}}>
-                            <span>1x (seriell)</span>
-                            <span>20x (max parallel)</span>
-                          </div>
+                      <div style={{padding:"6px 2px 2px",borderTop:"1px solid var(--border-xs)",marginTop:6}}>
+                        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:6}}>
+                          <span style={{fontSize:11,color:"var(--text-2)",fontWeight:600}}>Parallelität</span>
+                          <span style={{fontSize:12,fontFamily:"monospace",color:"var(--orange)",fontWeight:700}}>{concurrency}x</span>
+                        </div>
+                        <input type="range" min={1} max={20} value={concurrency}
+                          onChange={e => setConcurrency(Number(e.target.value))}
+                          style={{width:"100%",accentColor:"var(--orange)"}} />
+                        <div style={{display:"flex",justifyContent:"space-between",fontSize:10,color:"var(--text-3)",marginTop:2}}>
+                          <span>1x</span>
+                          <span>20x max</span>
                         </div>
                       </div>
-                    )}
-                  </div>
-                )}
-              </>)}
+                    </div>
+                  )}
+                </div>
+              )}
+            </>)}
 
-              {/* Divider */}
-              <span style={{width:1,height:18,background:"#e5e7eb",flexShrink:0}}/>
-
-              {/* Stats pills */}
-              <span style={{fontSize:11,color:"#6b7280"}}>{rows.length} Zeilen</span>
+            {/* Right side group */}
+            <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:6}}>
+              <span style={{fontSize:11,color:"var(--text-3)"}}>
+                {rows.length} Zeilen{doneCount > 0 ? ` · ${doneCount} fertig` : ""}{runTarget > 0 ? ` · ${runTarget} ausstehend` : ""}
+              </span>
               {selectedRows.size > 0 && (
                 <button onClick={() => setSelectedRows(new Set())}
-                  title="Auswahl aufheben"
-                  style={{fontSize:11,fontWeight:600,color:"#7c3aed",background:"#ede9fe",padding:"1px 7px",borderRadius:8,border:"none",cursor:"pointer"}}>
+                  className="btn-v2"
+                  style={{fontSize:11,color:"var(--orange)",background:"var(--orange-soft)",borderColor:"var(--orange-mid)"}}>
                   ✕ {selectedRows.size} abwählen
                 </button>
               )}
               {selectedRows.size > 0 && (
                 <button onClick={deleteSelectedRows}
-                  title="Ausgewählte Zeilen löschen"
-                  style={{fontSize:11,fontWeight:600,color:"#dc2626",background:"#fee2e2",padding:"1px 7px",borderRadius:8,border:"none",cursor:"pointer",display:"flex",alignItems:"center",gap:3}}>
+                  className="btn-v2"
+                  style={{fontSize:11,color:"var(--danger)",background:"var(--danger-soft)",borderColor:"var(--danger)"}}>
                   <Trash2 style={{width:10,height:10}}/> {selectedRows.size} löschen
                 </button>
               )}
-              {doneCount > 0 && <span style={{fontSize:11,fontWeight:600,color:"#15803d",background:"#dcfce7",padding:"1px 7px",borderRadius:8}}>✓ {doneCount}</span>}
-              {errorCount > 0 && <span style={{fontSize:11,fontWeight:600,color:"#dc2626",background:"#fee2e2",padding:"1px 7px",borderRadius:8}}>✗ {errorCount}</span>}
-              {runningRowIds.size > 0 && <span style={{fontSize:11,color:"#d97706",background:"#fef3c7",padding:"1px 7px",borderRadius:8,display:"flex",alignItems:"center",gap:3}}><Loader2 style={{width:9,height:9}} className="animate-spin"/> {runningRowIds.size}</span>}
 
-              {/* Spacer */}
-              <div style={{flex:1}}/>
+              <div className="tsep-v2" />
 
-              {/* Reset + export */}
               <button onClick={() => { setSelectedRows(new Set()); setRows(prev => prev.map(r => ({...r,cellStatuses:{},cellErrors:{}}))); }}
                 title="Alle Status zurücksetzen"
-                style={{padding:"4px 8px",border:"1px solid #d1d5db",borderRadius:5,background:"#fff",cursor:"pointer",fontSize:11,color:"#6b7280"}}>
-                ↺ Reset
+                className="btn-v2 btn-v2-ghost">
+                Reset
               </button>
               <button
                 title="Doppelte Zeilen (gleiche Domain) entfernen"
@@ -1706,16 +1754,17 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
                   if (d.removed > 0) { refresh(); }
                   else { alert("Keine Duplikate gefunden"); }
                 }}
-                style={{padding:"4px 8px",border:"1px solid #fecaca",borderRadius:5,background:"#fff",cursor:"pointer",fontSize:11,color:"#dc2626"}}>
-                ⊘ Dedupe
+                className="btn-v2 btn-v2-ghost">
+                Dedupe
               </button>
               {/* Column visibility toggle */}
               <div style={{position:"relative"}}>
                 <button
                   onClick={() => setShowColVisibility(v => !v)}
                   title="Spalten ein-/ausblenden"
-                  style={{padding:"4px 8px",border:`1px solid ${showColVisibility?"#7c3aed":"#d1d5db"}`,borderRadius:5,background:showColVisibility?"#f5f3ff":"#fff",cursor:"pointer",fontSize:11,color:showColVisibility?"#7c3aed":"#374151",display:"flex",alignItems:"center",gap:4}}>
-                  <Sliders style={{width:11,height:11}}/> Spalten {manuallyHiddenCols.size > 0 && <span style={{background:"#7c3aed",color:"#fff",borderRadius:8,padding:"0 5px",fontSize:10,fontWeight:700}}>{manuallyHiddenCols.size}</span>}
+                  className="btn-v2 btn-v2-ghost"
+                  style={{color: showColVisibility ? "var(--orange)" : "var(--text-2)"}}>
+                  <Sliders style={{width:11,height:11}}/> Spalten {manuallyHiddenCols.size > 0 && <span className="badge-v2 badge-v2-orange">{manuallyHiddenCols.size}</span>}
                 </button>
                 {showColVisibility && (() => {
                   const allCols = colOrder.filter(k => !isHiddenCol(k));
@@ -1723,98 +1772,43 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
                   const aiCols = allCols.filter(k => caseData.aiColumns.some(c => c.outputKey === k));
                   const toggle = (k: string) => setManuallyHiddenCols(prev => { const n = new Set(prev); n.has(k) ? n.delete(k) : n.add(k); return n; });
 
-                  // Collect all system-hidden keys from row data
-                  const allDataKeys = new Set<string>();
-                  rows.forEach(r => Object.keys(r.data).forEach(k => allDataKeys.add(k)));
-                  const systemHidden = [...allDataKeys].filter(k => isHiddenCol(k) && !aiOutputKeySet.has(k) && !manuallyHiddenCols.has(k))
-                    .sort();
-                  const manuallyShownSystem = [...allDataKeys].filter(k => isHiddenCol(k) && !aiOutputKeySet.has(k) && manuallyHiddenCols.has(k) === false && visibleColOrder.includes(k));
-
-                  const SYSTEM_LABELS: Record<string, string> = {
-                    is_catalog: "Katalog-Flag (intern)",
-                    data_quality: "Datenqualität (intern)",
-                    email_fallback: "E-Mail Fallback",
-                    email_extrapolated: "E-Mail extrapoliert",
-                    company_email: "Firmen-E-Mail",
-                    first_name: "Vorname (flach)",
-                    last_name: "Nachname (flach)",
-                    position: "Position (flach)",
-                    contact_email: "E-Mail Kontakt (flach)",
-                    contact_phone: "Telefon Kontakt (flach)",
-                    linkedin: "LinkedIn (flach)",
-                    profile_url: "Profil-URL (Social)",
-                    profile_source: "Profil-Quelle (Social)",
-                  };
-
                   return (
-                    <div style={{position:"absolute",top:"calc(100% + 4px)",right:0,background:"#fff",border:"1px solid #e5e7eb",borderRadius:8,boxShadow:"0 8px 24px rgba(0,0,0,0.12)",zIndex:500,minWidth:260,maxHeight:480,overflowY:"auto",padding:8}}
-                      onMouseLeave={() => { setShowColVisibility(false); setShowSystemCols(false); }}>
-                      {/* Header */}
-                      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"4px 4px 8px",borderBottom:"1px solid #f3f4f6",marginBottom:6}}>
-                        <span style={{fontSize:11,fontWeight:700,color:"#374151",textTransform:"uppercase",letterSpacing:"0.05em"}}>Spalten</span>
+                    <div style={{position:"absolute",top:"calc(100% + 4px)",right:0,background:"var(--surface)",border:"1px solid var(--border)",borderRadius:"var(--r)",boxShadow:"var(--shadow)",zIndex:500,minWidth:250,maxHeight:460,overflowY:"auto",padding:10}}
+                      onMouseLeave={() => setShowColVisibility(false)}>
+                      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"2px 2px 8px",borderBottom:"1px solid var(--border-xs)",marginBottom:6}}>
+                        <span style={{fontSize:10.5,fontWeight:600,color:"var(--text-3)",textTransform:"uppercase",letterSpacing:"0.05em"}}>Spalten</span>
                         <div style={{display:"flex",gap:6}}>
-                          {manuallyHiddenCols.size > 0 && <button onClick={()=>setManuallyHiddenCols(new Set())} style={{border:"none",background:"none",fontSize:11,color:"#7c3aed",cursor:"pointer",fontWeight:600}}>Alle einblenden</button>}
-                          <button onClick={()=>{resetColOrder();setShowColVisibility(false);}} title="Spaltenreihenfolge zurücksetzen" style={{border:"none",background:"none",fontSize:11,color:"#6b7280",cursor:"pointer"}}>↺ Reset</button>
+                          {manuallyHiddenCols.size > 0 && <button onClick={()=>setManuallyHiddenCols(new Set())} style={{border:"none",background:"none",fontSize:11,color:"var(--orange)",cursor:"pointer",fontWeight:500}}>Alle zeigen</button>}
+                          <button onClick={()=>{resetColOrder();setShowColVisibility(false);}} style={{border:"none",background:"none",fontSize:11,color:"var(--text-3)",cursor:"pointer"}}>↺ Reset</button>
                         </div>
                       </div>
 
                       {/* Source cols */}
-                      {srcCols.length > 0 && <div style={{fontSize:10,fontWeight:700,color:"#9ca3af",textTransform:"uppercase",padding:"2px 4px",marginBottom:2}}>Quelldaten</div>}
+                      {srcCols.length > 0 && <div style={{fontSize:10,fontWeight:600,color:"var(--text-3)",textTransform:"uppercase",padding:"4px 2px",marginBottom:2}}>Quelldaten</div>}
                       {srcCols.map(k => (
-                        <label key={k} style={{display:"flex",alignItems:"center",gap:8,padding:"4px 6px",borderRadius:4,cursor:"pointer",fontSize:12,color:"#1f2937"}} onMouseEnter={e=>(e.currentTarget.style.background="#f9fafb")} onMouseLeave={e=>(e.currentTarget.style.background="")}>
-                          <input type="checkbox" checked={!manuallyHiddenCols.has(k)} onChange={()=>toggle(k)} style={{accentColor:"#7c3aed"}}/>
+                        <label key={k} style={{display:"flex",alignItems:"center",gap:8,padding:"4px 6px",borderRadius:"var(--rs)",cursor:"pointer",fontSize:12,color:"var(--text-1)"}}>
+                          <input type="checkbox" checked={!manuallyHiddenCols.has(k)} onChange={()=>toggle(k)} style={{accentColor:"var(--orange)"}}/>
                           <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{COL_LABELS[k] ?? k}</span>
                         </label>
                       ))}
 
                       {/* AI cols */}
-                      {aiCols.length > 0 && <div style={{fontSize:10,fontWeight:700,color:"#9ca3af",textTransform:"uppercase",padding:"6px 4px 2px",marginBottom:2,borderTop:srcCols.length?"1px solid #f3f4f6":undefined,marginTop:srcCols.length?6:0}}>KI-Spalten</div>}
+                      {aiCols.length > 0 && <div style={{fontSize:10,fontWeight:600,color:"var(--green)",textTransform:"uppercase",padding:"8px 2px 2px",marginBottom:2,borderTop:"1px solid var(--border-xs)",marginTop:6}}>KI-Spalten</div>}
                       {aiCols.map(k => {
                         const col = caseData.aiColumns.find(c => c.outputKey === k);
                         return (
-                          <label key={k} style={{display:"flex",alignItems:"center",gap:8,padding:"4px 6px",borderRadius:4,cursor:"pointer",fontSize:12,color:"#1f2937"}} onMouseEnter={e=>(e.currentTarget.style.background="#f9fafb")} onMouseLeave={e=>(e.currentTarget.style.background="")}>
-                            <input type="checkbox" checked={!manuallyHiddenCols.has(k)} onChange={()=>toggle(k)} style={{accentColor:"#7c3aed"}}/>
-                            <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{col?.name ?? k}</span>
-                            <span style={{marginLeft:"auto",fontSize:10,color:"#a855f7",flexShrink:0}}>KI</span>
+                          <label key={k} style={{display:"flex",alignItems:"center",gap:8,padding:"4px 6px",borderRadius:"var(--rs)",cursor:"pointer",fontSize:12,color:"var(--green)"}}>
+                            <input type="checkbox" checked={!manuallyHiddenCols.has(k)} onChange={()=>toggle(k)} style={{accentColor:"var(--green)"}}/>
+                            <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontWeight:500}}>{col?.name ?? k}</span>
                           </label>
                         );
                       })}
-
-                      {/* System-hidden fields — collapsible */}
-                      {systemHidden.length > 0 && (
-                        <div style={{borderTop:"1px solid #f3f4f6",marginTop:8,paddingTop:6}}>
-                          <button
-                            onClick={() => setShowSystemCols(v => !v)}
-                            style={{display:"flex",alignItems:"center",gap:4,width:"100%",border:"none",background:"none",cursor:"pointer",fontSize:10,fontWeight:700,color:"#9ca3af",textTransform:"uppercase",padding:"2px 4px",letterSpacing:"0.05em"}}>
-                            <span style={{fontSize:9}}>{showSystemCols ? "▾" : "▸"}</span>
-                            Systemfelder ({systemHidden.length} versteckt)
-                          </button>
-                          {showSystemCols && (
-                            <div style={{marginTop:4}}>
-                              <div style={{fontSize:10,color:"#9ca3af",padding:"2px 6px 6px",lineHeight:1.4}}>
-                                Diese Felder sind systemisch ausgeblendet. Einblenden nur zur Fehlersuche empfohlen.
-                              </div>
-                              {systemHidden.map(k => (
-                                <label key={k} style={{display:"flex",alignItems:"center",gap:8,padding:"3px 6px",borderRadius:4,cursor:"pointer",fontSize:11,color:"#6b7280"}} onMouseEnter={e=>(e.currentTarget.style.background="#f9fafb")} onMouseLeave={e=>(e.currentTarget.style.background="")}>
-                                  <input type="checkbox" checked={false} onChange={() => {
-                                    // Add to colOrder to make visible, remove from hidden
-                                    setManuallyHiddenCols(prev => { const n = new Set(prev); n.delete(k); return n; });
-                                    setColOrder(prev => prev.includes(k) ? prev : [...prev, k]);
-                                  }} style={{accentColor:"#6b7280"}}/>
-                                  <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontFamily:/^_/.test(k)?"monospace":"inherit"}}>{SYSTEM_LABELS[k] ?? k}</span>
-                                  {/^contact_\d+_/.test(k) && <span style={{marginLeft:"auto",fontSize:9,color:"#d1d5db",flexShrink:0}}>flat</span>}
-                                  {k.startsWith("_") && <span style={{marginLeft:"auto",fontSize:9,color:"#d1d5db",flexShrink:0}}>intern</span>}
-                                </label>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      )}
                     </div>
                   );
                 })()}
               </div>
             </div>
+          </div>
 
             {/* Global run error */}
             {globalRunError && (
@@ -1919,26 +1913,26 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
           ) : (<>
 
           {/* ── TABLE ── */}
-          <div style={{flex:1,overflow:"auto",background:"#f9fafb",position:"relative"}}>
-          <div style={{padding:16,minWidth:"max-content"}}>
-            <table className="case-detail-table" style={{borderCollapse:"collapse",fontSize:13,minWidth:"max-content",width:"100%"}}>
-              <thead style={{position:"sticky",top:0,zIndex:20,background:"#f9fafb"}}>
-                <tr style={{background:"#f9fafb",borderBottom:"1px solid #e5e7eb"}}>
-                  <th style={{width:32,padding:"6px 8px",borderRight:"1px solid #e5e7eb",background:"#f9fafb"}}>
+          <div style={{flex:1,overflow:"auto",background:"var(--bg)",position:"relative"}}>
+          <div style={{padding:"12px 16px",minWidth:"max-content"}}>
+            <table className="case-detail-table" style={{borderCollapse:"collapse",fontSize:12.5,minWidth:"max-content",width:"100%",background:"var(--surface)"}}>
+              <thead style={{position:"sticky",top:0,zIndex:20,background:"var(--surface)"}}>
+                <tr style={{background:"var(--surface)",borderBottom:"1px solid var(--border)"}}>
+                  <th style={{width:34,padding:"0 11px",height:34,borderBottom:"1px solid var(--border)",background:"var(--surface)"}}>
                     <input type="checkbox" checked={allSelected}
                       ref={el => { if (el) el.indeterminate = selectedRows.size > 0 && !allSelected; }}
                       onChange={() => {
                         if (selectedRows.size > 0) {
-                          setSelectedRows(new Set()); // any selection → clear all
+                          setSelectedRows(new Set());
                         } else {
-                          setSelectedRows(new Set(dataRows.map(r => r.id))); // none selected → select all
+                          setSelectedRows(new Set(dataRows.map(r => r.id)));
                         }
                       }}
-                      style={{width:13,height:13,cursor:"pointer"}} />
+                      style={{width:13,height:13,cursor:"pointer",accentColor:"var(--orange)"}} />
                   </th>
-                  <th style={{width:36,padding:"6px 6px",borderRight:"1px solid #e5e7eb",color:"#9ca3af",fontWeight:400,fontSize:12,textAlign:"center"}}>▼ #</th>
-                  {/* Status col — fixed */}
-                  <th style={{padding:"8px 12px",borderRight:"1px solid #e5e7eb",textAlign:"left",fontWeight:600,fontSize:12,color:"#1f2937",whiteSpace:"nowrap",minWidth:90}}>
+                  <th style={{width:32,padding:"0 6px",height:34,borderBottom:"1px solid var(--border)",color:"var(--text-3)",fontWeight:500,fontSize:11,textAlign:"center"}}>#</th>
+                  {/* Status col */}
+                  <th style={{padding:"0 11px",height:34,borderBottom:"1px solid var(--border)",textAlign:"left",fontWeight:600,fontSize:10.5,letterSpacing:"0.05em",textTransform:"uppercase",color:"var(--text-3)",whiteSpace:"nowrap",minWidth:90}}>
                     Status
                   </th>
                   {(visibleColOrder.length > 0 ? visibleColOrder : [...sourceColumns,...caseData.aiColumns.map(c=>c.outputKey)].filter(k=>!isHiddenCol(k))).map(key => {
@@ -1953,7 +1947,25 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
                         onDragOver={e=>{e.preventDefault();setDragOverCol(key);}}
                         onDragLeave={()=>setDragOverCol(null)}
                         onDrop={()=>handleColDrop(key)}
-                        style={{padding:"8px 12px",borderRight:"1px solid #e5e7eb",textAlign:"left",fontWeight:600,fontSize:12,color:"#1f2937",whiteSpace:"nowrap",width: colWidths[key] ?? (key==="company_name"?200:aiCol?180:140),minWidth:80,cursor:"grab",background: isDragOver?"#ede9fe":aiCol?"#f5f3ff":isOrphan?"#f0fdfa":"#f9fafb",borderLeft: isDragOver?"2px solid #7c3aed":undefined,userSelect:"none",position:"relative"}}>
+                        style={{
+                          padding:"0 11px",
+                          height:34,
+                          borderBottom: aiCol ? "1px solid var(--green-mid)" : "1px solid var(--border)",
+                          textAlign:"left",
+                          fontWeight:600,
+                          fontSize:10.5,
+                          letterSpacing:"0.05em",
+                          textTransform:"uppercase",
+                          color: aiCol ? "var(--green)" : "var(--text-3)",
+                          whiteSpace:"nowrap",
+                          width: colWidths[key] ?? (key==="company_name"?200:aiCol?180:140),
+                          minWidth:80,
+                          cursor:"grab",
+                          background: isDragOver ? "var(--orange-mid)" : aiCol ? "var(--green-soft)" : "var(--surface)",
+                          borderLeft: isDragOver ? "2px solid var(--orange)" : undefined,
+                          userSelect:"none",
+                          position:"relative",
+                        }}>
                         {/* resize handle */}
                         <div
                           style={{position:"absolute",right:0,top:0,bottom:0,width:6,cursor:"col-resize",zIndex:10}}
@@ -1971,7 +1983,7 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
                           }}
                         />
                         <div style={{display:"flex",alignItems:"center",gap:4,overflow:aiCol?"visible":"hidden"}}>
-                          <GripVertical style={{width:10,height:10,color:"#9ca3af",flexShrink:0}} />
+                          <GripVertical style={{width:10,height:10,color:"var(--text-3)",flexShrink:0}} />
                           {aiCol ? (
                             <ColumnHeaderMenu
                               column={{...aiCol, name: COL_LABELS[aiCol.outputKey] ?? shortColName(aiCol.name)}}
@@ -1983,7 +1995,7 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
                               isRunning={runningColumnId === aiCol.id}
                             />
                           ) : isOrphan ? (
-                            <span style={{flex:1,color:"#0d9488",fontSize:11,fontWeight:600}}>{colLabel(key)}</span>
+                            <span style={{flex:1,color:"var(--green)",fontSize:11,fontWeight:600}}>{colLabel(key)}</span>
                           ) : (
                             <div className="group/hdr" style={{display:"flex",alignItems:"center",gap:4,width:"100%"}}>
                               <span style={{flex:1}}>{colLabel(key)}</span>
@@ -1991,14 +2003,14 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
                                 <button
                                   onClick={e=>{e.stopPropagation(); if(sortBy===key){setSortDir(d=>d==="asc"?"desc":"asc");}else{setSortBy(key as "company_name"|"domain");setSortDir("asc");}}}
                                   title={`Nach ${colLabel(key)} sortieren`}
-                                  style={{border:"none",background:"none",cursor:"pointer",padding:"1px 3px",color:sortBy===key?"#7c3aed":"#9ca3af",flexShrink:0,fontSize:10,fontWeight:700}}>
+                                  style={{border:"none",background:"none",cursor:"pointer",padding:"1px 3px",color:sortBy===key?"var(--orange)":"var(--text-3)",flexShrink:0,fontSize:10,fontWeight:700}}>
                                   {sortBy===key ? (sortDir==="asc" ? "↑" : "↓") : "⇅"}
                                 </button>
                               )}
                               <button
                                 onClick={e=>{e.stopPropagation();deleteSourceColumn(key);}}
                                 className="opacity-0 group-hover/hdr:opacity-100"
-                                style={{border:"none",background:"none",cursor:"pointer",padding:"1px 3px",color:"#9ca3af",transition:"opacity .15s",flexShrink:0}}
+                                style={{border:"none",background:"none",cursor:"pointer",padding:"1px 3px",color:"var(--text-3)",transition:"opacity .15s",flexShrink:0}}
                                 title={`Spalte "${key}" löschen`}>
                                 <Trash2 style={{width:11,height:11}} />
                               </button>
@@ -2008,12 +2020,12 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
                       </th>
                     );
                   })}
-                  <th onClick={()=>setShowAddCol(true)} style={{padding:"8px 12px",background:"#f9fafb",minWidth:100,cursor:"pointer"}}>
+                  <th onClick={()=>setShowAddCol(true)} style={{padding:"0 11px",height:34,background:"var(--surface)",borderBottom:"1px solid var(--border)",minWidth:90,cursor:"pointer"}}>
                     <button onClick={(e)=>{e.stopPropagation();setShowAddCol(true);}}
-                      style={{display:"flex",alignItems:"center",gap:4,fontSize:12,color:"#9ca3af",border:"none",background:"none",cursor:"pointer",whiteSpace:"nowrap"}}
-                      onMouseEnter={e=>(e.currentTarget.style.color="#7c3aed")}
-                      onMouseLeave={e=>(e.currentTarget.style.color="#9ca3af")}>
-                      <Plus style={{width:13,height:13}} /> Spalte
+                      style={{display:"flex",alignItems:"center",gap:4,fontSize:11.5,color:"var(--text-3)",border:"none",background:"none",cursor:"pointer",whiteSpace:"nowrap"}}
+                      onMouseEnter={e=>(e.currentTarget.style.color="var(--orange)")}
+                      onMouseLeave={e=>(e.currentTarget.style.color="var(--text-3)")}>
+                      <Plus style={{width:12,height:12}} /> Spalte
                     </button>
                   </th>
                 </tr>
@@ -2021,7 +2033,7 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
               <tbody>
                 {rows.length === 0 ? (
                   <tr><td colSpan={sourceColumns.length + caseData.aiColumns.length + 4}
-                    style={{textAlign:"center",padding:"48px 0",color:"#9ca3af",fontSize:13}}>
+                    style={{textAlign:"center",padding:"48px 0",color:"var(--text-3)",fontSize:13}}>
                     Keine Zeilen. CSV importieren um zu starten.
                   </td></tr>
                 ) : pageRows.map((row, rowIdx) => {
@@ -2030,7 +2042,6 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
                   const errorCount = statuses.filter(s => s === "error").length;
                   const runningCount = statuses.filter(s => s === "running").length;
                   const doneCount = statuses.filter(s => s === "done" || s === "skipped").length;
-                  // Robust row state — priority: error > running > completed > partial > pending
                   const rowState: "error" | "running" | "completed" | "partial" | "pending" =
                     errorCount > 0 ? "error"
                     : runningCount > 0 ? "running"
@@ -2040,20 +2051,30 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
                   const sel = selectedRows.has(row.id);
                   return (
                     <tr key={row.id}
-                      style={{background: sel?"#ede9fe":rowState==="running"?"#fefce8":rowState==="error"?"#fef2f2":"#fff",borderBottom:"1px solid #f3f4f6"}}
+                      style={{
+                        background: sel ? "var(--orange-soft)" : rowState==="running" ? "#fefce8" : rowState==="error" ? "var(--danger-soft)" : "var(--surface)",
+                        borderBottom:"1px solid var(--border-xs)",
+                      }}
+                      onMouseEnter={e => {
+                        if (!sel && rowState !== "running" && rowState !== "error") {
+                          e.currentTarget.style.background = "#faf9f7";
+                        }
+                      }}
+                      onMouseLeave={e => {
+                        if (!sel && rowState !== "running" && rowState !== "error") {
+                          e.currentTarget.style.background = "var(--surface)";
+                        }
+                      }}
                       onContextMenu={e => {
                         e.preventDefault();
-                        // Simple inline context menu via browser confirm — proper menu would need a portal
                         const choice = window.confirm(
                           `Zeile: ${row.data["company_name"] ?? row.data[sourceColumns[0]] ?? row.id.slice(0,8)}\n\n` +
                           `[OK] = Alle Spalten neu ausführen (überschreibt)\n` +
                           `[Abbrechen] = Nur leere Zellen füllen`
                         );
                         if (choice) {
-                          // run all columns for this row — force
                           for (const col of caseData.aiColumns) runCell(row.id, col);
                         } else {
-                          // run only empty columns for this row
                           for (const col of caseData.aiColumns) {
                             const val = row.data[col.outputKey];
                             const isEmpty = !val || String(val).trim() === "" || /^notfound$/i.test(String(val));
@@ -2061,38 +2082,39 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
                           }
                         }
                       }}>
-                      <td style={{width:32,padding:"6px 10px",borderRight:"1px solid #f3f4f6"}}>
+                      <td style={{width:34,padding:"0 11px",height:42,borderBottom:"1px solid var(--border-xs)"}}>
                         <input type="checkbox" checked={sel}
                           onChange={e => { const s=new Set(selectedRows); e.target.checked?s.add(row.id):s.delete(row.id); setSelectedRows(s); }}
-                          style={{width:13,height:13,cursor:"pointer"}} />
+                          style={{width:13,height:13,cursor:"pointer",accentColor:"var(--orange)"}} />
                       </td>
-                      <td style={{width:36,padding:"6px 8px",borderRight:"1px solid #f3f4f6",color:"#d1d5db",textAlign:"center",fontSize:11}}>{page*pageSize+rowIdx+1}</td>
-                      {/* Status badge — fixed, robust 5-state indicator */}
-                      <td style={{padding:"6px 12px",borderRight:"1px solid #f3f4f6",whiteSpace:"nowrap"}}>
+                      <td style={{width:32,padding:"0 6px",height:42,borderBottom:"1px solid var(--border-xs)",color:"var(--text-3)",textAlign:"center",fontSize:11}}>{page*pageSize+rowIdx+1}</td>
+                      {/* Status badge */}
+                      <td style={{padding:"0 11px",height:42,borderBottom:"1px solid var(--border-xs)",whiteSpace:"nowrap"}}>
                         {rowState === "error" && (
-                          <span style={{display:"inline-flex",alignItems:"center",gap:4,fontSize:11,fontWeight:600,color:"#dc2626",background:"#fee2e2",padding:"2px 8px",borderRadius:10}} title={`${errorCount} von ${totalCols} Spalten fehlgeschlagen`}>
-                            <AlertCircle style={{width:10,height:10}} /> {errorCount} Fehler
+                          <span className="status-pill status-pill-error" title={`${errorCount} von ${totalCols} Spalten fehlgeschlagen`}>
+                            Fehler
                           </span>
                         )}
                         {rowState === "running" && (
-                          <span style={{display:"inline-flex",alignItems:"center",gap:4,fontSize:11,color:"#d97706",background:"#fef3c7",padding:"2px 8px",borderRadius:10}}>
-                            <Loader2 style={{width:10,height:10}} className="animate-spin" /> Läuft ({doneCount}/{totalCols})
+                          <span className="status-pill status-pill-pending">
+                            <Loader2 style={{width:9,height:9}} className="animate-spin" /> Läuft
                           </span>
                         )}
                         {rowState === "completed" && (
-                          <span style={{display:"inline-flex",alignItems:"center",gap:4,fontSize:11,fontWeight:600,color:"#15803d",background:"#dcfce7",padding:"2px 8px",borderRadius:10}}>
-                            <CheckCircle2 style={{width:10,height:10}} /> Fertig
+                          <span className="status-pill status-pill-done">
+                            Fertig
                           </span>
                         )}
                         {rowState === "partial" && (
-                          <span style={{display:"inline-flex",alignItems:"center",gap:4,fontSize:11,color:"#7c3aed",background:"#ede9fe",padding:"2px 8px",borderRadius:10}} title={`${doneCount} von ${totalCols} Spalten fertig`}>
+                          <span className="status-pill status-pill-done" style={{background:"var(--orange-soft)",color:"var(--orange)"}}>
                             ◐ {doneCount}/{totalCols}
                           </span>
                         )}
                         {rowState === "pending" && (
-                          <span style={{fontSize:11,color:"#9ca3af"}}>○ Ausstehend</span>
+                          <span className="status-pill status-pill-pending">
+                            Ausstehend
+                          </span>
                         )}
-                        {/* Source badge */}
                         {(() => {
                           const src = row.data["search_source"] ?? "";
                           const query = row.data["search_query"] ?? "";
@@ -2101,12 +2123,11 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
                           const label = src.includes("maps") ? "Maps" : src === "firecrawl" ? "Firecrawl" : src === "linkup" ? "Linkup" : src === "serpapi" ? "SerpApi" : src;
                           return (
                             <span title={`Quelle: ${src}\nQuery: ${query}`}
-                              style={{display:"inline-flex",alignItems:"center",gap:3,fontSize:10,color:"#6b7280",background:"#f3f4f6",padding:"1px 5px",borderRadius:6,marginTop:2,cursor:"help",maxWidth:80,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                              style={{display:"inline-flex",alignItems:"center",gap:3,fontSize:10,color:"var(--text-2)",background:"var(--bg)",border:"1px solid var(--border)",padding:"1px 5px",borderRadius:4,marginLeft:6,cursor:"help",maxWidth:80,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
                               {icon} {label}
                             </span>
                           );
                         })()}
-                        {/* Demote: move row to catalog tab — now shown in domain cell */}
                       </td>
                       {(visibleColOrder.length > 0 ? visibleColOrder : [...sourceColumns,...caseData.aiColumns.map(c=>c.outputKey)].filter(k=>!isHiddenCol(k))).map(key => {
                         const aiCol = caseData.aiColumns.find(c=>c.outputKey===key);
@@ -2871,12 +2892,12 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
 
         {/* ══ TAB: KONTAKTE ══ */}
         {activeTab === "Kontakte" && (
-          <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
+          <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden",background:"var(--bg)"}}>
             {/* Header bar */}
-            <div style={{padding:"10px 16px",borderBottom:"1px solid #e5e7eb",display:"flex",alignItems:"center",gap:10,flexShrink:0,background:"#fff"}}>
-              <span style={{fontWeight:700,fontSize:14,color:"#111"}}>👤 Kontakte</span>
+            <div style={{padding:"10px 24px",borderBottom:"1px solid var(--border)",display:"flex",alignItems:"center",gap:10,flexShrink:0,background:"var(--surface)"}}>
+              <span style={{fontWeight:600,fontSize:14,color:"var(--text-1)"}}>👤 Kontakte</span>
               {contactRowsLoaded && (
-                <span style={{fontSize:12,color:"#6b7280"}}>{contactRowsData.length} Einträge</span>
+                <span style={{fontSize:12,color:"var(--text-3)"}}>{contactRowsData.length} Einträge</span>
               )}
               <div style={{marginLeft:"auto",display:"flex",gap:8}}>
                 <button
@@ -2888,47 +2909,47 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
                       const res = await fetch("/api/contact-rows/cleanup", { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify({ caseId }) });
                       const d = await res.json();
                       setContactCleanupResult(d);
-                      // Reload contact rows
                       const cr = await fetch(`/api/contact-rows?caseId=${caseId}`).then(r=>r.json());
                       setContactRowsData((cr.contacts ?? []).map((c:{data:Record<string,string|null>})=>c.data));
                     } finally { setContactCleanupRunning(false); }
                   }}
                   disabled={contactCleanupRunning}
-                  style={{display:"flex",alignItems:"center",gap:4,padding:"4px 12px",background:contactCleanupRunning?"#f3f4f6":"#fef3c7",border:"1px solid #fcd34d",borderRadius:6,cursor:contactCleanupRunning?"not-allowed":"pointer",fontSize:12,fontWeight:500,color:"#92400e"}}>
+                  className="btn-v2"
+                  style={{color:"var(--warn)",background:"var(--warn-soft)",borderColor:"var(--warn)"}}>
                   {contactCleanupRunning ? <><Loader2 style={{width:10,height:10}} className="animate-spin"/> Läuft…</> : "⚡ Extrahieren & bereinigen"}
                 </button>
                 <button
                   onClick={() => { setContactRowsLoaded(false); setContactRowsLoading(true); fetch(`/api/contact-rows?caseId=${caseId}`).then(r=>r.json()).then(d=>{setContactRowsData((d.contacts??[]).map((c:{data:Record<string,string|null>})=>c.data));setContactRowsLoaded(true);}).finally(()=>setContactRowsLoading(false)); }}
-                  style={{display:"flex",alignItems:"center",gap:4,padding:"4px 12px",background:"#f3f4f6",border:"1px solid #d1d5db",borderRadius:6,cursor:"pointer",fontSize:12,fontWeight:500}}>
+                  className="btn-v2">
                   🔄 Aktualisieren
                 </button>
                 <a href={`/api/export?caseId=${caseId}&type=contacts`}
-                  style={{display:"inline-flex",alignItems:"center",gap:4,padding:"4px 12px",background:"#6d28d9",color:"#fff",borderRadius:6,fontSize:12,fontWeight:600,textDecoration:"none"}}>
+                  className="btn-v2 btn-v2-primary"
+                  style={{textDecoration:"none"}}>
                   ⬇ CSV
                 </a>
               </div>
             </div>
 
             {contactCleanupResult && (
-              <div style={{padding:"8px 16px",background:"#f0fdf4",borderBottom:"1px solid #bbf7d0",fontSize:12,color:"#166534",display:"flex",alignItems:"center",gap:12,flexShrink:0}}>
+              <div style={{padding:"8px 24px",background:"var(--green-soft)",borderBottom:"1px solid var(--green-mid)",fontSize:12,color:"var(--green)",display:"flex",alignItems:"center",gap:12,flexShrink:0}}>
                 ✅ <strong>{contactCleanupResult.inserted} neue</strong> Kontakte eingefügt · <strong>{contactCleanupResult.updated}</strong> aktualisiert · <strong>{contactCleanupResult.rowsCleaned}</strong> Firmen-Zeilen bereinigt
-                <button onClick={()=>setContactCleanupResult(null)} style={{marginLeft:"auto",border:"none",background:"none",cursor:"pointer",color:"#166534",fontSize:14}}>×</button>
+                <button onClick={()=>setContactCleanupResult(null)} style={{marginLeft:"auto",border:"none",background:"none",cursor:"pointer",color:"var(--green)",fontSize:14}}>×</button>
               </div>
             )}
 
             {contactRowsLoading && (
-              <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",gap:8,color:"#9ca3af"}}>
+              <div style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",gap:8,color:"var(--text-3)"}}>
                 <Loader2 style={{width:16,height:16}} className="animate-spin"/> Lade Kontakte…
               </div>
             )}
 
             {!contactRowsLoading && contactRowsLoaded && contactRowsData.length === 0 && (
-              <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:8,color:"#9ca3af"}}>
+              <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:8,color:"var(--text-3)"}}>
                 <span style={{fontSize:32}}>👤</span>
-                <div style={{fontWeight:600,fontSize:14,color:"#6b7280"}}>Noch keine Kontakte</div>
-                <div style={{fontSize:12,color:"#9ca3af",textAlign:"center",maxWidth:340}}>
+                <div style={{fontWeight:600,fontSize:14,color:"var(--text-2)"}}>Noch keine Kontakte</div>
+                <div style={{fontSize:12,color:"var(--text-3)",textAlign:"center",maxWidth:340}}>
                   Kontakte werden automatisch hier gespeichert, wenn du eine <strong>Entscheider</strong>-Spalte ausführst.
-                  Jeder gefundene Kontakt erscheint als eigene Zeile — neue Kontakte werden ergänzt, bestehende aktualisiert.
                 </div>
               </div>
             )}
@@ -2948,12 +2969,12 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
               };
               return (
                 <div style={{flex:1,overflow:"auto"}}>
-                  <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
+                  <table style={{width:"100%",borderCollapse:"collapse",fontSize:12.5,background:"var(--surface)"}}>
                     <thead>
-                      <tr style={{background:"#f9fafb",position:"sticky",top:0,zIndex:10}}>
-                        <th style={{padding:"8px 10px",borderBottom:"2px solid #e5e7eb",textAlign:"left",fontWeight:600,color:"#6b7280",whiteSpace:"nowrap",width:32}}>#</th>
+                      <tr style={{background:"var(--surface)",position:"sticky",top:0,zIndex:10}}>
+                        <th style={{padding:"0 11px",height:34,borderBottom:"1px solid var(--border)",textAlign:"left",fontWeight:600,color:"var(--text-3)",whiteSpace:"nowrap",width:34,fontSize:10.5,textTransform:"uppercase"}}>#</th>
                         {allCols.map(k => (
-                          <th key={k} style={{padding:"8px 10px",borderBottom:"2px solid #e5e7eb",textAlign:"left",fontWeight:600,color:"#1f2937",whiteSpace:"nowrap",background: ["email","email_extrapolated"].includes(k)?"#eff6ff":["first_name","last_name","position"].includes(k)?"#f5f3ff":"#f9fafb"}}>
+                          <th key={k} style={{padding:"0 11px",height:34,borderBottom:"1px solid var(--border)",textAlign:"left",fontWeight:600,color: ["first_name","last_name","position"].includes(k) ? "var(--green)" : "var(--text-3)",whiteSpace:"nowrap",fontSize:10.5,textTransform:"uppercase",background: ["first_name","last_name","position"].includes(k) ? "var(--green-soft)" : "var(--surface)"}}>
                             {COL_LABEL[k] ?? k}
                           </th>
                         ))}
@@ -2961,10 +2982,10 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
                     </thead>
                     <tbody>
                       {contactRowsData.map((row, i) => (
-                        <tr key={i} style={{borderBottom:"1px solid #f3f4f6",background: i%2===0?"#fff":"#fafafa"}}
-                          onMouseEnter={e=>(e.currentTarget.style.background="#f5f3ff")}
-                          onMouseLeave={e=>(e.currentTarget.style.background=i%2===0?"#fff":"#fafafa")}>
-                          <td style={{padding:"6px 10px",color:"#9ca3af",fontFamily:"monospace"}}>{i+1}</td>
+                        <tr key={i} style={{borderBottom:"1px solid var(--border-xs)",height:42}}
+                          onMouseEnter={e=>(e.currentTarget.style.background="#faf9f7")}
+                          onMouseLeave={e=>(e.currentTarget.style.background="transparent")}>
+                          <td style={{padding:"0 11px",color:"var(--text-3)",fontFamily:"monospace",fontSize:11}}>{i+1}</td>
                           {allCols.map(k => {
                             const v = row[k];
                             const isEmpty = !v || v === "";
@@ -2972,10 +2993,10 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
                             const isExtrapolated = k === "email_extrapolated" && !isEmpty;
                             const isLinkedIn = k === "linkedin" && !isEmpty;
                             return (
-                              <td key={k} style={{padding:"6px 10px",maxWidth:220,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
-                                {isEmpty ? <span style={{color:"#d1d5db"}}>—</span>
-                                  : isEmail ? <a href={`mailto:${v}`} style={{color:"#2563eb",textDecoration:"none"}} title={v!}>{v}</a>
-                                  : isExtrapolated ? <span style={{color:"#a855f7"}} title={v!}>⚡ {v}</span>
+                              <td key={k} style={{padding:"0 11px",maxWidth:220,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                                {isEmpty ? <span style={{color:"var(--text-3)"}}>—</span>
+                                  : isEmail ? <a href={`mailto:${v}`} style={{color:"var(--orange)",textDecoration:"none"}} title={v!}>{v}</a>
+                                  : isExtrapolated ? <span style={{color:"var(--green)",fontWeight:500}} title={v!}>⚡ {v}</span>
                                   : isLinkedIn ? <a href={v!.startsWith("http")?v!:`https://${v}`} target="_blank" rel="noreferrer" style={{color:"#0a66c2",textDecoration:"none"}} title={v!}>🔗 LinkedIn</a>
                                   : <span title={v!}>{v}</span>}
                               </td>
@@ -2993,34 +3014,32 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
 
         {/* ══ TAB: EXPORT ══ */}
         {activeTab === "Export" && (
-          <div style={{flex:1,padding:24,display:"flex",flexDirection:"column",gap:16}}>
+          <div style={{flex:1,padding:24,display:"flex",flexDirection:"column",gap:16,background:"var(--bg)",overflowY:"auto"}}>
 
             {/* CSV export */}
-            <div style={{maxWidth:480,background:"#fff",borderRadius:10,border:"1px solid #e5e7eb",padding:24}}>
-              <div style={{fontSize:15,fontWeight:700,marginBottom:4}}>📊 CSV exportieren</div>
-              <div style={{fontSize:13,color:"#6b7280",marginBottom:16}}>{rows.length} Zeilen · {sourceColumns.length + caseData.aiColumns.length} Spalten — wähle Export-Modus und Spalten aus.</div>
-              <button onClick={() => setShowExport(true)}
-                style={{display:"inline-flex",alignItems:"center",gap:8,padding:"8px 20px",background:"#6d28d9",color:"#fff",borderRadius:8,fontSize:13,fontWeight:600,textDecoration:"none",border:"none",cursor:"pointer"}}>
-                <Download style={{width:15,height:15}} /> CSV exportieren
+            <div style={{maxWidth:480,background:"var(--surface)",borderRadius:"var(--r)",border:"1px solid var(--border)",boxShadow:"var(--shadow-sm)",padding:20}}>
+              <div style={{fontSize:14,fontWeight:600,color:"var(--text-1)",marginBottom:4}}>📊 CSV exportieren</div>
+              <div style={{fontSize:12,color:"var(--text-2)",marginBottom:14}}>{rows.length} Zeilen · {sourceColumns.length + caseData.aiColumns.length} Spalten — wähle Export-Modus und Spalten aus.</div>
+              <button onClick={() => setShowExport(true)} className="btn-v2 btn-v2-primary">
+                <Download style={{width:14,height:14}} /> CSV exportieren
               </button>
             </div>
 
             {/* Full snapshot export */}
-            <div style={{maxWidth:480,background:"#fff",borderRadius:10,border:"1px solid #e5e7eb",padding:24}}>
-              <div style={{fontSize:15,fontWeight:700,marginBottom:4}}>💾 Vollständiger Snapshot</div>
-              <div style={{fontSize:13,color:"#6b7280",marginBottom:16}}>Exportiert alle Zeilen <strong>und</strong> die komplette Spalten-Konfiguration (Prompts, Web-Search-Einstellungen usw.) als JSON. Kann auf einem anderen PC wiederhergestellt werden.</div>
-              <a href={`/api/export/snapshot?caseId=${caseId}`}
-                style={{display:"inline-flex",alignItems:"center",gap:8,padding:"8px 20px",background:"#1d4ed8",color:"#fff",borderRadius:8,fontSize:13,fontWeight:600,textDecoration:"none"}}>
-                <Download style={{width:15,height:15}} /> Snapshot herunterladen (.json)
+            <div style={{maxWidth:480,background:"var(--surface)",borderRadius:"var(--r)",border:"1px solid var(--border)",boxShadow:"var(--shadow-sm)",padding:20}}>
+              <div style={{fontSize:14,fontWeight:600,color:"var(--text-1)",marginBottom:4}}>💾 Vollständiger Snapshot</div>
+              <div style={{fontSize:12,color:"var(--text-2)",marginBottom:14}}>Exportiert alle Zeilen und Konfiguration als JSON zum Backup oder Transfer.</div>
+              <a href={`/api/export/snapshot?caseId=${caseId}`} className="btn-v2" style={{textDecoration:"none",color:"var(--text-1)"}}>
+                <Download style={{width:14,height:14}} /> Snapshot herunterladen (.json)
               </a>
             </div>
 
             {/* Snapshot import/restore */}
-            <div style={{maxWidth:480,background:"#fff",borderRadius:10,border:"1px solid #e5e7eb",padding:24}}>
-              <div style={{fontSize:15,fontWeight:700,marginBottom:4}}>📥 Snapshot wiederherstellen</div>
-              <div style={{fontSize:13,color:"#6b7280",marginBottom:12}}>Lade eine <code style={{background:"#f3f4f6",padding:"1px 5px",borderRadius:4}}>*_snapshot.json</code>-Datei hoch — es wird ein neuer Case mit allen Zeilen und der Konfiguration angelegt.</div>
-              <label style={{display:"inline-flex",alignItems:"center",gap:8,padding:"8px 20px",background:"#7c3aed",color:"#fff",borderRadius:8,fontSize:13,fontWeight:600,cursor:"pointer"}}>
-                <Upload style={{width:15,height:15}} /> Snapshot importieren
+            <div style={{maxWidth:480,background:"var(--surface)",borderRadius:"var(--r)",border:"1px solid var(--border)",boxShadow:"var(--shadow-sm)",padding:20}}>
+              <div style={{fontSize:14,fontWeight:600,color:"var(--text-1)",marginBottom:4}}>📥 Snapshot wiederherstellen</div>
+              <div style={{fontSize:12,color:"var(--text-2)",marginBottom:12}}>Lade eine Snapshot-JSON hoch um einen neuen Case wiederherzustellen.</div>
+              <label className="btn-v2 btn-v2-primary" style={{cursor:"pointer",display:"inline-flex"}}>
+                <Upload style={{width:14,height:14}} /> Snapshot importieren
                 <input type="file" accept=".json,application/json" style={{display:"none"}} onChange={async (e) => {
                   const file = e.target.files?.[0];
                   if (!file) return;
@@ -3043,8 +3062,6 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
 
           </div>
         )}
-
-
 
       </div>
 

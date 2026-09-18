@@ -102,18 +102,26 @@ export default function LlmTestPage() {
   }
 
   return (
-    <AppShell title="LLM-Testing" titleIcon={<Zap className="w-4 h-4 text-blue-500" />}>
-      <div className="max-w-3xl mx-auto space-y-6">
+    <AppShell title="LLM-Testing" titleIcon={<Zap className="w-4 h-4" style={{ color: "var(--orange)" }} />}>
+      <div className="max-w-3xl mx-auto space-y-5 pb-12">
 
         {/* ── Smoke Test ── */}
-        <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-4">
+        <div
+          className="p-5 space-y-3.5"
+          style={{
+            background: "var(--surface)",
+            border: "1px solid var(--border)",
+            borderRadius: "var(--r)",
+            boxShadow: "var(--shadow-sm)",
+          }}
+        >
           <div className="flex items-center justify-between">
             <div>
-              <h2 className="font-semibold text-gray-900">🧪 Smoke Test</h2>
-              <p className="text-xs text-gray-400 mt-0.5">Testet ob jedes Modell erreichbar ist und antwortet. Kosten: ~$0.00001/Modell.</p>
+              <h2 className="font-semibold text-xs" style={{ color: "var(--text-1)" }}>🧪 Smoke Test</h2>
+              <p className="text-[11px] mt-0.5" style={{ color: "var(--text-3)" }}>Testet ob jedes Modell erreichbar ist und antwortet. Kosten: ~$0.00001/Modell.</p>
             </div>
             <button onClick={runSmoke} disabled={smokeLoading || selectedModels.length === 0}
-              className="flex items-center gap-2 bg-violet-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-violet-700 disabled:opacity-50">
+              className="btn-v2 btn-v2-primary">
               {smokeLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin"/> : <Play className="w-3.5 h-3.5"/>}
               {smokeLoading ? "Testet…" : `${selectedModels.length} Modelle testen`}
             </button>
@@ -121,15 +129,19 @@ export default function LlmTestPage() {
 
           {/* Model selection */}
           <div>
-            <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Modelle auswählen</div>
+            <div className="text-[11px] font-semibold uppercase tracking-wider mb-2" style={{ color: "var(--text-3)" }}>Modelle auswählen</div>
             <div className="flex flex-wrap gap-1.5">
               {DEFAULT_MODELS.map(m => {
                 const sel = selectedModels.includes(m);
                 const provider = m.split("/")[0];
-                const colors: Record<string, string> = { openai:"bg-green-50 border-green-200 text-green-700", anthropic:"bg-orange-50 border-orange-200 text-orange-700", mistral:"bg-blue-50 border-blue-200 text-blue-700", google:"bg-yellow-50 border-yellow-200 text-yellow-700", meta:"bg-purple-50 border-purple-200 text-purple-700" };
                 return (
                   <button key={m} onClick={() => toggleModel(m, selectedModels, setSelectedModels)}
-                    className={`px-2.5 py-1 rounded-lg text-xs font-mono border transition-colors ${sel ? (colors[provider] ?? "bg-violet-50 border-violet-200 text-violet-700") : "bg-gray-50 border-gray-200 text-gray-400 hover:border-gray-300"}`}>
+                    className="px-2.5 py-1 rounded text-xs font-mono border transition-colors cursor-pointer"
+                    style={{
+                      borderColor: sel ? "var(--orange-mid)" : "var(--border)",
+                      background: sel ? "var(--orange-soft)" : "var(--surface)",
+                      color: sel ? "var(--orange)" : "var(--text-2)",
+                    }}>
                     {sel ? "✓ " : ""}{m.split("/")[1]}
                     <span className="opacity-50 ml-1">{provider}</span>
                   </button>
@@ -139,13 +151,13 @@ export default function LlmTestPage() {
           </div>
 
           {/* Results */}
-          {smokeError && <p className="text-sm text-red-600">{smokeError}</p>}
+          {smokeError && <p className="text-xs text-red-600">{smokeError}</p>}
           {smokeResults.length > 0 && (
             <div className="space-y-1.5">
-              <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Ergebnisse</div>
+              <div className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: "var(--text-3)" }}>Ergebnisse</div>
               {smokeResults.map(r => (
-                <div key={r.model} className="flex items-center gap-3 px-3 py-2.5 bg-gray-50 rounded-lg border border-gray-100 text-sm">
-                  {r.ok ? <CheckCircle2 className="w-4 h-4 text-green-500 flex-shrink-0"/> : <XCircle className="w-4 h-4 text-red-500 flex-shrink-0"/>}
+                <div key={r.model} className="flex items-center gap-3 px-3 py-2 rounded border text-xs" style={{ background: "var(--bg)", borderColor: "var(--border-xs)" }}>
+                  {r.ok ? <CheckCircle2 className="w-3.5 h-3.5 text-green-500 flex-shrink-0"/> : <XCircle className="w-3.5 h-3.5 text-red-500 flex-shrink-0"/>}
                   <span className="font-mono text-xs text-gray-700 flex-1">{r.model}</span>
                   <span className={`text-xs font-semibold ${r.ok ? "text-green-600" : "text-red-600"}`}>{r.ok ? "PASS" : "FAIL"}</span>
                   <span className="text-xs text-gray-400 font-mono">{r.latencyMs}ms</span>
@@ -153,7 +165,7 @@ export default function LlmTestPage() {
                   {!r.ok && r.error && <span className="text-xs text-red-500 truncate max-w-[200px]">{r.error}</span>}
                 </div>
               ))}
-              <div className="text-xs text-gray-400 mt-1">
+              <div className="text-[11px] mt-1" style={{ color: "var(--text-3)" }}>
                 {smokeResults.filter(r=>r.ok).length}/{smokeResults.length} bestanden ·{" "}
                 Ø {Math.round(smokeResults.filter(r=>r.ok).reduce((s,r)=>s+r.latencyMs,0) / Math.max(1, smokeResults.filter(r=>r.ok).length))}ms
               </div>
@@ -162,14 +174,22 @@ export default function LlmTestPage() {
         </div>
 
         {/* ── Prompt Compare ── */}
-        <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-4">
+        <div
+          className="p-5 space-y-3.5"
+          style={{
+            background: "var(--surface)",
+            border: "1px solid var(--border)",
+            borderRadius: "var(--r)",
+            boxShadow: "var(--shadow-sm)",
+          }}
+        >
           <div className="flex items-center justify-between">
             <div>
-              <h2 className="font-semibold text-gray-900">⚡ Modelle vergleichen</h2>
-              <p className="text-xs text-gray-400 mt-0.5">Gleicher Prompt, verschiedene Modelle — Antwort und Latenz vergleichen.</p>
+              <h2 className="font-semibold text-xs" style={{ color: "var(--text-1)" }}>⚡ Modelle vergleichen</h2>
+              <p className="text-[11px] mt-0.5" style={{ color: "var(--text-3)" }}>Gleicher Prompt, verschiedene Modelle — Antwort und Latenz vergleichen.</p>
             </div>
             <button onClick={runCompare} disabled={compareLoading || compareModels.length === 0 || !promptText.trim()}
-              className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50">
+              className="btn-v2 btn-v2-primary">
               {compareLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin"/> : <Zap className="w-3.5 h-3.5"/>}
               {compareLoading ? "Läuft…" : "Vergleichen"}
             </button>
@@ -177,14 +197,15 @@ export default function LlmTestPage() {
 
           {/* Prompt input */}
           <div>
-            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 block">Prompt</label>
+            <label className="text-[11px] font-semibold uppercase tracking-wider mb-1 block" style={{ color: "var(--text-3)" }}>Prompt</label>
             <textarea value={promptText} onChange={e => setPromptText(e.target.value)} rows={3}
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none" />
+              className="w-full border rounded px-3 py-1.5 text-xs font-mono focus:outline-none resize-none"
+              style={{ borderColor: "var(--border)", background: "var(--bg)", color: "var(--text-1)" }} />
           </div>
 
           {/* Model selection for compare */}
           <div>
-            <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Modelle (max 5)</div>
+            <div className="text-[11px] font-semibold uppercase tracking-wider mb-2" style={{ color: "var(--text-3)" }}>Modelle (max 5)</div>
             <div className="flex flex-wrap gap-1.5">
               {DEFAULT_MODELS.map(m => {
                 const sel = compareModels.includes(m);
@@ -192,7 +213,12 @@ export default function LlmTestPage() {
                 return (
                   <button key={m} onClick={() => !disabled && toggleModel(m, compareModels, setCompareModels, 5)}
                     disabled={disabled}
-                    className={`px-2.5 py-1 rounded-lg text-xs font-mono border transition-colors ${sel ? "bg-blue-50 border-blue-300 text-blue-700" : disabled ? "bg-gray-50 border-gray-100 text-gray-300" : "bg-gray-50 border-gray-200 text-gray-500 hover:border-gray-300"}`}>
+                    className="px-2.5 py-1 rounded text-xs font-mono border transition-colors cursor-pointer"
+                    style={{
+                      borderColor: sel ? "var(--orange-mid)" : "var(--border)",
+                      background: sel ? "var(--orange-soft)" : "var(--surface)",
+                      color: sel ? "var(--orange)" : disabled ? "var(--text-3)" : "var(--text-2)",
+                    }}>
                     {sel ? "✓ " : ""}{m.split("/")[1]}
                   </button>
                 );
@@ -201,12 +227,12 @@ export default function LlmTestPage() {
           </div>
 
           {/* Results */}
-          {compareError && <p className="text-sm text-red-600">{compareError}</p>}
+          {compareError && <p className="text-xs text-red-600">{compareError}</p>}
           {compareResults.length > 0 && (
             <div className="space-y-2">
-              <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Ergebnisse</div>
+              <div className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: "var(--text-3)" }}>Ergebnisse</div>
               {compareResults.map((r, i) => (
-                <div key={r.model} className={`rounded-lg border p-3 ${r.ok ? (i===0?"border-blue-200 bg-blue-50":"border-gray-200 bg-gray-50") : "border-red-200 bg-red-50"}`}>
+                <div key={r.model} className="rounded border p-3 text-xs" style={{ background: r.ok ? "var(--surface)" : "var(--danger-soft)", borderColor: "var(--border)" }}>
                   <div className="flex items-center gap-3">
                     {i === 0 && r.ok && <span className="text-xs font-bold text-blue-600 bg-blue-100 px-2 py-0.5 rounded">🏆 Schnellstes</span>}
                     <span className="font-mono text-xs text-gray-700 flex-1">{r.model}</span>
