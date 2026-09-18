@@ -142,82 +142,109 @@ export default function ScraplingTestPage() {
     <AppShell
       title={
         <>
-          Scrapling Test <span className="text-xs text-gray-400 font-normal ml-1">— Layer 5 Google Bypass</span>
+          Scrapling Test <span className="text-xs font-normal ml-1" style={{ color: "var(--text-3)" }}>— Layer 5 Google Bypass</span>
         </>
       }
-      titleIcon={<Bug className="w-4 h-4 text-violet-500" />}
+      titleIcon={<Bug className="w-4 h-4" style={{ color: "var(--orange)" }} />}
       actions={
         <button
           onClick={checkService}
           disabled={checkingService}
-          className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-gray-200 hover:bg-gray-50"
+          className="btn-v2"
         >
           {checkingService ? (
             <Loader2 className="w-3.5 h-3.5 animate-spin text-gray-400" />
           ) : serviceStatus === "ok" ? (
-            <Wifi className="w-3.5 h-3.5 text-green-500" />
+            <Wifi className="w-3.5 h-3.5" style={{ color: "var(--green)" }} />
           ) : serviceStatus === "down" ? (
-            <WifiOff className="w-3.5 h-3.5 text-red-500" />
+            <WifiOff className="w-3.5 h-3.5" style={{ color: "var(--danger)" }} />
           ) : (
             <Wifi className="w-3.5 h-3.5 text-gray-400" />
           )}
-          <span className={
-            serviceStatus === "ok" ? "text-green-600" :
-            serviceStatus === "down" ? "text-red-500" : "text-gray-500"
-          }>
+          <span style={{
+            color: serviceStatus === "ok" ? "var(--green)" :
+            serviceStatus === "down" ? "var(--danger)" : "var(--text-2)"
+          }}>
             {serviceStatus === "ok" ? "Service online" : serviceStatus === "down" ? "Service offline" : "Check service"}
           </span>
         </button>
       }
     >
-          <div className="max-w-3xl mx-auto space-y-5">
+      <div className="max-w-3xl mx-auto space-y-5 pb-12">
 
-            {/* Info banner */}
-            <div className="bg-violet-50 border border-violet-200 rounded-xl p-4 text-sm text-violet-800">
-              <strong>Scrapling sidecar</strong> läuft auf <code className="bg-violet-100 px-1 rounded text-xs">http://127.0.0.1:8001</code>.
-              Nutzt <code className="bg-violet-100 px-1 rounded text-xs">StealthyFetcher</code> mit Chrome-Fingerprint-Spoofing — umgeht Google-Blocking &amp; Cloudflare.
-            </div>
+        {/* Info banner */}
+        <div
+          className="p-3.5 rounded text-xs leading-relaxed"
+          style={{
+            background: "var(--orange-soft)",
+            border: "1px solid var(--orange-mid)",
+            color: "var(--orange)",
+          }}
+        >
+          <strong className="font-semibold">Scrapling sidecar</strong> läuft lokal auf <code className="px-1 py-0.5 rounded text-[11px]" style={{ background: "rgba(232,124,62,0.15)" }}>http://127.0.0.1:8001</code>.
+          Nutzt <code className="px-1 py-0.5 rounded text-[11px]" style={{ background: "rgba(232,124,62,0.15)" }}>StealthyFetcher</code> mit Chrome-Fingerprint-Spoofing — umgeht Google-Blocking &amp; Cloudflare.
+        </div>
 
-            {/* Mode toggle */}
-            <div className="flex gap-2">
-              <button
-                onClick={() => setMode("search")}
-                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                  mode === "search" ? "bg-violet-600 text-white" : "bg-white border border-gray-200 text-gray-600 hover:bg-gray-50"
-                }`}
-              >
-                <Search className="w-4 h-4" />
-                Google Search
-              </button>
-              <button
-                onClick={() => setMode("scrape")}
-                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                  mode === "scrape" ? "bg-violet-600 text-white" : "bg-white border border-gray-200 text-gray-600 hover:bg-gray-50"
-                }`}
-              >
-                <Globe className="w-4 h-4" />
-                Page Scrape
-              </button>
-              <button
-                onClick={() => setMode("providers")}
-                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                  mode === "providers" ? "bg-violet-600 text-white" : "bg-white border border-gray-200 text-gray-600 hover:bg-gray-50"
-                }`}
-              >
-                <Bug className="w-4 h-4" />
-                Alle Quellen (Logs)
-              </button>
-            </div>
+        {/* Mode toggle */}
+        <div className="flex gap-1.5">
+          <button
+            onClick={() => setMode("search")}
+            className="btn-v2"
+            style={{
+              background: mode === "search" ? "var(--orange-soft)" : "var(--surface)",
+              borderColor: mode === "search" ? "var(--orange)" : "var(--border)",
+              color: mode === "search" ? "var(--orange)" : "var(--text-2)",
+              fontWeight: mode === "search" ? 600 : 400,
+            }}
+          >
+            <Search className="w-3.5 h-3.5" />
+            Google Search
+          </button>
+          <button
+            onClick={() => setMode("scrape")}
+            className="btn-v2"
+            style={{
+              background: mode === "scrape" ? "var(--orange-soft)" : "var(--surface)",
+              borderColor: mode === "scrape" ? "var(--orange)" : "var(--border)",
+              color: mode === "scrape" ? "var(--orange)" : "var(--text-2)",
+              fontWeight: mode === "scrape" ? 600 : 400,
+            }}
+          >
+            <Globe className="w-3.5 h-3.5" />
+            Page Scrape
+          </button>
+          <button
+            onClick={() => setMode("providers")}
+            className="btn-v2"
+            style={{
+              background: mode === "providers" ? "var(--orange-soft)" : "var(--surface)",
+              borderColor: mode === "providers" ? "var(--orange)" : "var(--border)",
+              color: mode === "providers" ? "var(--orange)" : "var(--text-2)",
+              fontWeight: mode === "providers" ? 600 : 400,
+            }}
+          >
+            <Bug className="w-3.5 h-3.5" />
+            Alle Quellen (Logs)
+          </button>
+        </div>
 
-            {/* Input */}
-            <div className="bg-white border border-gray-200 rounded-xl p-5 space-y-3">
-              {mode === "search" ? (
-                <>
-                  <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">Suchanfrage</label>
-                  <div className="flex gap-2">
-                    <input
-                      value={query}
-                      onChange={e => setQuery(e.target.value)}
+        {/* Input */}
+        <div
+          className="p-5 space-y-3"
+          style={{
+            background: "var(--surface)",
+            border: "1px solid var(--border)",
+            borderRadius: "var(--r)",
+            boxShadow: "var(--shadow-sm)",
+          }}
+        >
+          {mode === "search" ? (
+            <>
+              <label className="text-[11px] font-semibold uppercase tracking-wider block" style={{ color: "var(--text-3)" }}>Suchanfrage</label>
+              <div className="flex gap-2">
+                <input
+                  value={query}
+                  onChange={e => setQuery(e.target.value)}
                       onKeyDown={e => e.key === "Enter" && runSearch(1)}
                       placeholder="z.B. BASF AG Kontakt Website"
                       className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400"

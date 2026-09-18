@@ -1096,7 +1096,7 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
 
   // ── UI state ──────────────────────────────────────────────────────────────
   const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
-  const [sortBy, setSortBy] = useState<"company_name" | "domain" | null>(null);
+  const [sortBy, setSortBy] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [showAddCol, setShowAddCol] = useState(false);
   const [showAgentGoal, setShowAgentGoal] = useState(false);
@@ -1105,7 +1105,7 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
   const [editingCell, setEditingCell] = useState<{ rowId: string; key: string } | null>(null);
   const [editValue, setEditValue] = useState("");
   const [page, setPage] = useState(0);
-  const [pageSize] = useState(50);
+  const [pageSize, setPageSize] = useState(50);
   const [showLogs, setShowLogs] = useState(false);
   const [logs, setLogs] = useState<{ id: number; message: string; createdAt: string }[]>([]);
   const [activeTab, setActiveTab] = useState<"Firmen" | "Kontakte" | "Suchen" | "Quellen" | "Log" | "Export">("Firmen");
@@ -1524,100 +1524,34 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
       </div>
 
       {/* ════ MAIN ════ */}
-      <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
+      <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden",background:"var(--bg)"}}>
 
-        {/* ── Case header ── */}
-        <div style={{background:"var(--surface)",borderBottom:"1px solid var(--border)",padding:"16px 24px 0",flexShrink:0}}>
-          <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:12}}>
-            <div>
-              <div style={{fontSize:16,fontWeight:600,letterSpacing:"-0.4px",color:"var(--text-1)"}}>
-                <InlineCaseName name={caseData.name} onSave={async (newName) => {
-                  const updated = await updateCase({ name: newName });
-                  setCaseData(updated);
-                }} />
-              </div>
-              <div style={{display:"flex",alignItems:"center",gap:14,marginTop:3,flexWrap:"wrap"}}>
-                <span style={{fontSize:11.5,color:"var(--text-3)"}}>{dataRows.length} Zeilen</span>
-                {catalogRows.length > 0 && <span style={{fontSize:11.5,color:"var(--text-3)"}}>{catalogRows.length} Kataloge</span>}
-                <span style={{fontSize:11.5,color:"var(--text-3)"}}>{sourceColumns.length} Quellspalten</span>
-                <span style={{fontSize:11.5,color:"var(--green)",fontWeight:500}}>{caseData.aiColumns.length} KI-Spalten</span>
-                <CostDashboard totals={totals} rowCount={rows.length} colCount={caseData.aiColumns.length} />
-              </div>
+        {/* ── Global Case Header (Topbar) ── */}
+        <div style={{background:"var(--surface)",borderBottom:"1px solid var(--border)",padding:"10px 24px",display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0,gap:16}}>
+          <div style={{display:"flex",flexDirection:"column",gap:2}}>
+            <div style={{fontSize:15,fontWeight:600,letterSpacing:"-0.3px",color:"var(--text-1)"}}>
+              <InlineCaseName name={caseData.name} onSave={async (newName) => {
+                const updated = await updateCase({ name: newName });
+                setCaseData(updated);
+              }} />
             </div>
-
-            {/* View mode toggle (Flach / Gruppiert) */}
-            {hasColumnGroups && (
-              <div style={{display:"flex",gap:2,background:"var(--bg)",border:"1px solid var(--border)",borderRadius:"var(--rs)",padding:3}}>
-                <button
-                  onClick={() => setViewMode("flat")}
-                  style={{
-                    padding:"4px 10px",borderRadius:3,fontSize:11.5,cursor:"pointer",border:"none",transition:"0.1s",
-                    background: viewMode==="flat" ? "var(--surface)" : "transparent",
-                    color: viewMode==="flat" ? "var(--text-1)" : "var(--text-2)",
-                    boxShadow: viewMode==="flat" ? "var(--shadow-sm)" : "none",
-                    fontWeight: viewMode==="flat" ? 500 : 400,
-                  }}
-                >
-                  Flach
-                </button>
-                <button
-                  onClick={() => setViewMode("grouped")}
-                  style={{
-                    padding:"4px 10px",borderRadius:3,fontSize:11.5,cursor:"pointer",border:"none",transition:"0.1s",
-                    background: viewMode==="grouped" ? "var(--surface)" : "transparent",
-                    color: viewMode==="grouped" ? "var(--text-1)" : "var(--text-2)",
-                    boxShadow: viewMode==="grouped" ? "var(--shadow-sm)" : "none",
-                    fontWeight: viewMode==="grouped" ? 500 : 400,
-                  }}
-                >
-                  Gruppiert
-                </button>
-              </div>
-            )}
+            <div style={{display:"flex",alignItems:"center",gap:12,fontSize:11.5,color:"var(--text-3)",flexWrap:"wrap"}}>
+              <span>{dataRows.length} Zeilen</span>
+              {catalogRows.length > 0 && <span>{catalogRows.length} Kataloge</span>}
+              <span>{sourceColumns.length} Quellspalten</span>
+              <span style={{color:"var(--green)",fontWeight:500}}>{caseData.aiColumns.length} KI-Spalten</span>
+              <CostDashboard totals={totals} rowCount={rows.length} colCount={caseData.aiColumns.length} />
+            </div>
           </div>
 
-          {/* Tabs */}
-          <div style={{display:"flex",gap:0}}>
-            {tabs.map(t => (
-              <button key={t} onClick={() => setActiveTab(t)}
-                style={{
-                  padding:"8px 14px",fontSize:12.5,cursor:"pointer",border:"none",background:"none",transition:"0.1s",
-                  borderBottom: activeTab===t ? "2px solid var(--orange)" : "2px solid transparent",
-                  color: activeTab===t ? "var(--orange)" : "var(--text-2)",
-                  fontWeight: activeTab===t ? 600 : 400,
-                  marginBottom:-1,
-                }}
-                onMouseEnter={e=>{if(activeTab!==t)e.currentTarget.style.color="var(--text-1)";}}
-                onMouseLeave={e=>{if(activeTab!==t)e.currentTarget.style.color="var(--text-2)";}}>
-                {t}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* ══ TAB: TABELLE — shared toolbar + conditional content ══ */}
-        {activeTab === "Firmen" && (<>
-
-          {/* ── Toolbar wrapper ── */}
-          <div style={{background:"var(--surface)",borderBottom:"1px solid var(--border)",flexShrink:0}}>
-            <div style={{padding:"9px 24px",display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
-
-            {/* ── Buttons ── */}
-            <button onClick={() => setShowImport(true)} title="CSV, XLSX oder JSON importieren" className="btn-v2">
-              <Upload style={{width:12,height:12}} /> Import
-            </button>
-            <button onClick={() => setShowAppend(true)}
-              title="KI-gesteuerte Discovery: Google Search, Maps, Kataloge — Plan erstellen & ausführen"
-              className="btn-v2">
-              <Search style={{width:12,height:12}} /> Suchen &amp; Crawlen
-            </button>
+          {/* Global Workflow Actions on the Right */}
+          <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
             <button onClick={() => setShowAgentGoal(true)}
               title="Ziel-basierte Suche: Definiere Anzahl & Ziel, KI plant und führt automatisch mehrere Runden aus"
               className="btn-v2">
               🎯 Ziel-Suche {agentKeyStatus && !agentKeyStatus.anySearchConfigured && <span title="Keine Such-API-Keys konfiguriert" style={{fontSize:11,marginLeft:2}}>⚠️</span>}
             </button>
 
-            {/* Agent running badge */}
             {agentHook.running && !showAgentGoal && agentHook.run && !AGENT_TERMINAL.has(agentHook.run.status) && (
               <button onClick={() => setShowAgentGoal(true)}
                 title="Ziel-Suche läuft — klicken zum Öffnen"
@@ -1628,24 +1562,30 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
               </button>
             )}
 
-            {/* Email extrapolation */}
+            <button onClick={() => setShowAppend(true)}
+              title="KI-gesteuerte Discovery: Google Search, Maps, Kataloge — Plan erstellen & ausführen"
+              className="btn-v2">
+              <Search style={{width:12,height:12}} /> Suchen &amp; Crawlen
+            </button>
+
             {rows.some(r => r.data["first_name"] && r.data["last_name"] && !r.data["contact_email"]) && (
               <EmailExtrapolateButton caseId={caseId} onDone={refresh} />
             )}
 
-            {/* Catalog deep-crawl */}
             {catalogRows.length > 0 && (
               <CatalogDeepCrawlButton caseId={caseId} onDone={refresh} catalogCount={catalogRows.length} />
             )}
 
-            {/* Domain resolution */}
             {baseDataRows.some(r => !(r.data["domain"] ?? "").trim() && !String(r.data["search_source"] ?? "").startsWith("maps")) && (
               <ResolveDomainButton caseId={caseId} onDone={refresh} count={baseDataRows.filter(r => !(r.data["domain"] ?? "").trim() && !String(r.data["search_source"] ?? "").startsWith("maps")).length} />
             )}
 
-            {/* + Spalte Button */}
-            <button onClick={() => setShowAddCol(true)} className="btn-v2">
-              <Plus style={{width:12,height:12}} /> Spalte
+            <button onClick={() => setShowImport(true)} title="CSV, XLSX oder JSON importieren" className="btn-v2">
+              <Upload style={{width:12,height:12}} /> Import
+            </button>
+
+            <button onClick={() => setShowExport(true)} title="CSV oder Snapshot exportieren" className="btn-v2">
+              <Download style={{width:12,height:12}} /> Export
             </button>
 
             <div className="tsep-v2" />
@@ -1682,7 +1622,7 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
                     </button>
                   </div>
                   {showRunOptions && (
-                    <div style={{position:"absolute",top:"calc(100% + 4px)",left:0,background:"var(--surface)",border:"1px solid var(--border)",borderRadius:"var(--r)",padding:"12px 14px",boxShadow:"var(--shadow)",zIndex:100,minWidth:220}}>
+                    <div style={{position:"absolute",top:"calc(100% + 4px)",right:0,background:"var(--surface)",border:"1px solid var(--border)",borderRadius:"var(--r)",padding:"12px 14px",boxShadow:"var(--shadow)",zIndex:100,minWidth:220}}>
                       <div style={{fontSize:10.5,fontWeight:600,color:"var(--text-3)",textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:10}}>Ausführungs-Optionen</div>
                       <button onClick={() => { setShowRunOptions(false); setRunConfirm({ mode: "empty_only" }); }}
                         style={{width:"100%",textAlign:"left",padding:"7px 10px",border:"1px solid var(--border)",borderRadius:"var(--rs)",background:"var(--bg)",cursor:"pointer",fontSize:12,color:"var(--text-1)",marginBottom:6,display:"flex",alignItems:"center",gap:6}}>
@@ -1718,194 +1658,220 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
                 </div>
               )}
             </>)}
+          </div>
+        </div>
 
-            {/* Right side group */}
-            <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:6}}>
-              <span style={{fontSize:11,color:"var(--text-3)"}}>
-                {rows.length} Zeilen{doneCount > 0 ? ` · ${doneCount} fertig` : ""}{runTarget > 0 ? ` · ${runTarget} ausstehend` : ""}
-              </span>
-              {selectedRows.size > 0 && (
-                <button onClick={() => setSelectedRows(new Set())}
-                  className="btn-v2"
-                  style={{fontSize:11,color:"var(--orange)",background:"var(--orange-soft)",borderColor:"var(--orange-mid)"}}>
-                  ✕ {selectedRows.size} abwählen
+        {/* ── Table Workspace Container ── */}
+        <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden",background:"var(--surface)",margin:"14px 20px 18px",border:"1px solid var(--border)",borderRadius:"var(--r)",boxShadow:"var(--shadow)"}}>
+
+          {/* Integrated Sheet Bar (Tabs directly on table) */}
+          <div style={{background:"#fbfaf8",borderBottom:"1px solid var(--border)",display:"flex",alignItems:"center",justifyContent:"space-between",padding:"0 8px",flexShrink:0,height:38}}>
+            {/* Sheet Tabs Left */}
+            <div style={{display:"flex",alignItems:"flex-end",height:"100%",gap:2}}>
+              {tabs.map(t => {
+                const isActive = activeTab === t;
+                const count = t === "Firmen" ? dataRows.length : t === "Kontakte" ? (contactRowsData.length || undefined) : t === "Quellen" ? (catalogRows.length || undefined) : undefined;
+                return (
+                  <button key={t} onClick={() => setActiveTab(t)}
+                    style={{
+                      display:"inline-flex",alignItems:"center",gap:6,padding:"0 14px",height:37,fontSize:12,cursor:"pointer",border:"none",transition:"0.1s",userSelect:"none",
+                      color: isActive ? "var(--orange)" : "var(--text-2)",
+                      borderBottom: isActive ? "2px solid var(--orange)" : "2px solid transparent",
+                      fontWeight: isActive ? 600 : 400,
+                      background: isActive ? "var(--surface)" : "transparent",
+                      borderTopLeftRadius: isActive ? "var(--rs)" : 0,
+                      borderTopRightRadius: isActive ? "var(--rs)" : 0,
+                      borderLeft: isActive ? "1px solid var(--border-xs)" : "1px solid transparent",
+                      borderRight: isActive ? "1px solid var(--border-xs)" : "1px solid transparent",
+                      marginBottom: -1,
+                    }}>
+                    <span>{t === "Firmen" ? "🏢 Firmen" : t === "Kontakte" ? "👤 Kontakte" : t === "Suchen" ? "🎯 Suchen" : t === "Quellen" ? "📚 Quellen" : t === "Log" ? "📜 Log" : "📤 Export"}</span>
+                    {count !== undefined && (
+                      <span style={{fontSize:10,fontWeight:600,padding:"1px 5px",borderRadius:8,background: isActive ? "var(--orange-soft)" : "var(--bg)",color: isActive ? "var(--orange)" : "var(--text-3)"}}>
+                        {count}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Table / Sheet Controls Right */}
+            <div style={{display:"flex",alignItems:"center",gap:6,paddingRight:4}}>
+              {activeTab === "Firmen" && (<>
+                {hasColumnGroups && (
+                  <div style={{display:"flex",gap:1,background:"var(--bg)",border:"1px solid var(--border)",borderRadius:"var(--rs)",padding:2}}>
+                    <button onClick={() => setViewMode("flat")}
+                      style={{padding:"2px 8px",borderRadius:3,fontSize:11,cursor:"pointer",border:"none",transition:"0.1s",
+                        background: viewMode==="flat" ? "var(--surface)" : "transparent",
+                        color: viewMode==="flat" ? "var(--text-1)" : "var(--text-2)",
+                        boxShadow: viewMode==="flat" ? "var(--shadow-sm)" : "none",
+                        fontWeight: viewMode==="flat" ? 600 : 400}}>
+                      Flach
+                    </button>
+                    <button onClick={() => setViewMode("grouped")}
+                      style={{padding:"2px 8px",borderRadius:3,fontSize:11,cursor:"pointer",border:"none",transition:"0.1s",
+                        background: viewMode==="grouped" ? "var(--surface)" : "transparent",
+                        color: viewMode==="grouped" ? "var(--text-1)" : "var(--text-2)",
+                        boxShadow: viewMode==="grouped" ? "var(--shadow-sm)" : "none",
+                        fontWeight: viewMode==="grouped" ? 600 : 400}}>
+                      Gruppiert
+                    </button>
+                  </div>
+                )}
+                <button onClick={() => { setSelectedRows(new Set()); setRows(prev => prev.map(r => ({...r,cellStatuses:{},cellErrors:{}}))); }}
+                  title="Alle Status zurücksetzen"
+                  className="btn-v2 btn-v2-ghost" style={{padding:"3px 7px",fontSize:11.5}}>
+                  Reset
                 </button>
-              )}
-              {selectedRows.size > 0 && (
-                <button onClick={deleteSelectedRows}
-                  className="btn-v2"
-                  style={{fontSize:11,color:"var(--danger)",background:"var(--danger-soft)",borderColor:"var(--danger)"}}>
-                  <Trash2 style={{width:10,height:10}}/> {selectedRows.size} löschen
+                <button
+                  title="Doppelte Zeilen (gleiche Domain) entfernen"
+                  onClick={async () => {
+                    const res = await fetch(`/api/cases/${caseId}/dedupe`, { method: "POST" });
+                    const d = await res.json();
+                    if (d.removed > 0) { refresh(); }
+                    else { alert("Keine Duplikate gefunden"); }
+                  }}
+                  className="btn-v2 btn-v2-ghost" style={{padding:"3px 7px",fontSize:11.5}}>
+                  Dedupe
                 </button>
-              )}
+                {/* Column visibility toggle */}
+                <div style={{position:"relative"}}>
+                  <button onClick={() => setShowColVisibility(v => !v)}
+                    title="Spalten ein-/ausblenden"
+                    className="btn-v2 btn-v2-ghost" style={{padding:"3px 7px",fontSize:11.5,color: showColVisibility ? "var(--orange)" : "var(--text-2)"}}>
+                    <Sliders style={{width:11,height:11}}/> Spalten {manuallyHiddenCols.size > 0 && <span className="badge-v2 badge-v2-orange">{manuallyHiddenCols.size}</span>}
+                  </button>
+                  {showColVisibility && (() => {
+                    const allCols = colOrder.filter(k => !isHiddenCol(k));
+                    const srcCols = allCols.filter(k => !caseData.aiColumns.some(c => c.outputKey === k));
+                    const aiCols = allCols.filter(k => caseData.aiColumns.some(c => c.outputKey === k));
+                    const toggle = (k: string) => setManuallyHiddenCols(prev => { const n = new Set(prev); n.has(k) ? n.delete(k) : n.add(k); return n; });
 
-              <div className="tsep-v2" />
+                    return (
+                      <div style={{position:"absolute",top:"calc(100% + 4px)",right:0,background:"var(--surface)",border:"1px solid var(--border)",borderRadius:"var(--r)",boxShadow:"var(--shadow)",zIndex:500,minWidth:250,maxHeight:460,overflowY:"auto",padding:10}}
+                        onMouseLeave={() => setShowColVisibility(false)}>
+                        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"2px 2px 8px",borderBottom:"1px solid var(--border-xs)",marginBottom:6}}>
+                          <span style={{fontSize:10.5,fontWeight:600,color:"var(--text-3)",textTransform:"uppercase",letterSpacing:"0.05em"}}>Spalten</span>
+                          <div style={{display:"flex",gap:6}}>
+                            {manuallyHiddenCols.size > 0 && <button onClick={()=>setManuallyHiddenCols(new Set())} style={{border:"none",background:"none",fontSize:11,color:"var(--orange)",cursor:"pointer",fontWeight:500}}>Alle zeigen</button>}
+                            <button onClick={()=>{resetColOrder();setShowColVisibility(false);}} style={{border:"none",background:"none",fontSize:11,color:"var(--text-3)",cursor:"pointer"}}>↺ Reset</button>
+                          </div>
+                        </div>
 
-              <button onClick={() => { setSelectedRows(new Set()); setRows(prev => prev.map(r => ({...r,cellStatuses:{},cellErrors:{}}))); }}
-                title="Alle Status zurücksetzen"
-                className="btn-v2 btn-v2-ghost">
-                Reset
+                        {/* Source cols */}
+                        {srcCols.length > 0 && <div style={{fontSize:10,fontWeight:600,color:"var(--text-3)",textTransform:"uppercase",padding:"4px 2px",marginBottom:2}}>Quelldaten</div>}
+                        {srcCols.map(k => (
+                          <label key={k} style={{display:"flex",alignItems:"center",gap:8,padding:"4px 6px",borderRadius:"var(--rs)",cursor:"pointer",fontSize:12,color:"var(--text-1)"}}>
+                            <input type="checkbox" checked={!manuallyHiddenCols.has(k)} onChange={()=>toggle(k)} style={{accentColor:"var(--orange)"}}/>
+                            <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{COL_LABELS[k] ?? k}</span>
+                          </label>
+                        ))}
+
+                        {/* AI cols */}
+                        {aiCols.length > 0 && <div style={{fontSize:10,fontWeight:600,color:"var(--green)",textTransform:"uppercase",padding:"8px 2px 2px",marginBottom:2,borderTop:"1px solid var(--border-xs)",marginTop:6}}>KI-Spalten</div>}
+                        {aiCols.map(k => {
+                          const col = caseData.aiColumns.find(c => c.outputKey === k);
+                          return (
+                            <label key={k} style={{display:"flex",alignItems:"center",gap:8,padding:"4px 6px",borderRadius:"var(--rs)",cursor:"pointer",fontSize:12,color:"var(--green)"}}>
+                              <input type="checkbox" checked={!manuallyHiddenCols.has(k)} onChange={()=>toggle(k)} style={{accentColor:"var(--green)"}}/>
+                              <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontWeight:500}}>{col?.name ?? k}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
+                </div>
+                <button onClick={() => setShowAddCol(true)} className="btn-v2 btn-v2-ai" style={{padding:"3px 9px",fontSize:11.5}}>
+                  <Plus style={{width:12,height:12}} /> Spalte
+                </button>
+              </>)}
+            </div>
+          </div>
+
+          {/* Contextual Selection Bar */}
+          {activeTab === "Firmen" && selectedRows.size > 0 && (
+            <div style={{background:"var(--orange-soft)",borderBottom:"1px solid var(--orange-mid)",padding:"6px 16px",display:"flex",alignItems:"center",gap:10,fontSize:12,color:"var(--orange)",flexShrink:0}}>
+              <span style={{fontWeight:600}}>{selectedRows.size} Zeilen ausgewählt</span>
+              <button onClick={() => setRunConfirm({ mode: "empty_only" })} className="btn-v2" style={{padding:"2px 8px",fontSize:11,background:"#fff",borderColor:"var(--orange-mid)",color:"var(--orange)",fontWeight:500}}>
+                ▶ Nur diese ausführen
               </button>
               <button
-                title="Doppelte Zeilen (gleiche Domain) entfernen"
                 onClick={async () => {
                   const res = await fetch(`/api/cases/${caseId}/dedupe`, { method: "POST" });
                   const d = await res.json();
                   if (d.removed > 0) { refresh(); }
                   else { alert("Keine Duplikate gefunden"); }
                 }}
-                className="btn-v2 btn-v2-ghost">
-                Dedupe
+                className="btn-v2" style={{padding:"2px 8px",fontSize:11,background:"#fff",borderColor:"var(--orange-mid)",color:"var(--orange)",fontWeight:500}}>
+                ⊘ Dedupe
               </button>
-              {/* Column visibility toggle */}
-              <div style={{position:"relative"}}>
-                <button
-                  onClick={() => setShowColVisibility(v => !v)}
-                  title="Spalten ein-/ausblenden"
-                  className="btn-v2 btn-v2-ghost"
-                  style={{color: showColVisibility ? "var(--orange)" : "var(--text-2)"}}>
-                  <Sliders style={{width:11,height:11}}/> Spalten {manuallyHiddenCols.size > 0 && <span className="badge-v2 badge-v2-orange">{manuallyHiddenCols.size}</span>}
-                </button>
-                {showColVisibility && (() => {
-                  const allCols = colOrder.filter(k => !isHiddenCol(k));
-                  const srcCols = allCols.filter(k => !caseData.aiColumns.some(c => c.outputKey === k));
-                  const aiCols = allCols.filter(k => caseData.aiColumns.some(c => c.outputKey === k));
-                  const toggle = (k: string) => setManuallyHiddenCols(prev => { const n = new Set(prev); n.has(k) ? n.delete(k) : n.add(k); return n; });
-
-                  return (
-                    <div style={{position:"absolute",top:"calc(100% + 4px)",right:0,background:"var(--surface)",border:"1px solid var(--border)",borderRadius:"var(--r)",boxShadow:"var(--shadow)",zIndex:500,minWidth:250,maxHeight:460,overflowY:"auto",padding:10}}
-                      onMouseLeave={() => setShowColVisibility(false)}>
-                      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"2px 2px 8px",borderBottom:"1px solid var(--border-xs)",marginBottom:6}}>
-                        <span style={{fontSize:10.5,fontWeight:600,color:"var(--text-3)",textTransform:"uppercase",letterSpacing:"0.05em"}}>Spalten</span>
-                        <div style={{display:"flex",gap:6}}>
-                          {manuallyHiddenCols.size > 0 && <button onClick={()=>setManuallyHiddenCols(new Set())} style={{border:"none",background:"none",fontSize:11,color:"var(--orange)",cursor:"pointer",fontWeight:500}}>Alle zeigen</button>}
-                          <button onClick={()=>{resetColOrder();setShowColVisibility(false);}} style={{border:"none",background:"none",fontSize:11,color:"var(--text-3)",cursor:"pointer"}}>↺ Reset</button>
-                        </div>
-                      </div>
-
-                      {/* Source cols */}
-                      {srcCols.length > 0 && <div style={{fontSize:10,fontWeight:600,color:"var(--text-3)",textTransform:"uppercase",padding:"4px 2px",marginBottom:2}}>Quelldaten</div>}
-                      {srcCols.map(k => (
-                        <label key={k} style={{display:"flex",alignItems:"center",gap:8,padding:"4px 6px",borderRadius:"var(--rs)",cursor:"pointer",fontSize:12,color:"var(--text-1)"}}>
-                          <input type="checkbox" checked={!manuallyHiddenCols.has(k)} onChange={()=>toggle(k)} style={{accentColor:"var(--orange)"}}/>
-                          <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{COL_LABELS[k] ?? k}</span>
-                        </label>
-                      ))}
-
-                      {/* AI cols */}
-                      {aiCols.length > 0 && <div style={{fontSize:10,fontWeight:600,color:"var(--green)",textTransform:"uppercase",padding:"8px 2px 2px",marginBottom:2,borderTop:"1px solid var(--border-xs)",marginTop:6}}>KI-Spalten</div>}
-                      {aiCols.map(k => {
-                        const col = caseData.aiColumns.find(c => c.outputKey === k);
-                        return (
-                          <label key={k} style={{display:"flex",alignItems:"center",gap:8,padding:"4px 6px",borderRadius:"var(--rs)",cursor:"pointer",fontSize:12,color:"var(--green)"}}>
-                            <input type="checkbox" checked={!manuallyHiddenCols.has(k)} onChange={()=>toggle(k)} style={{accentColor:"var(--green)"}}/>
-                            <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontWeight:500}}>{col?.name ?? k}</span>
-                          </label>
-                        );
-                      })}
-                    </div>
-                  );
-                })()}
-              </div>
+              <button onClick={deleteSelectedRows} className="btn-v2" style={{padding:"2px 8px",fontSize:11,background:"#fff",borderColor:"var(--danger)",color:"var(--danger)",fontWeight:500}}>
+                <Trash2 style={{width:10,height:10}}/> Löschen
+              </button>
+              <button onClick={() => setSelectedRows(new Set())} style={{marginLeft:"auto",border:"none",background:"none",cursor:"pointer",fontSize:11,color:"var(--orange)"}}>
+                ✕ Auswahl aufheben
+              </button>
             </div>
-          </div>
+          )}
 
-            {/* Global run error */}
-            {globalRunError && (
-              <div style={{padding:"6px 16px",background:"#fef2f2",borderTop:"1px solid #fecaca",display:"flex",alignItems:"center",gap:8,fontSize:12,color:"#991b1b"}}>
-                <AlertCircle style={{width:13,height:13,flexShrink:0}} />
-                <span style={{flex:1}}>{globalRunError}</span>
-                <button onClick={()=>router.push(`/cases/${caseId}/settings`)}
-                  style={{padding:"1px 8px",background:"#dc2626",color:"#fff",border:"none",borderRadius:4,cursor:"pointer",fontSize:11,fontWeight:600}}>
-                  Einstellungen
-                </button>
-                <button onClick={()=>setGlobalRunError(null)}
-                  style={{border:"none",background:"none",cursor:"pointer",color:"#991b1b",fontSize:15,lineHeight:1}}>×</button>
-              </div>
-            )}
+          {/* Global run error */}
+          {globalRunError && (
+            <div style={{padding:"6px 16px",background:"#fef2f2",borderBottom:"1px solid #fecaca",display:"flex",alignItems:"center",gap:8,fontSize:12,color:"#991b1b"}}>
+              <AlertCircle style={{width:13,height:13,flexShrink:0}} />
+              <span style={{flex:1}}>{globalRunError}</span>
+              <button onClick={()=>router.push(`/cases/${caseId}/settings`)}
+                style={{padding:"1px 8px",background:"#dc2626",color:"#fff",border:"none",borderRadius:4,cursor:"pointer",fontSize:11,fontWeight:600}}>
+                Einstellungen
+              </button>
+              <button onClick={()=>setGlobalRunError(null)}
+                style={{border:"none",background:"none",cursor:"pointer",color:"#991b1b",fontSize:15,lineHeight:1}}>×</button>
+            </div>
+          )}
 
-            {/* ── Live Run Status Panel ────────────────────────────────── */}
-            {(runningColumnId || runningRowIds.size > 0) && (
-              <div style={{padding:"8px 16px",background:"#eff6ff",borderTop:"1px solid #bfdbfe",display:"flex",flexWrap:"wrap",alignItems:"center",gap:10}}>
-                {/* Column being processed */}
-                {runningColumnId && (() => {
-                  const col = caseData.aiColumns.find(c => c.id === runningColumnId);
-                  return col ? (
-                    <div style={{display:"flex",alignItems:"center",gap:6,fontSize:12}}>
-                      <Loader2 style={{width:11,height:11,color:"#2563eb"}} className="animate-spin"/>
-                      <span style={{fontWeight:600,color:"#1e40af"}}>Spalte: {col.name}</span>
-                      {col.tool === "batch_company" && <span style={{fontSize:10,color:"#3b82f6",background:"#dbeafe",padding:"1px 5px",borderRadius:4}}>🚀 Batch-Enrich</span>}
-                      {col.tool === "batch_contact" && <span style={{fontSize:10,color:"#7c3aed",background:"#ede9fe",padding:"1px 5px",borderRadius:4}}>👤 Kontakt-Suche</span>}
-                      {col.tool === "places_summary" && <span style={{fontSize:10,color:"#0369a1",background:"#e0f2fe",padding:"1px 5px",borderRadius:4}}>📍 Maps-Analyse</span>}
-                      {col.tool === "places_summary" && <span style={{fontSize:10,color:"#0369a1",background:"#e0f2fe",padding:"1px 5px",borderRadius:4}}>📍 Maps-Analyse</span>}
-                      {col.tool === "gmb_check" && <span style={{fontSize:10,color:"#065f46",background:"#d1fae5",padding:"1px 5px",borderRadius:4}}>🗺️ GMB Check</span>}
-                    </div>
-                  ) : null;
-                })()}
-                {/* Row progress */}
-                {runningRowIds.size > 0 && (
-                  <div style={{display:"flex",alignItems:"center",gap:6,fontSize:12,color:"#1d4ed8"}}>
-                    <span>{runningRowIds.size} Zeilen aktiv</span>
-                    {/* Mini progress bar */}
-                    {(() => {
-                      const col = caseData.aiColumns.find(c => c.id === runningColumnId);
-                      if (!col) return null;
-                      const done = rows.filter(r => {
-                        const s = r.cellStatuses[col.outputKey];
-                        return s === "done" || s === "skipped" || s === "error";
-                      }).length;
-                      const total = rows.length;
-                      return (
-                        <div style={{display:"flex",alignItems:"center",gap:5}}>
-                          <div style={{width:100,height:5,background:"#bfdbfe",borderRadius:3,overflow:"hidden"}}>
-                            <div style={{height:"100%",background:"#2563eb",borderRadius:3,transition:"width 0.3s",width:`${(done/total)*100}%`}}/>
-                          </div>
-                          <span style={{fontSize:11,fontFamily:"monospace",color:"#1e40af"}}>{done}/{total}</span>
-                        </div>
-                      );
-                    })()}
+          {/* Live Run Status Panel */}
+          {(runningColumnId || runningRowIds.size > 0) && (
+            <div style={{padding:"8px 16px",background:"#eff6ff",borderBottom:"1px solid #bfdbfe",display:"flex",flexWrap:"wrap",alignItems:"center",gap:10}}>
+              {runningColumnId && (() => {
+                const col = caseData.aiColumns.find(c => c.id === runningColumnId);
+                return col ? (
+                  <div style={{display:"flex",alignItems:"center",gap:6,fontSize:12}}>
+                    <Loader2 style={{width:11,height:11,color:"#2563eb"}} className="animate-spin"/>
+                    <span style={{fontWeight:600,color:"#1e40af"}}>Spalte: {col.name}</span>
                   </div>
-                )}
-                {/* Running cells count */}
-                {runningCells.size > 0 && (
-                  <span style={{fontSize:11,color:"#3b82f6"}}>
-                    {runningCells.size} parallel
-                  </span>
-                )}
-                {/* Done / Error counts */}
-                {(() => {
+                ) : null;
+              })()}
+              {runningRowIds.size > 0 && (
+                <div style={{display:"flex",alignItems:"center",gap:6,fontSize:12,color:"#1d4ed8"}}>
+                  <span>{runningRowIds.size} Zeilen aktiv</span>
+                </div>
+              )}
+              {runningCells.size > 0 && (
+                <span style={{fontSize:11,color:"#3b82f6"}}>
+                  {runningCells.size} parallel
+                </span>
+              )}
+              <button
+                onClick={() => {
                   const col = caseData.aiColumns.find(c => c.id === runningColumnId);
-                  if (!col) return null;
-                  const doneN = rows.filter(r => r.cellStatuses[col.outputKey] === "done").length;
-                  const errN = rows.filter(r => r.cellStatuses[col.outputKey] === "error").length;
-                  return (
-                    <div style={{display:"flex",gap:6,fontSize:11}}>
-                      {doneN > 0 && <span style={{color:"#15803d",fontWeight:600}}>✓ {doneN}</span>}
-                      {errN > 0 && <span style={{color:"#dc2626",fontWeight:600}}>✗ {errN}</span>}
-                    </div>
-                  );
-                })()}
-                {/* Stop button */}
-                <button
-                  onClick={() => {
-                    const col = caseData.aiColumns.find(c => c.id === runningColumnId);
-                    if (col) stopColumn(col);
-                  }}
-                  style={{marginLeft:"auto",padding:"2px 10px",background:"#dc2626",color:"#fff",border:"none",borderRadius:5,cursor:"pointer",fontSize:11,fontWeight:600,display:"flex",alignItems:"center",gap:4}}>
-                  ■ Stop
-                </button>
-              </div>
-            )}
+                  if (col) stopColumn(col);
+                }}
+                style={{marginLeft:"auto",padding:"2px 10px",background:"#dc2626",color:"#fff",border:"none",borderRadius:5,cursor:"pointer",fontSize:11,fontWeight:600}}>
+                ■ Stop
+              </button>
+            </div>
+          )}
 
-            {/* No AI columns warning */}
-            {caseData.aiColumns.length === 0 && (
-              <div style={{padding:"6px 16px",background:"#fefce8",borderTop:"1px solid #fde68a",display:"flex",alignItems:"center",gap:8,fontSize:12,color:"#92400e"}}>
-                ⚠️ Keine KI-Spalten — <button onClick={()=>setShowAddCol(true)} style={{padding:"1px 8px",background:"#7c3aed",color:"#fff",border:"none",borderRadius:4,cursor:"pointer",fontSize:11,fontWeight:600}}>+ Spalte hinzufügen</button>
-              </div>
-            )}
-          </div>
+          {/* No AI columns warning */}
+          {activeTab === "Firmen" && caseData.aiColumns.length === 0 && (
+            <div style={{padding:"6px 16px",background:"#fefce8",borderBottom:"1px solid #fde68a",display:"flex",alignItems:"center",gap:8,fontSize:12,color:"#92400e"}}>
+              ⚠️ Keine KI-Spalten — <button onClick={()=>setShowAddCol(true)} style={{padding:"1px 8px",background:"#7c3aed",color:"#fff",border:"none",borderRadius:4,cursor:"pointer",fontSize:11,fontWeight:600}}>+ Spalte hinzufügen</button>
+            </div>
+          )}
 
           {/* ── CONTENT: Grouped or Flat ── */}
+          {activeTab === "Firmen" && (<>
           {viewMode === "grouped" ? (
             <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
               <GroupedTableView caseId={caseId} />
@@ -1993,20 +1959,74 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
                               onEdit={() => setEditingPromptCol({ ...aiCol })}
                               onStop={() => stopColumn(aiCol)}
                               isRunning={runningColumnId === aiCol.id}
+                              sortBy={sortBy}
+                              sortDir={sortDir}
+                              onSort={() => {
+                                if (sortBy === aiCol.outputKey) {
+                                  setSortDir(d => d === "asc" ? "desc" : "asc");
+                                } else {
+                                  setSortBy(aiCol.outputKey);
+                                  setSortDir("asc");
+                                }
+                              }}
                             />
                           ) : isOrphan ? (
-                            <span style={{flex:1,color:"var(--green)",fontSize:11,fontWeight:600}}>{colLabel(key)}</span>
+                            <div className="group/hdr" style={{display:"flex",alignItems:"center",gap:4,width:"100%"}}>
+                              <span style={{flex:1,color:"var(--green)",fontSize:11,fontWeight:600}}>{colLabel(key)}</span>
+                              <button
+                                onClick={e => {
+                                  e.stopPropagation();
+                                  if (sortBy === key) {
+                                    setSortDir(d => d === "asc" ? "desc" : "asc");
+                                  } else {
+                                    setSortBy(key);
+                                    setSortDir("asc");
+                                  }
+                                }}
+                                title={`Nach ${colLabel(key)} sortieren`}
+                                style={{
+                                  border:"none",
+                                  background: sortBy === key ? "var(--orange-soft)" : "none",
+                                  borderRadius:3,
+                                  cursor:"pointer",
+                                  padding:"1px 4px",
+                                  color: sortBy === key ? "var(--orange)" : "var(--text-3)",
+                                  flexShrink:0,
+                                  fontSize:10.5,
+                                  fontWeight:700,
+                                }}
+                                className={sortBy === key ? "" : "opacity-0 group-hover/hdr:opacity-100"}>
+                                {sortBy === key ? (sortDir === "asc" ? "↑" : "↓") : "⇅"}
+                              </button>
+                            </div>
                           ) : (
                             <div className="group/hdr" style={{display:"flex",alignItems:"center",gap:4,width:"100%"}}>
                               <span style={{flex:1}}>{colLabel(key)}</span>
-                              {(key === "company_name" || key === "domain") && (
-                                <button
-                                  onClick={e=>{e.stopPropagation(); if(sortBy===key){setSortDir(d=>d==="asc"?"desc":"asc");}else{setSortBy(key as "company_name"|"domain");setSortDir("asc");}}}
-                                  title={`Nach ${colLabel(key)} sortieren`}
-                                  style={{border:"none",background:"none",cursor:"pointer",padding:"1px 3px",color:sortBy===key?"var(--orange)":"var(--text-3)",flexShrink:0,fontSize:10,fontWeight:700}}>
-                                  {sortBy===key ? (sortDir==="asc" ? "↑" : "↓") : "⇅"}
-                                </button>
-                              )}
+                              <button
+                                onClick={e => {
+                                  e.stopPropagation();
+                                  if (sortBy === key) {
+                                    setSortDir(d => d === "asc" ? "desc" : "asc");
+                                  } else {
+                                    setSortBy(key);
+                                    setSortDir("asc");
+                                  }
+                                }}
+                                title={`Nach ${colLabel(key)} sortieren`}
+                                style={{
+                                  border:"none",
+                                  background: sortBy === key ? "var(--orange-soft)" : "none",
+                                  borderRadius:3,
+                                  cursor:"pointer",
+                                  padding:"1px 4px",
+                                  color: sortBy === key ? "var(--orange)" : "var(--text-3)",
+                                  flexShrink:0,
+                                  fontSize:10.5,
+                                  fontWeight:700,
+                                }}
+                                className={sortBy === key ? "" : "opacity-0 group-hover/hdr:opacity-100"}>
+                                {sortBy === key ? (sortDir === "asc" ? "↑" : "↓") : "⇅"}
+                              </button>
                               <button
                                 onClick={e=>{e.stopPropagation();deleteSourceColumn(key);}}
                                 className="opacity-0 group-hover/hdr:opacity-100"
@@ -2656,18 +2676,28 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
           </div></div>
 
           {/* Pagination */}
-          <div style={{background:"#fff",borderTop:"1px solid #e5e7eb",padding:"4px 16px",display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0,fontSize:12,color:"#6b7280"}}>
-            <span>Page Size: <select style={{fontSize:12,border:"1px solid #d1d5db",borderRadius:4,padding:"1px 4px"}}><option>50</option><option>100</option></select></span>
-            <div style={{display:"flex",alignItems:"center",gap:4}}>
+          <div style={{background:"var(--surface)",borderTop:"1px solid var(--border)",padding:"6px 16px",display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0,fontSize:11.5,color:"var(--text-2)"}}>
+            <span style={{display:"flex",alignItems:"center",gap:6}}>
+              Page Size:
+              <select value={pageSize} onChange={e=>{setPageSize(Number(e.target.value));setPage(0);}}
+                style={{fontSize:11.5,border:"1px solid var(--border)",borderRadius:"var(--rs)",padding:"2px 6px",background:"var(--bg)",color:"var(--text-1)"}}>
+                <option value={25}>25</option>
+                <option value={50}>50</option>
+                <option value={100}>100</option>
+              </select>
+            </span>
+            <div style={{display:"flex",alignItems:"center",gap:6}}>
               <button onClick={()=>setPage(p=>Math.max(0,p-1))} disabled={page===0}
-                style={{padding:"2px 8px",border:"1px solid #d1d5db",borderRadius:4,background:"#fff",cursor:"pointer",opacity:page===0?.4:1}}>‹</button>
-              <span>{rows.length>0?`${page*pageSize+1} to ${Math.min((page+1)*pageSize,rows.length)} of ${rows.length}`:"-"}</span>
+                className="btn-v2 btn-v2-ghost" style={{padding:"2px 8px",fontSize:11,opacity:page===0?.4:1}}>‹</button>
+              <span style={{fontFamily:"monospace",fontSize:11,color:"var(--text-2)"}}>
+                {dataRows.length>0?`${page*pageSize+1} bis ${Math.min((page+1)*pageSize,dataRows.length)} von ${dataRows.length}`:"-"}
+              </span>
               <button onClick={()=>setPage(p=>Math.min(totalPages-1,p+1))} disabled={page>=totalPages-1}
-                style={{padding:"2px 8px",border:"1px solid #d1d5db",borderRadius:4,background:"#fff",cursor:"pointer",opacity:page>=totalPages-1?.4:1}}>›</button>
+                className="btn-v2 btn-v2-ghost" style={{padding:"2px 8px",fontSize:11,opacity:page>=totalPages-1?.4:1}}>›</button>
               <button onClick={()=>setPage(totalPages-1)} disabled={page>=totalPages-1}
-                style={{padding:"2px 8px",border:"1px solid #d1d5db",borderRadius:4,background:"#fff",cursor:"pointer",opacity:page>=totalPages-1?.4:1}}>»</button>
+                className="btn-v2 btn-v2-ghost" style={{padding:"2px 8px",fontSize:11,opacity:page>=totalPages-1?.4:1}}>»</button>
             </div>
-            <span>Page {page+1} of {totalPages}</span>
+            <span>Seite {page+1} von {totalPages}</span>
           </div>
 
         </>)} {/* end flat view */}
@@ -3063,7 +3093,8 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
           </div>
         )}
 
-      </div>
+        </div> {/* end Table Workspace Container */}
+      </div>   {/* end MAIN */}
 
       {/* ── Run Confirmation Modal ── */}
       {runConfirm && (

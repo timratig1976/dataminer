@@ -12,9 +12,12 @@ interface Props {
   onEdit: () => void;
   onStop?: () => void;
   isRunning?: boolean;
+  sortBy?: string | null;
+  sortDir?: "asc" | "desc";
+  onSort?: () => void;
 }
 
-export function ColumnHeaderMenu({ column, onRunAll, onRunEmptyOnly, onDelete, onEdit, onStop, isRunning }: Props) {
+export function ColumnHeaderMenu({ column, onRunAll, onRunEmptyOnly, onDelete, onEdit, onStop, isRunning, sortBy, sortDir = "asc", onSort }: Props) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -42,25 +45,38 @@ export function ColumnHeaderMenu({ column, onRunAll, onRunEmptyOnly, onDelete, o
         </span>
       </div>
 
-      <button
-        onMouseDown={(e) => e.stopPropagation()}
-        onClick={(e) => {
-          e.stopPropagation();
-          setOpen((v) => !v);
-        }}
-        className="w-4 h-4 rounded flex items-center justify-center cursor-pointer transition-colors opacity-60 hover:opacity-100 shrink-0"
-        style={{
-          color: "var(--green)",
-          background: open ? "var(--green-mid)" : "transparent",
-        }}
-        title="Spalten-Optionen"
-      >
-        {isRunning ? (
-          <Loader2 className="w-3 h-3 animate-spin" />
-        ) : (
-          <ChevronDown className="w-3 h-3" />
+      <div className="flex items-center gap-1 shrink-0">
+        {onSort && (
+          <button
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => { e.stopPropagation(); onSort(); }}
+            className={`px-1 py-0.5 rounded text-[10.5px] font-bold cursor-pointer transition-opacity ${sortBy === column.outputKey ? "text-[var(--orange)] bg-[var(--orange-soft)] opacity-100" : "text-[var(--text-3)] opacity-40 hover:opacity-100"}`}
+            title={`Nach ${column.name} sortieren`}
+          >
+            {sortBy === column.outputKey ? (sortDir === "asc" ? "↑" : "↓") : "⇅"}
+          </button>
         )}
-      </button>
+
+        <button
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation();
+            setOpen((v) => !v);
+          }}
+          className="w-4 h-4 rounded flex items-center justify-center cursor-pointer transition-colors opacity-60 hover:opacity-100 shrink-0"
+          style={{
+            color: "var(--green)",
+            background: open ? "var(--green-mid)" : "transparent",
+          }}
+          title="Spalten-Optionen"
+        >
+          {isRunning ? (
+            <Loader2 className="w-3 h-3 animate-spin" />
+          ) : (
+            <ChevronDown className="w-3 h-3" />
+          )}
+        </button>
+      </div>
 
       {open && (
         <div
@@ -82,6 +98,19 @@ export function ColumnHeaderMenu({ column, onRunAll, onRunEmptyOnly, onDelete, o
             >
               <XCircle className="w-3.5 h-3.5 shrink-0" />
               <span>Spalte stoppen</span>
+            </button>
+          )}
+          {onSort && (
+            <button
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={(e) => { e.stopPropagation(); onSort(); setOpen(false); }}
+              className="w-full flex items-center gap-2 px-3 py-1.5 text-left cursor-pointer transition-colors"
+              style={{ color: "var(--text-1)", background: "transparent" }}
+              onMouseEnter={(e) => (e.currentTarget.style.background = "var(--bg)")}
+              onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+            >
+              <span style={{ fontSize: 12, fontWeight: 700, color: "var(--orange)", width: 14, textAlign: "center" }}>⇅</span>
+              <span>Nach dieser Spalte sortieren</span>
             </button>
           )}
           <button
