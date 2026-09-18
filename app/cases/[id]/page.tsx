@@ -1099,8 +1099,8 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
   const [sortBy, setSortBy] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [showAddCol, setShowAddCol] = useState(false);
-  const [showAgentGoal, setShowAgentGoal] = useState(false);
   const [showAppend, setShowAppend] = useState(false);
+  const [appendTab, setAppendTab] = useState<"autopilot" | "search" | "catalog">("autopilot");
   const [showImport, setShowImport] = useState(false);
   const [editingCell, setEditingCell] = useState<{ rowId: string; key: string } | null>(null);
   const [editValue, setEditValue] = useState("");
@@ -1573,27 +1573,22 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
 
           {/* Global Workflow Actions on the Right */}
           <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
-            <button onClick={() => setShowAgentGoal(true)}
-              title="Ziel-basierte Suche: Definiere Anzahl & Ziel, KI plant und führt automatisch mehrere Runden aus"
-              className="btn-v2">
-              🎯 Ziel-Suche {agentKeyStatus && !agentKeyStatus.anySearchConfigured && <span title="Keine Such-API-Keys konfiguriert" style={{fontSize:11,marginLeft:2}}>⚠️</span>}
+            <button onClick={() => { setAppendTab("autopilot"); setShowAppend(true); }}
+              title="Leads finden & Daten erweitern: Autopilot (Ziel-Suche), Manuelle Suche oder Katalog-Scraper"
+              className="btn-v2"
+              style={{background:"var(--orange-soft)",color:"var(--orange)",borderColor:"var(--orange-mid)",fontWeight:600}}>
+              🎯 Leads finden &amp; erweitern {agentKeyStatus && !agentKeyStatus.anySearchConfigured && <span title="Keine Such-API-Keys konfiguriert" style={{fontSize:11,marginLeft:2}}>⚠️</span>}
             </button>
 
-            {agentHook.running && !showAgentGoal && agentHook.run && !AGENT_TERMINAL.has(agentHook.run.status) && (
-              <button onClick={() => setShowAgentGoal(true)}
-                title="Ziel-Suche läuft — klicken zum Öffnen"
+            {agentHook.running && !showAppend && agentHook.run && !AGENT_TERMINAL.has(agentHook.run.status) && (
+              <button onClick={() => { setAppendTab("autopilot"); setShowAppend(true); }}
+                title="Autopilot läuft — klicken zum Öffnen"
                 className="btn-v2"
                 style={{background:"var(--orange-soft)",color:"var(--orange)",borderColor:"var(--orange-mid)",fontWeight:600}}>
                 <Loader2 style={{width:12,height:12}} className="animate-spin" />
                 {agentHook.run.uniqueCount} Ergebnisse · läuft…
               </button>
             )}
-
-            <button onClick={() => setShowAppend(true)}
-              title="KI-gesteuerte Discovery: Google Search, Maps, Kataloge — Plan erstellen & ausführen"
-              className="btn-v2">
-              <Search style={{width:12,height:12}} /> Suchen &amp; Crawlen
-            </button>
 
             {rows.some(r => r.data["first_name"] && r.data["last_name"] && !r.data["contact_email"]) && (
               <EmailExtrapolateButton caseId={caseId} onDone={refresh} />
@@ -2734,9 +2729,9 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
         {activeTab === "Suchen" && (
           <AgentRunsTab
             caseId={caseId}
-            onOpenModal={() => setShowAgentGoal(true)}
-            onNewSearch={() => { agentHook.reset(); setShowAgentGoal(true); }}
-            onReloadAndOpen={async (runId) => { await agentHook.reload(runId); setShowAgentGoal(true); }}
+            onOpenModal={() => { setAppendTab("autopilot"); setShowAppend(true); }}
+            onNewSearch={() => { agentHook.reset(); setAppendTab("autopilot"); setShowAppend(true); }}
+            onReloadAndOpen={async (runId) => { await agentHook.reload(runId); setAppendTab("autopilot"); setShowAppend(true); }}
             onReloadRun={(runId) => { agentHook.reload(runId); }}
             activeRunId={agentHook.run?.id ?? null}
             activeRunStatus={agentHook.run?.status ?? null}
@@ -3207,21 +3202,21 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
         setShowAddCol(false);
       }}
         availableFields={[...sourceColumns, ...caseData.aiColumns.map(c=>c.outputKey)]} />}
-      <div style={showAgentGoal ? undefined : {display:"none"}}>
-        <AgentGoalModal
+      {showAppend && (
+        <AppendModal
           caseId={caseId}
+          initialTab={appendTab}
           rowsCount={rows.length}
-          onClose={()=>setShowAgentGoal(false)}
-          onImported={()=>{ agentImportedRef.current = true; refresh(); }}
           externalRun={agentHook.run}
           externalRunning={agentHook.running}
           externalStart={agentHook.start}
           externalStep={agentHook.step}
           externalCancel={agentHook.cancel}
           externalReload={agentHook.reload}
+          onRowsAdded={(n)=>{if(n>0)refresh();}}
+          onClose={()=>setShowAppend(false)}
         />
-      </div>
-      {showAppend && <AppendModal caseId={caseId} onRowsAdded={(n)=>{if(n>0)refresh();}} onClose={()=>setShowAppend(false)} />}
+      )}
       {showExport && <ExportModal caseId={caseId} caseData={caseData} sourceColumns={sourceColumns} colOrder={colOrder} onClose={()=>setShowExport(false)} />}
       {showImport && <ImportModal caseId={caseId} onImported={()=>{setShowImport(false);refresh();}} onClose={()=>setShowImport(false)} />}
       {(editingPromptCol || editingPromptCell) && caseData && (

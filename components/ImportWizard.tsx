@@ -368,13 +368,13 @@ export default function ImportWizard({ caseId, onImported, onClose }: ImportWiza
           {/* Actions */}
           <div className="flex gap-2 justify-end">
             <button
-              className="px-4 py-2 text-sm border border-gray-200 rounded-lg hover:bg-gray-50"
+              className="btn-v2"
               onClick={() => { setStep("upload"); setFile(null); setPreview(null); }}
             >
               Zurück
             </button>
             <button
-              className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium"
+              className="btn-v2 btn-v2-primary px-4 py-2 text-sm font-medium"
               onClick={handleImport}
             >
               {preview.rowCount} Zeilen importieren
@@ -387,7 +387,7 @@ export default function ImportWizard({ caseId, onImported, onClose }: ImportWiza
       {step === "importing" && (
         <div className="text-center py-8">
           <div className="text-3xl mb-3 animate-spin inline-block">⚙️</div>
-          <p className="text-sm text-gray-600">Importiere Daten…</p>
+          <p className="text-sm text-[var(--text-2)]">Importiere Daten…</p>
         </div>
       )}
 
@@ -395,12 +395,12 @@ export default function ImportWizard({ caseId, onImported, onClose }: ImportWiza
       {step === "done" && importResult && (
         <div className="text-center py-6 flex flex-col items-center gap-3">
           <div className="text-4xl">✅</div>
-          <p className="font-semibold text-gray-800">{importResult.imported} Zeilen importiert</p>
+          <p className="font-semibold text-[var(--text-1)]">{importResult.imported} Zeilen importiert</p>
           {importResult.skipped > 0 && (
-            <p className="text-sm text-gray-500">{importResult.skipped} Duplikate übersprungen</p>
+            <p className="text-sm text-[var(--text-3)]">{importResult.skipped} Duplikate übersprungen</p>
           )}
           <button
-            className="mt-2 px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+            className="btn-v2 btn-v2-primary mt-2 px-5 py-2 text-sm font-medium"
             onClick={onClose}
           >
             Fertig

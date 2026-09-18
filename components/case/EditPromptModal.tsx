@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import { Play, Loader2, Save, Sparkles, Zap, Info } from "lucide-react";
 import type { AiColumn, CellStatus, Case } from "@/lib/types";
 import { DEFAULT_MODEL_OPTIONS, mergeModelOptions } from "@/lib/model-options";
+import { Modal, FormField, Input, Select, Textarea } from "@/components/ui/ModalMaster";
 
 // Client-safe copies (avoid importing lib/batch-enrich which pulls in playwright)
 const BATCH_FIELDS = [
@@ -170,52 +171,108 @@ Regeln:
     }
   }
 
-  const inp: React.CSSProperties = {width:"100%",border:"1px solid #d1d5db",borderRadius:6,padding:"7px 10px",fontSize:13,outline:"none",background:"#fff",fontFamily:"inherit"};
-  const lbl: React.CSSProperties = {display:"block",fontSize:11,fontWeight:600,color:"#6b7280",marginBottom:4,textTransform:"uppercase",letterSpacing:"0.05em"};
+  const inp: React.CSSProperties = {
+    width: "100%",
+    border: "1px solid var(--border)",
+    borderRadius: "var(--r)",
+    padding: "7px 10px",
+    fontSize: 13,
+    outline: "none",
+    background: "#fff",
+    fontFamily: "inherit",
+    color: "var(--text-1)",
+    transition: "border-color 0.15s, box-shadow 0.15s",
+  };
+  const lbl: React.CSSProperties = {
+    display: "block",
+    fontSize: 11,
+    fontWeight: 600,
+    color: "var(--text-2)",
+    marginBottom: 5,
+    textTransform: "uppercase",
+    letterSpacing: "0.05em",
+  };
 
   return (
-    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center"}}
-      onClick={e=>{if(e.target===e.currentTarget)onClose();}}>
-      <div style={{background:"#fff",borderRadius:12,width:"min(1080px,98vw)",maxHeight:"96vh",minHeight:"78vh",display:"flex",flexDirection:"column",boxShadow:"0 20px 60px rgba(0,0,0,0.2)"}}>
-        {/* Header */}
-        <div style={{padding:"16px 20px",borderBottom:"1px solid #e5e7eb",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-          <div style={{display:"flex",alignItems:"center",gap:8}}>
-            <Sparkles style={{width:16,height:16,color:"#7c3aed"}} />
-            <span style={{fontWeight:700,fontSize:15}}>KI-Spalte bearbeiten</span>
-            <span style={{fontSize:12,color:"#9ca3af",fontFamily:"monospace"}}>→ {col.outputKey}</span>
-          </div>
-          <button onClick={onClose} style={{border:"none",background:"none",cursor:"pointer",fontSize:18,color:"#9ca3af",lineHeight:1}}>×</button>
+    <Modal
+      onClose={onClose}
+      title="KI-Spalte bearbeiten"
+      badge={
+        <span
+          style={{
+            fontSize: 11,
+            fontFamily: "monospace",
+            background: "var(--bg)",
+            border: "1px solid var(--border)",
+            padding: "1px 6px",
+            borderRadius: "var(--rs)",
+            color: "var(--text-2)",
+          }}
+        >
+          {col.outputKey}
+        </span>
+      }
+      icon={<Sparkles style={{ width: 15, height: 15 }} />}
+      maxWidth="min(1060px, 96vw)"
+      maxHeight="92vh"
+      footer={
+        <>
+          <button onClick={onClose} className="btn-v2" style={{ padding: "7px 16px" }}>
+            Abbrechen
+          </button>
+          <button
+            onClick={save}
+            disabled={saving}
+            className="btn-v2 btn-v2-primary"
+            style={{ padding: "7px 20px" }}
+          >
+            {saving ? <Loader2 style={{ width: 13, height: 13 }} className="animate-spin" /> : <Save style={{ width: 13, height: 13 }} />}
+            Speichern
+          </button>
+        </>
+      }
+    >
+      <div style={{ padding: "20px 24px", display: "grid", gap: 18 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+          <FormField label="Spaltenname">
+            <Input value={draft.name} onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))} />
+          </FormField>
+          <FormField label="Output Key">
+            <Input
+              mono
+              value={draft.outputKey}
+              onChange={(e) => setDraft((d) => ({ ...d, outputKey: e.target.value }))}
+            />
+          </FormField>
         </div>
 
-        {/* Body */}
-        <div style={{overflowY:"auto",padding:"20px",display:"grid",gap:16}}>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
-            <div><label style={lbl}>Spaltenname</label>
-              <input style={inp} value={draft.name} onChange={e=>setDraft(d=>({...d,name:e.target.value}))} />
-            </div>
-            <div><label style={lbl}>Output Key</label>
-              <input style={{...inp,fontFamily:"monospace"}} value={draft.outputKey} onChange={e=>setDraft(d=>({...d,outputKey:e.target.value}))} />
-            </div>
-          </div>
-
           <div>
-            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}}>
-              <label style={{...lbl,marginBottom:0}}>Prompt</label>
+            <div style={{ display: "flex", alignItems: "center", justifyItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+              <label style={{ ...lbl, marginBottom: 0 }}>Prompt</label>
               {isBatch && (
-                <div style={{display:"flex",gap:6}}>
+                <div style={{ display: "flex", gap: 6 }}>
                   <button
                     type="button"
-                    onClick={() => setDraft(d => ({...d, prompt: ""}))}
+                    onClick={() => setDraft((d) => ({ ...d, prompt: "" }))}
                     disabled={!draft.prompt.trim()}
-                    style={{fontSize:11,padding:"2px 10px",borderRadius:6,border:"1px solid #d1d5db",background:"#f9fafb",cursor:"pointer",color:"#374151",fontFamily:"inherit",opacity:draft.prompt.trim()?1:0.4}}
+                    className="btn-v2"
+                    style={{ fontSize: 11, padding: "3px 9px", opacity: draft.prompt.trim() ? 1 : 0.4 }}
                     title="Eigenen Prompt löschen → Standard wird wieder verwendet"
                   >
                     ↺ Standard
                   </button>
                   <button
                     type="button"
-                    onClick={() => setDraft(d => ({...d, prompt: getDefaultBatchPrompt()}))}
-                    style={{fontSize:11,padding:"2px 10px",borderRadius:6,border:"1px solid #7c3aed",background:"#f5f3ff",cursor:"pointer",color:"#7c3aed",fontFamily:"inherit"}}
+                    onClick={() => setDraft((d) => ({ ...d, prompt: getDefaultBatchPrompt() }))}
+                    className="btn-v2"
+                    style={{
+                      fontSize: 11,
+                      padding: "3px 9px",
+                      borderColor: "var(--orange-mid)",
+                      background: "var(--orange-soft)",
+                      color: "var(--orange)",
+                      fontWeight: 600,
+                    }}
                     title="Standard-Prompt laden und bearbeiten"
                   >
                     ✏️ Standard laden & bearbeiten
@@ -224,55 +281,77 @@ Regeln:
               )}
             </div>
             {isBatch && !draft.prompt.trim() && (
-              <div style={{marginBottom:6,padding:"8px 10px",background:"#f0f9ff",border:"1px solid #bfdbfe",borderRadius:6,fontSize:11,color:"#1e40af",cursor:"pointer"}}
-                onClick={() => setDraft(d => ({...d, prompt: getDefaultBatchPrompt()}))}>
+              <div
+                style={{
+                  marginBottom: 8,
+                  padding: "8px 12px",
+                  background: "var(--orange-soft)",
+                  border: "1px solid var(--orange-mid)",
+                  borderRadius: "var(--r)",
+                  fontSize: 11.5,
+                  color: "#9a4411",
+                  cursor: "pointer",
+                }}
+                onClick={() => setDraft((d) => ({ ...d, prompt: getDefaultBatchPrompt() }))}
+              >
                 ℹ️ <strong>Leer = Standard-Prompt wird verwendet.</strong> Klicke hier oder „Standard laden" um ihn zu sehen und zu bearbeiten.
               </div>
             )}
-            <textarea ref={promptRef} style={{...inp,fontFamily:"monospace",fontSize:12,minHeight:260,resize:"vertical",lineHeight:1.6}}
+            <textarea
+              ref={promptRef}
+              style={{
+                ...inp,
+                fontFamily: "monospace",
+                fontSize: 12,
+                minHeight: 250,
+                resize: "vertical",
+                lineHeight: 1.6,
+                background: "var(--bg)",
+              }}
               value={draft.prompt}
               placeholder={isBatch ? getDefaultBatchPrompt() : ""}
-              onChange={e=>{
+              onChange={(e) => {
                 const scroll = promptRef.current?.scrollTop ?? 0;
                 const selStart = e.target.selectionStart;
                 const selEnd = e.target.selectionEnd;
-                setDraft(d=>({...d,prompt:e.target.value}));
-                requestAnimationFrame(()=>{
-                  if(!promptRef.current) return;
+                setDraft((d) => ({ ...d, prompt: e.target.value }));
+                requestAnimationFrame(() => {
+                  if (!promptRef.current) return;
                   promptRef.current.scrollTop = scroll;
                   promptRef.current.setSelectionRange(selStart, selEnd);
                 });
-              }} />
+              }}
+            />
             {/* Placeholder analysis */}
             {availableFields && availableFields.length > 0 && (() => {
               const used = [...new Set((draft.prompt.match(/\{([^}]+)\}/g)||[]).map(m=>m.slice(1,-1).trim()))];
               const matched = used.filter(p=>availableFields.includes(p));
               const unmatched = used.filter(p=>!availableFields.includes(p));
               return (
-                <div style={{marginTop:6,display:"grid",gap:6}}>
+                <div style={{marginTop:8,display:"grid",gap:6}}>
                   {/* used placeholders status */}
                   {used.length > 0 && (
-                    <div style={{display:"flex",flexWrap:"wrap",gap:4,alignItems:"center"}}>
-                      <span style={{fontSize:11,color:"#6b7280",marginRight:2}}>Im Prompt:</span>
+                    <div style={{display:"flex",flexWrap:"wrap",gap:5,alignItems:"center"}}>
+                      <span style={{fontSize:11,fontWeight:500,color:"var(--text-2)",marginRight:2}}>Im Prompt:</span>
                       {matched.map(p=>(
-                        <span key={p} style={{fontSize:11,background:"#ede9fe",color:"#6d28d9",padding:"2px 7px",borderRadius:10,fontFamily:"monospace"}} title="Spalte gefunden ✓">{"{"+p+"}"} ✓</span>
+                        <span key={p} style={{fontSize:11,background:"var(--green-soft)",color:"var(--green)",border:"1px solid var(--green-mid)",padding:"2px 8px",borderRadius:"var(--rs)",fontFamily:"monospace"}} title="Spalte gefunden ✓">{"{"+p+"}"} ✓</span>
                       ))}
                       {unmatched.map(p=>(
-                        <span key={p} style={{fontSize:11,background:"#fef2f2",color:"#dc2626",padding:"2px 7px",borderRadius:10,fontFamily:"monospace"}} title="Spalte nicht gefunden!">{"{"+p+"}"} ✗</span>
+                        <span key={p} style={{fontSize:11,background:"var(--danger-soft)",color:"var(--danger)",border:"1px solid #fecaca",padding:"2px 8px",borderRadius:"var(--rs)",fontFamily:"monospace"}} title="Spalte nicht gefunden!">{"{"+p+"}"} ✗</span>
                       ))}
                     </div>
                   )}
                   {/* available field chips */}
-                  <div style={{display:"flex",flexWrap:"wrap",gap:4,alignItems:"center"}}>
-                    <span style={{fontSize:11,color:"#6b7280",marginRight:2}}>Verfügbare Felder:</span>
+                  <div style={{display:"flex",flexWrap:"wrap",gap:5,alignItems:"center"}}>
+                    <span style={{fontSize:11,fontWeight:500,color:"var(--text-2)",marginRight:2}}>Verfügbare Felder:</span>
                     {availableFields.map(f=>{
                       const inPrompt = draft.prompt.includes("{"+f+"}");
                       return (
                         <button key={f} type="button" onMouseDown={e=>e.preventDefault()} onClick={()=>insertPlaceholder(f)}
-                        style={{fontSize:11,padding:"2px 7px",borderRadius:10,fontFamily:"monospace",border:"1px solid",cursor:"pointer",
-                          background: inPrompt?"#f5f3ff":"#f9fafb",
-                          color: inPrompt?"#6d28d9":"#374151",
-                          borderColor: inPrompt?"#c4b5fd":"#d1d5db"}
+                        style={{fontSize:11,padding:"2px 8px",borderRadius:"var(--rs)",fontFamily:"monospace",border:"1px solid",cursor:"pointer",
+                          background: inPrompt?"var(--orange-soft)":"var(--surface)",
+                          color: inPrompt?"var(--orange)":"var(--text-1)",
+                          borderColor: inPrompt?"var(--orange-mid)":"var(--border)"}
                         } title={inPrompt?"Bereits verwendet — klicken zum Einfügen":"Klicken zum Einfügen"}>
                           {"{"+f+"}"}
                         </button>
@@ -284,14 +363,14 @@ Regeln:
             })()}
 
             {requiredFields.length > 0 && availableFields && availableFields.length > 0 && (
-              <div style={{marginTop:10,border:"1px solid #fde68a",background:"#fffbeb",borderRadius:8,padding:10}}>
-                <div style={{fontSize:11,fontWeight:600,color:"#92400e",textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:6}}>Pflicht-Mapping</div>
-                <div style={{display:"grid",gap:6}}>
+              <div style={{marginTop:12,border:"1px solid var(--warn)",background:"var(--warn-soft)",borderRadius:"var(--r)",padding:12}}>
+                <div style={{fontSize:11,fontWeight:600,color:"var(--warn)",textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:8}}>Pflicht-Mapping</div>
+                <div style={{display:"grid",gap:8}}>
                   {requiredFields.map((field) => {
                     const current = draft.inputMappings?.[field] || "";
                     return (
-                      <div key={field} style={{display:"grid",gridTemplateColumns:"180px 1fr",gap:8,alignItems:"center"}}>
-                        <span style={{fontFamily:"monospace",fontSize:12,color:"#374151"}}>{`{${field}}`}</span>
+                      <div key={field} style={{display:"grid",gridTemplateColumns:"180px 1fr",gap:10,alignItems:"center"}}>
+                        <span style={{fontFamily:"monospace",fontSize:12,color:"var(--text-1)"}}>{`{${field}}`}</span>
                         <select
                           style={{...inp,fontFamily:"monospace",padding:"6px 10px"}}
                           value={current}
@@ -316,7 +395,7 @@ Regeln:
             )}
 
             {/* ── Web Search — inline under prompt ── */}
-            <div style={{marginTop:8,border:"1px solid #bfdbfe",borderRadius:8,overflow:"hidden"}}>
+            <div style={{marginTop:12,border:"1px solid var(--border)",borderRadius:"var(--r)",overflow:"hidden"}}>
               {/* Toggle header */}
               <button type="button"
                 onClick={() => setDraft(d => ({
@@ -324,22 +403,22 @@ Regeln:
                   useWebSearch: d.useWebSearch ? undefined : true,
                   searchQuery: d.useWebSearch ? undefined : d.searchQuery,
                 }))}
-                style={{width:"100%",display:"flex",alignItems:"center",gap:8,padding:"7px 10px",background:draft.useWebSearch?"#dbeafe":"#f0f9ff",border:"none",cursor:"pointer",textAlign:"left"}}>
-                <span style={{fontSize:13}}>{draft.useWebSearch ? "🔍" : "🔍"}</span>
-                <span style={{fontSize:11,fontWeight:700,color:draft.useWebSearch?"#1e40af":"#64748b",textTransform:"uppercase",letterSpacing:"0.05em",flex:1}}>
+                style={{width:"100%",display:"flex",alignItems:"center",gap:8,padding:"9px 12px",background:draft.useWebSearch?"var(--orange-soft)":"var(--bg)",border:"none",cursor:"pointer",textAlign:"left"}}>
+                <span style={{fontSize:13}}>🔍</span>
+                <span style={{fontSize:11.5,fontWeight:600,color:draft.useWebSearch?"var(--orange)":"var(--text-2)",textTransform:"uppercase",letterSpacing:"0.04em",flex:1}}>
                   Web-Suche vor LLM
                 </span>
-                <span style={{fontSize:11,padding:"1px 8px",borderRadius:10,background:draft.useWebSearch?"#2563eb":"#e2e8f0",color:draft.useWebSearch?"#fff":"#64748b",fontWeight:600}}>
+                <span style={{fontSize:11,padding:"2px 8px",borderRadius:"var(--rs)",background:draft.useWebSearch?"var(--orange)":"var(--border)",color:draft.useWebSearch?"#fff":"var(--text-2)",fontWeight:600}}>
                   {draft.useWebSearch ? "AN" : "AUS"}
                 </span>
               </button>
 
               {draft.useWebSearch && (
-                <div style={{padding:"10px 10px 12px",background:"#eff6ff",display:"grid",gap:8}}>
+                <div style={{padding:"12px 14px",background:"var(--surface)",borderTop:"1px solid var(--border)",display:"grid",gap:10}}>
                   {/* Search query input */}
                   <div>
-                    <label style={{...lbl,color:"#1d4ed8",marginBottom:3}}>Suchanfrage-Template</label>
-                    <input style={{...inp,fontFamily:"monospace",fontSize:12,borderColor:"#93c5fd"}}
+                    <label style={{...lbl,color:"var(--text-2)",marginBottom:4}}>Suchanfrage-Template</label>
+                    <input style={{...inp,fontFamily:"monospace",fontSize:12}}
                       value={draft.searchQuery || ""}
                       onChange={e => setDraft(d => ({...d, searchQuery: e.target.value || undefined}))}
                       placeholder="z.B. {company_name} offizieller Webauftritt" />
@@ -347,18 +426,18 @@ Regeln:
 
                   {/* Field chips for search query */}
                   {availableFields && availableFields.length > 0 && (
-                    <div style={{display:"flex",flexWrap:"wrap",gap:4,alignItems:"center"}}>
-                      <span style={{fontSize:11,color:"#6b7280",marginRight:2}}>Felder:</span>
+                    <div style={{display:"flex",flexWrap:"wrap",gap:5,alignItems:"center"}}>
+                      <span style={{fontSize:11,color:"var(--text-2)",marginRight:2}}>Felder:</span>
                       {availableFields.map(f => {
                         const inQuery = (draft.searchQuery || "").includes("{"+f+"}");
                         return (
                           <button key={f} type="button"
                             onMouseDown={e => e.preventDefault()}
                             onClick={() => setDraft(d => ({...d, searchQuery: (d.searchQuery || "") + "{"+f+"}"}))}
-                            style={{fontSize:11,padding:"2px 7px",borderRadius:10,fontFamily:"monospace",border:"1px solid",cursor:"pointer",
-                              background:inQuery?"#dbeafe":"#f9fafb",
-                              color:inQuery?"#1d4ed8":"#374151",
-                              borderColor:inQuery?"#93c5fd":"#d1d5db"}}>
+                            style={{fontSize:11,padding:"2px 7px",borderRadius:"var(--rs)",fontFamily:"monospace",border:"1px solid",cursor:"pointer",
+                              background:inQuery?"var(--orange-soft)":"var(--surface)",
+                              color:inQuery?"var(--orange)":"var(--text-1)",
+                              borderColor:inQuery?"var(--orange-mid)":"var(--border)"}}>
                             {"{"+f+"}"}
                           </button>
                         );
@@ -367,17 +446,17 @@ Regeln:
                   )}
 
                   {/* Max results + layer */}
-                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
                     <div>
-                      <label style={{...lbl,color:"#1d4ed8",marginBottom:3}}>Max. Ergebnisse</label>
+                      <label style={{...lbl,marginBottom:4}}>Max. Ergebnisse</label>
                       <input type="number" min={1} max={10}
-                        style={{...inp,borderColor:"#93c5fd"}}
+                        style={inp}
                         value={draft.searchMaxResults ?? 5}
                         onChange={e => setDraft(d => ({...d, searchMaxResults: Math.max(1, Math.min(10, Number(e.target.value)))}))} />
                     </div>
                     <div>
-                      <label style={{...lbl,color:"#1d4ed8",marginBottom:3}}>Layer</label>
-                      <select style={{...inp,borderColor:"#93c5fd"}}
+                      <label style={{...lbl,marginBottom:4}}>Layer</label>
+                      <select style={inp}
                         value={draft.searchForceLayer || ""}
                         onChange={e => setDraft(d => ({...d, searchForceLayer: (e.target.value || undefined) as typeof d.searchForceLayer}))}>
                         <option value="">Auto (SerpAPI → Brave → DDG → Playwright)</option>
@@ -390,8 +469,8 @@ Regeln:
                   </div>
 
                   <div>
-                    <label style={{...lbl,color:"#1d4ed8",marginBottom:3}}>Evidenz-Tiefe (Firecrawl)</label>
-                    <select style={{...inp,borderColor:"#93c5fd"}}
+                    <label style={{...lbl,marginBottom:4}}>Evidenz-Tiefe (Firecrawl)</label>
+                    <select style={inp}
                       value={draft.evidenceMode || "snippet"}
                       onChange={e => setDraft(d => ({...d, evidenceMode: (e.target.value === "snippet" ? undefined : e.target.value) as typeof d.evidenceMode}))}>
                       <option value="snippet">Snippets (schnell, günstig)</option>
@@ -400,10 +479,10 @@ Regeln:
                     </select>
                   </div>
 
-                  <div style={{fontSize:11,color:"#3b82f6",lineHeight:1.5}}>
-                    Die Suchergebnisse werden automatisch als Kontext <strong>vor deinem Prompt</strong> eingefügt. Nutze Platzhalter wie <code style={{background:"#dbeafe",padding:"0 4px",borderRadius:3}}>{"{company_name}"}</code> um zeilenspezifische Suchen zu bauen.
+                  <div style={{fontSize:11.5,color:"var(--text-2)",lineHeight:1.5,background:"var(--bg)",padding:10,borderRadius:"var(--rs)",border:"1px solid var(--border)"}}>
+                    Die Suchergebnisse werden automatisch als Kontext <strong>vor deinem Prompt</strong> eingefügt. Nutze Platzhalter wie <code style={{background:"var(--surface)",padding:"1px 5px",borderRadius:3,border:"1px solid var(--border)"}}>{"{company_name}"}</code> um zeilenspezifische Suchen zu bauen.
                     <br />
-                    <span style={{color:"#60a5fa"}}>„Ganze Seiten" lädt die Top-2 Treffer per Firecrawl als Markdown ins Prompt — für Infos, die nicht im Snippet stehen (Impressum, Adresse, Gründungsjahr …). Benötigt Eden-AI-Key, +1–3s pro Zeile.</span>
+                    <span style={{color:"var(--text-3)",marginTop:3,display:"block"}}>„Ganze Seiten" lädt die Top-2 Treffer per Firecrawl als Markdown ins Prompt — für Infos, die nicht im Snippet stehen (Impressum, Adresse, Gründungsjahr …).</span>
                   </div>
                 </div>
               )}
@@ -411,21 +490,21 @@ Regeln:
           </div>
 
           {/* ── Reasoning capture ── */}
-          <div style={{border:"1px solid #e9d5ff",borderRadius:8,overflow:"hidden"}}>
+          <div style={{border:"1px solid var(--border)",borderRadius:"var(--r)",overflow:"hidden"}}>
             <button type="button"
               onClick={() => setDraft(d => ({...d, captureReasoning: d.captureReasoning ? undefined : true}))}
-              style={{width:"100%",display:"flex",alignItems:"center",gap:8,padding:"7px 10px",background:draft.captureReasoning?"#f3e8ff":"#faf5ff",border:"none",cursor:"pointer",textAlign:"left"}}>
+              style={{width:"100%",display:"flex",alignItems:"center",gap:8,padding:"9px 12px",background:draft.captureReasoning?"var(--green-soft)":"var(--bg)",border:"none",cursor:"pointer",textAlign:"left"}}>
               <span style={{fontSize:13}}>🧠</span>
-              <span style={{fontSize:11,fontWeight:700,color:draft.captureReasoning?"#6b21a8":"#94a3b8",textTransform:"uppercase",letterSpacing:"0.05em",flex:1}}>
+              <span style={{fontSize:11.5,fontWeight:600,color:draft.captureReasoning?"var(--green)":"var(--text-2)",textTransform:"uppercase",letterSpacing:"0.04em",flex:1}}>
                 Reasoning erfassen
               </span>
-              <span style={{fontSize:11,padding:"1px 8px",borderRadius:10,background:draft.captureReasoning?"#7c3aed":"#e2e8f0",color:draft.captureReasoning?"#fff":"#64748b",fontWeight:600}}>
+              <span style={{fontSize:11,padding:"2px 8px",borderRadius:"var(--rs)",background:draft.captureReasoning?"var(--green)":"var(--border)",color:draft.captureReasoning?"#fff":"var(--text-2)",fontWeight:600}}>
                 {draft.captureReasoning ? "AN" : "AUS"}
               </span>
             </button>
             {draft.captureReasoning && (
-              <div style={{padding:"8px 10px",background:"#faf5ff",fontSize:11,color:"#7c3aed",lineHeight:1.5}}>
-                Das LLM gibt eine kurze Begründung seiner Antwort zurück (welche Quelle, warum, was abgelehnt). Wird als <code style={{background:"#ede9fe",padding:"0 4px",borderRadius:3}}>_reasoning_{draft.outputKey}</code> in der Zeile gespeichert.
+              <div style={{padding:"10px 14px",background:"var(--surface)",borderTop:"1px solid var(--border)",fontSize:11.5,color:"var(--text-2)",lineHeight:1.5}}>
+                Das LLM gibt eine kurze Begründung seiner Antwort zurück (welche Quelle, warum, was abgelehnt). Wird als <code style={{background:"var(--bg)",padding:"1px 5px",borderRadius:3,border:"1px solid var(--border)",fontFamily:"monospace"}}>_reasoning_{draft.outputKey}</code> in der Zeile gespeichert.
               </div>
             )}
           </div>
@@ -481,17 +560,24 @@ Regeln:
           </div>
 
           {cellContext && (
-            <div style={{border:"1px solid #dbeafe",background:"#f8fbff",borderRadius:8,padding:12,display:"grid",gap:10}}>
+            <div style={{border:"1px solid var(--border)",background:"var(--surface)",borderRadius:"var(--r)",padding:14,display:"grid",gap:10}}>
               <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10}}>
                 <div>
-                  <div style={{fontSize:12,fontWeight:700,color:"#1e3a8a"}}>Model Compare</div>
-                  <div style={{fontSize:11,color:"#64748b"}}>Wähle bis zu 3 Modelle für denselben Prompt und diese Zeile.</div>
+                  <div style={{fontSize:12,fontWeight:600,color:"var(--text-1)"}}>Model Compare</div>
+                  <div style={{fontSize:11,color:"var(--text-2)"}}>Wähle bis zu 3 Modelle für denselben Prompt und diese Zeile.</div>
                 </div>
                 <button
                   type="button"
                   onClick={runModelCompare}
                   disabled={compareLoading || compareModels.length === 0}
-                  style={{display:"flex",alignItems:"center",gap:6,padding:"6px 12px",background:"#2563eb",color:"#fff",border:"none",borderRadius:6,cursor:"pointer",fontSize:12,fontWeight:600,opacity:compareLoading?0.6:1}}
+                  className="btn-v2"
+                  style={{
+                    padding:"5px 11px",
+                    background:"var(--orange-soft)",
+                    borderColor:"var(--orange-mid)",
+                    color:"var(--orange)",
+                    fontWeight:600,
+                  }}
                 >
                   {compareLoading ? <Loader2 style={{width:12,height:12}} className="animate-spin" /> : <Zap style={{width:12,height:12}} />}
                   {compareLoading ? "Teste…" : "3 Modelle testen"}
@@ -511,14 +597,14 @@ Regeln:
                       style={{
                         fontSize:11,
                         padding:"3px 8px",
-                        borderRadius:999,
+                        borderRadius:"var(--rs)",
                         border:"1px solid",
                         cursor:disabled?"not-allowed":"pointer",
                         opacity:disabled?0.5:1,
                         fontFamily:"monospace",
-                        background:selected?"#dbeafe":"#fff",
-                        borderColor:selected?"#93c5fd":"#d1d5db",
-                        color:selected?"#1d4ed8":"#374151",
+                        background:selected?"var(--orange-soft)":"var(--surface)",
+                        borderColor:selected?"var(--orange-mid)":"var(--border)",
+                        color:selected?"var(--orange)":"var(--text-1)",
                       }}
                     >
                       {selected ? "✓ " : ""}{m}
@@ -527,10 +613,10 @@ Regeln:
                 })}
               </div>
 
-              {compareError && <div style={{fontSize:12,color:"#dc2626"}}>{compareError}</div>}
+              {compareError && <div style={{fontSize:12,color:"var(--danger)"}}>{compareError}</div>}
 
               {recommendedModel && (
-                <div style={{display:"flex",alignItems:"center",gap:8,fontSize:12,color:"#065f46",background:"#ecfdf5",border:"1px solid #a7f3d0",borderRadius:6,padding:"6px 8px"}}>
+                <div style={{display:"flex",alignItems:"center",gap:8,fontSize:12,color:"var(--green)",background:"var(--green-soft)",border:"1px solid var(--green-mid)",borderRadius:"var(--rs)",padding:"6px 10px"}}>
                   <span>Automatisch übernommen: <strong style={{fontFamily:"monospace"}}>{recommendedModel}</strong></span>
                 </div>
               )}
@@ -538,17 +624,17 @@ Regeln:
               {compareResults.length > 0 && (
                 <div style={{display:"grid",gap:6}}>
                   {compareResults.map((r) => (
-                    <div key={r.model} style={{border:"1px solid #e5e7eb",borderRadius:6,padding:"7px 8px",background:"#fff"}}>
-                      <div style={{display:"flex",alignItems:"center",gap:8,fontSize:11,color:"#6b7280"}}>
-                        <span style={{fontFamily:"monospace",fontWeight:600,color:"#111827"}}>{r.model}</span>
+                    <div key={r.model} style={{border:"1px solid var(--border)",borderRadius:"var(--rs)",padding:"8px 10px",background:"var(--bg)"}}>
+                      <div style={{display:"flex",alignItems:"center",gap:8,fontSize:11,color:"var(--text-2)"}}>
+                        <span style={{fontFamily:"monospace",fontWeight:600,color:"var(--text-1)"}}>{r.model}</span>
                         <span>· {r.provider}</span>
                         <span>· score {r.score}</span>
                         <span>· {r.validation}</span>
                         <span>· {r.latencyMs}ms</span>
-                        <span style={{marginLeft:"auto",color:r.ok?"#7c3aed":"#dc2626",fontWeight:600}}>{r.ok ? "OK" : "FAIL"}</span>
+                        <span style={{marginLeft:"auto",color:r.ok?"var(--green)":"var(--danger)",fontWeight:600}}>{r.ok ? "OK" : "FAIL"}</span>
                       </div>
-                      <div style={{fontSize:11,color:r.validation==="pass"?"#5b21b6":"#b45309",marginTop:3}}>Validation: {r.validationReason}</div>
-                      <div style={{fontSize:12,color:r.ok?"#1f2937":"#991b1b",marginTop:4,whiteSpace:"pre-wrap",wordBreak:"break-word"}}>{r.ok ? (r.value || "(empty)") : (r.error || "Unknown error")}</div>
+                      <div style={{fontSize:11,color:r.validation==="pass"?"var(--green)":"var(--warn)",marginTop:3}}>Validation: {r.validationReason}</div>
+                      <div style={{fontSize:12,color:r.ok?"var(--text-1)":"var(--danger)",marginTop:4,whiteSpace:"pre-wrap",wordBreak:"break-word"}}>{r.ok ? (r.value || "(empty)") : (r.error || "Unknown error")}</div>
                     </div>
                   ))}
                 </div>
@@ -559,54 +645,56 @@ Regeln:
 
         {/* Cell log/error section */}
         {cellContext && (
-          <div style={{margin:"0 20px 0",borderTop:"1px solid #e5e7eb",paddingTop:16}}>
-            <div style={{fontSize:11,fontWeight:600,color:"#6b7280",textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:8}}>
+          <div style={{margin:"0 24px 0",borderTop:"1px solid var(--border)",paddingTop:14}}>
+            <div style={{fontSize:11,fontWeight:600,color:"var(--text-2)",textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:8}}>
               Zellen-Log{cellContext.rowLabel ? ` — ${cellContext.rowLabel}` : ""}
             </div>
             {/* Status badge */}
             <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
-              {cellContext.status==="error" && <span style={{display:"inline-flex",alignItems:"center",gap:4,fontSize:11,color:"#dc2626",background:"#fef2f2",padding:"3px 10px",borderRadius:10,fontWeight:600}}>✗ Fehler</span>}
-              {cellContext.status==="done" && <span style={{display:"inline-flex",alignItems:"center",gap:4,fontSize:11,color:"#7c3aed",background:"#ddd6fe",padding:"3px 10px",borderRadius:10,fontWeight:600}}>✓ Fertig</span>}
-              {cellContext.status==="running" && <span style={{display:"inline-flex",alignItems:"center",gap:4,fontSize:11,color:"#d97706",background:"#fef3c7",padding:"3px 10px",borderRadius:10,fontWeight:600}}><Loader2 style={{width:10,height:10}} className="animate-spin" /> Läuft</span>}
-              {cellContext.status==="idle" && <span style={{fontSize:11,color:"#9ca3af"}}>○ Noch nicht ausgeführt</span>}
-              {cellContext.status==="skipped" && <span style={{display:"inline-flex",alignItems:"center",gap:4,fontSize:11,color:"#9ca3af",background:"#f3f4f6",padding:"3px 10px",borderRadius:10}}>⏭ Übersprungen</span>}
+              {cellContext.status==="error" && <span className="status-pill status-pill-error">Fehler</span>}
+              {cellContext.status==="done" && <span className="status-pill status-pill-done">Fertig</span>}
+              {cellContext.status==="running" && <span className="status-pill status-pill-pending"><Loader2 style={{width:10,height:10}} className="animate-spin" /> Läuft</span>}
+              {cellContext.status==="idle" && <span style={{fontSize:11,color:"var(--text-3)"}}>○ Noch nicht ausgeführt</span>}
+              {cellContext.status==="skipped" && <span style={{display:"inline-flex",alignItems:"center",gap:4,fontSize:11,color:"var(--text-3)",background:"var(--bg)",border:"1px solid var(--border)",padding:"2px 8px",borderRadius:"var(--rs)"}}>⏭ Übersprungen</span>}
               {onRunCell && (
                 <button onClick={()=>{onRunCell();}}
-                  style={{display:"flex",alignItems:"center",gap:5,padding:"4px 12px",background:"#7c3aed",color:"#fff",border:"none",borderRadius:5,cursor:"pointer",fontSize:12,fontWeight:600,marginLeft:"auto"}}>
+                  className="btn-v2 btn-v2-ai"
+                  style={{marginLeft:"auto"}}>
                   <Play style={{width:11,height:11}} /> Jetzt ausführen
                 </button>
               )}
               {onOpenRunDetail && (
                 <button onClick={onOpenRunDetail}
-                  style={{display:"flex",alignItems:"center",gap:5,padding:"4px 12px",background:"#2563eb",color:"#fff",border:"none",borderRadius:5,cursor:"pointer",fontSize:12,fontWeight:600}}>
+                  className="btn-v2"
+                  style={{borderColor:"var(--orange-mid)",background:"var(--orange-soft)",color:"var(--orange)"}}>
                   <Info style={{width:11,height:11}} /> Run + Detail-Log
                 </button>
               )}
             </div>
             {cellContext.error && (
-              <div style={{background:"#fef2f2",border:"1px solid #fecaca",borderRadius:6,padding:"10px 12px",marginBottom:8}}>
-                <div style={{fontSize:11,fontWeight:600,color:"#dc2626",marginBottom:4}}>Fehlermeldung</div>
-                <pre style={{fontSize:12,color:"#991b1b",margin:0,whiteSpace:"pre-wrap",wordBreak:"break-all",fontFamily:"monospace",lineHeight:1.5}}>{cellContext.error}</pre>
+              <div style={{background:"var(--danger-soft)",border:"1px solid #fecaca",borderRadius:"var(--rs)",padding:"8px 12px",marginBottom:8}}>
+                <div style={{fontSize:11,fontWeight:600,color:"var(--danger)",marginBottom:3}}>Fehlermeldung</div>
+                <pre style={{fontSize:11.5,color:"#991b1b",margin:0,whiteSpace:"pre-wrap",wordBreak:"break-all",fontFamily:"monospace",lineHeight:1.4}}>{cellContext.error}</pre>
               </div>
             )}
             {cellContext.status==="done" && (cellContext.value || cellContext.multiValues) && (
-              <div style={{background:"#f8fafc",border:"1px solid #e2e8f0",borderRadius:6,overflow:"hidden"}}>
-                <div style={{fontSize:11,fontWeight:600,color:"#475569",padding:"7px 12px",borderBottom:"1px solid #e2e8f0",background:"#f1f5f9",textTransform:"uppercase",letterSpacing:"0.05em"}}>
+              <div style={{background:"var(--bg)",border:"1px solid var(--border)",borderRadius:"var(--rs)",overflow:"hidden"}}>
+                <div style={{fontSize:11,fontWeight:600,color:"var(--text-2)",padding:"6px 12px",borderBottom:"1px solid var(--border)",background:"var(--surface)",textTransform:"uppercase",letterSpacing:"0.05em"}}>
                   Output
                 </div>
                 <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
                   <tbody>
                     {cellContext.multiValues
                       ? Object.entries(cellContext.multiValues).map(([k, v]) => (
-                          <tr key={k} style={{borderBottom:"1px solid #f1f5f9"}}>
-                            <td style={{padding:"6px 12px",fontFamily:"monospace",color:"#64748b",whiteSpace:"nowrap",width:180,verticalAlign:"top"}}>{k}</td>
-                            <td style={{padding:"6px 12px",color:v.startsWith("✗")?"#dc2626":v.startsWith("✓")?"#6d28d9":"#1e293b",wordBreak:"break-all",lineHeight:1.5}}>{v||<span style={{color:"#cbd5e1",fontStyle:"italic"}}>empty</span>}</td>
+                          <tr key={k} style={{borderBottom:"1px solid var(--border-xs)"}}>
+                            <td style={{padding:"5px 12px",fontFamily:"monospace",color:"var(--text-2)",whiteSpace:"nowrap",width:180,verticalAlign:"top"}}>{k}</td>
+                            <td style={{padding:"5px 12px",color:v.startsWith("✗")?"var(--danger)":v.startsWith("✓")?"var(--green)":"var(--text-1)",wordBreak:"break-all",lineHeight:1.4}}>{v||<span style={{color:"var(--text-3)",fontStyle:"italic"}}>empty</span>}</td>
                           </tr>
                         ))
                       : (
                           <tr>
-                            <td style={{padding:"6px 12px",fontFamily:"monospace",color:"#64748b",whiteSpace:"nowrap",width:180}}>{col.outputKey}</td>
-                            <td style={{padding:"6px 12px",color:"#1e293b",wordBreak:"break-all"}}>{cellContext.value}</td>
+                            <td style={{padding:"5px 12px",fontFamily:"monospace",color:"var(--text-2)",whiteSpace:"nowrap",width:180}}>{col.outputKey}</td>
+                            <td style={{padding:"5px 12px",color:"var(--text-1)",wordBreak:"break-all"}}>{cellContext.value}</td>
                           </tr>
                         )
                     }
@@ -616,20 +704,7 @@ Regeln:
             )}
           </div>
         )}
-
-        {/* Footer */}
-        <div style={{padding:"14px 20px",borderTop:"1px solid #e5e7eb",display:"flex",alignItems:"center",gap:8,marginTop:16}}>
-          <button onClick={save} disabled={saving}
-            style={{display:"flex",alignItems:"center",gap:6,padding:"8px 20px",background:"#7c3aed",color:"#fff",border:"none",borderRadius:6,cursor:"pointer",fontSize:13,fontWeight:600,opacity:saving?.6:1}}>
-            {saving ? <Loader2 style={{width:13,height:13}} className="animate-spin" /> : <Save style={{width:13,height:13}} />}
-            Speichern
-          </button>
-          <button onClick={onClose} style={{padding:"7px 16px",border:"1px solid #d1d5db",borderRadius:6,background:"#fff",cursor:"pointer",fontSize:13,color:"#374151"}}>
-            Abbrechen
-          </button>
-        </div>
-      </div>
-    </div>
+    </Modal>
   );
 }
 

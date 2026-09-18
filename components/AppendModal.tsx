@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useRef } from "react";
+import { Modal, FormField, Input, Textarea } from "@/components/ui/ModalMaster";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -48,66 +49,114 @@ interface QueryLogEntry {
   ts: number;
 }
 
-interface AppendModalProps {
+export interface AppendModalProps {
   caseId: string;
   onRowsAdded: (count: number) => void;
   onClose: () => void;
+  initialTab?: "autopilot" | "search" | "catalog";
+  // Agent props when opened in autopilot mode
+  rowsCount?: number;
+  externalRun?: import("@/hooks/useAgentRun").AgentRunState | null;
+  externalRunning?: boolean;
+  externalStart?: (goal: import("@/hooks/useAgentRun").AgentGoal) => Promise<void>;
+  externalStep?: () => Promise<import("@/hooks/useAgentRun").AgentRunState | null>;
+  externalCancel?: () => Promise<void>;
+  externalReload?: (runId: string) => Promise<void>;
 }
 
-type TabId = "ai" | "search" | "catalog";
+type TabId = "autopilot" | "search" | "catalog";
 
 const TABS: { id: TabId; label: string; icon: string }[] = [
-  { id: "ai", label: "KI-Plan", icon: "🧠" },
-  { id: "search", label: "Suche", icon: "🔍" },
-  { id: "catalog", label: "Katalog", icon: "📋" },
+  { id: "autopilot", label: "Autopilot (Ziel-Suche)", icon: "🎯" },
+  { id: "search", label: "Manuelle Suche", icon: "🔍" },
+  { id: "catalog", label: "Katalog-Scraper", icon: "📋" },
 ];
+
+import { AgentGoalModal } from "@/components/AgentGoalModal";
 
 // ── Main Component ────────────────────────────────────────────────────────────
 
-export default function AppendModal({ caseId, onRowsAdded, onClose }: AppendModalProps) {
-  const [activeTab, setActiveTab] = useState<TabId>("ai");
+export default function AppendModal({
+  caseId,
+  onRowsAdded,
+  onClose,
+  initialTab = "autopilot",
+  rowsCount = 0,
+  externalRun,
+  externalRunning,
+  externalStart,
+  externalStep,
+  externalCancel,
+  externalReload,
+}: AppendModalProps) {
+  const [activeTab, setActiveTab] = useState<TabId>(initialTab);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl mx-4 flex flex-col max-h-[90vh]">
-        {/* Header */}
-        <div className="flex items-center justify-between px-6 pt-5 pb-3 border-b border-gray-100">
-          <h2 className="font-semibold text-gray-900 text-lg">🔍 Daten erweitern</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
-        </div>
-
-        {/* Tabs */}
-        <div className="flex border-b border-gray-100">
-          {TABS.map((tab) => (
+    <Modal
+      onClose={onClose}
+      title="Leads finden & Daten erweitern"
+      icon="🔍"
+      maxWidth="44rem"
+    >
+      {/* Tabs */}
+      <div style={{ display: "flex", borderBottom: "1px solid var(--border)", background: "var(--bg)", padding: "0 12px", gap: 6 }}>
+        {TABS.map((tab) => {
+          const isActive = activeTab === tab.id;
+          return (
             <button
               key={tab.id}
+              type="button"
               onClick={() => setActiveTab(tab.id)}
-              className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px ${
-                activeTab === tab.id
-                  ? "border-blue-500 text-blue-600"
-                  : "border-transparent text-gray-500 hover:text-gray-700"
-              }`}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                padding: "9px 14px",
+                fontSize: 12.5,
+                fontWeight: isActive ? 600 : 500,
+                color: isActive ? "var(--orange)" : "var(--text-2)",
+                background: "transparent",
+                border: "none",
+                borderBottom: isActive ? "2px solid var(--orange)" : "2px solid transparent",
+                cursor: "pointer",
+                marginBottom: -1,
+                transition: "all 0.12s ease",
+              }}
             >
               <span>{tab.icon}</span>
               <span>{tab.label}</span>
             </button>
-          ))}
-        </div>
-
-        {/* Content */}
-        <div className="flex-1 overflow-y-auto p-6">
-          {activeTab === "ai" && (
-            <AiPlanTab caseId={caseId} onRowsAdded={onRowsAdded} />
-          )}
-          {activeTab === "search" && (
-            <SearchTab caseId={caseId} onRowsAdded={onRowsAdded} />
-          )}
-          {activeTab === "catalog" && (
-            <CatalogTab caseId={caseId} onRowsAdded={onRowsAdded} />
-          )}
-        </div>
+          );
+        })}
       </div>
-    </div>
+
+      {/* Content */}
+      <div className="p-6">
+        {activeTab === "autopilot" && (
+          <div className="-m-6">
+            <AgentGoalModal
+              caseId={caseId}
+              rowsCount={rowsCount}
+              onClose={onClose}
+              onImported={() => onRowsAdded(1)}
+              externalRun={externalRun}
+              externalRunning={externalRunning}
+              externalStart={externalStart}
+              externalStep={externalStep}
+              externalCancel={externalCancel}
+              externalReload={externalReload}
+              embedded
+            />
+          </div>
+        )}
+        {activeTab === "search" && (
+          <SearchTab caseId={caseId} onRowsAdded={onRowsAdded} />
+        )}
+        {activeTab === "catalog" && (
+          <CatalogTab caseId={caseId} onRowsAdded={onRowsAdded} />
+        )}
+      </div>
+    </Modal>
   );
 }
 
@@ -262,9 +311,9 @@ function AiPlanTab({ caseId, onRowsAdded }: { caseId: string; onRowsAdded: (n: n
   return (
     <div className="flex flex-col gap-5">
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1.5">Was soll gesucht werden?</label>
+        <label className="block text-xs font-semibold text-[var(--text-2)] uppercase tracking-wide mb-1.5">Was soll gesucht werden?</label>
         <textarea
-          className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="w-full border border-[var(--border)] rounded-lg px-3 py-2.5 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-[var(--orange-soft)] focus:border-[var(--orange)]"
           rows={3}
           placeholder="z.B. Finde alle Heizungsunternehmen in Mecklenburg-Vorpommern"
           value={prompt}
@@ -272,7 +321,7 @@ function AiPlanTab({ caseId, onRowsAdded }: { caseId: string; onRowsAdded: (n: n
           disabled={running}
         />
         <button
-          className="mt-2 px-4 py-2 bg-gray-900 text-white text-sm rounded-lg hover:bg-gray-700 disabled:opacity-50 flex items-center gap-2"
+          className="btn-v2 btn-v2-primary mt-2.5 px-4 py-2 text-sm font-medium"
           onClick={handlePlan}
           disabled={!prompt.trim() || planning || running}
         >
@@ -286,19 +335,20 @@ function AiPlanTab({ caseId, onRowsAdded }: { caseId: string; onRowsAdded: (n: n
       {/* Plan viewer */}
       {plan && (
         <div className="flex flex-col gap-3">
-          <div className="bg-blue-50 rounded-lg px-4 py-3">
-            <p className="text-sm font-medium text-blue-800">🎯 {plan.goal}</p>
+          <div className="bg-[var(--bg)] border border-[var(--border)] rounded-lg px-4 py-3">
+            <p className="text-sm font-semibold text-[var(--text-1)]">🎯 {plan.goal}</p>
             {plan.warnings.map((w, i) => (
               <p key={i} className="text-xs text-amber-700 mt-1">⚠ {w}</p>
             ))}
           </div>
 
-          <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+          <label className="flex items-center gap-2 text-sm text-[var(--text-1)] cursor-pointer">
             <input
               type="checkbox"
               checked={skipCatalogs}
               onChange={(e) => setSkipCatalogs(e.target.checked)}
               disabled={running}
+              className="accent-[var(--orange)]"
             />
             <span>📋 Katalogseiten-Crawling überspringen</span>
           </label>
@@ -310,7 +360,7 @@ function AiPlanTab({ caseId, onRowsAdded }: { caseId: string; onRowsAdded: (n: n
               return (
                 <div key={step.id} className={`rounded-lg border text-sm overflow-hidden ${
                   prog?.done ? (prog.error ? "bg-red-50 border-red-100" : "bg-green-50 border-green-100") :
-                  isRunning ? "bg-blue-50 border-blue-200" : "bg-gray-50 border-gray-100"
+                  isRunning ? "bg-[var(--orange-soft)] border-[var(--orange-mid)]" : "bg-[var(--surface)] border-[var(--border)]"
                 }`}>
                   <div className="flex items-center gap-3 px-3 py-2.5">
                     <span className="text-base flex-shrink-0">
@@ -320,12 +370,12 @@ function AiPlanTab({ caseId, onRowsAdded }: { caseId: string; onRowsAdded: (n: n
                        step.type === "google_maps" ? "🗺️" : "🔍"}
                     </span>
                     <div className="flex-1 min-w-0">
-                      <span className="text-gray-700 font-medium">{step.label}</span>
+                      <span className="text-[var(--text-1)] font-medium">{step.label}</span>
                       {isRunning && prog.currentQuery && (
-                        <div className="text-xs text-blue-600 truncate mt-0.5">↳ {prog.currentQuery}</div>
+                        <div className="text-xs text-[var(--orange)] truncate mt-0.5">↳ {prog.currentQuery}</div>
                       )}
                       {!isRunning && !prog?.done && step.queries && step.queries.length > 1 && (
-                        <div className="text-xs text-gray-400 mt-0.5">{step.queries.length} Suchanfragen (eine pro Stadt)</div>
+                        <div className="text-xs text-[var(--text-3)] mt-0.5">{step.queries.length} Suchanfragen (eine pro Stadt)</div>
                       )}
                     </div>
                     <div className="text-xs text-right flex-shrink-0">
@@ -426,14 +476,15 @@ function AiPlanTab({ caseId, onRowsAdded }: { caseId: string; onRowsAdded: (n: n
           <div className="flex gap-2 justify-end">
             {running ? (
               <button
-                className="px-4 py-2 text-sm border border-red-200 text-red-600 rounded-lg hover:bg-red-50"
+                className="btn-v2"
+                style={{ color: "var(--danger)", borderColor: "var(--border)" }}
                 onClick={() => abortRef.current?.abort()}
               >
                 Abbrechen
               </button>
             ) : !pipelineDone ? (
               <button
-                className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium flex items-center gap-2"
+                className="btn-v2 btn-v2-primary px-4 py-2 text-sm font-medium"
                 onClick={handleRun}
               >
                 ▶ Ausführen
@@ -496,7 +547,7 @@ function SearchTab({ caseId, onRowsAdded }: { caseId: string; onRowsAdded: (n: n
     <div className="flex flex-col gap-4">
       {/* ── Search mode selector ── */}
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">Such-Quelle</label>
+        <label className="block text-xs font-semibold text-[var(--text-2)] uppercase tracking-wide mb-2">Such-Quelle</label>
         <div className="flex flex-wrap gap-2">
           {[
             { id: "auto" as const, label: "🔄 Auto", desc: "Beste Quelle automatisch" },
@@ -506,17 +557,18 @@ function SearchTab({ caseId, onRowsAdded }: { caseId: string; onRowsAdded: (n: n
           ].map(opt => (
             <button
               key={opt.id}
+              type="button"
               onClick={() => setSearchMode(opt.id)}
               disabled={loading}
-              className={`flex flex-col items-start gap-0.5 px-3 py-2 rounded-lg border text-xs transition-colors ${
+              className={`flex flex-col items-start gap-0.5 px-3 py-2 rounded-lg border text-xs cursor-pointer transition-all ${
                 searchMode === opt.id
-                  ? "border-purple-500 bg-purple-50 text-purple-700"
-                  : "border-gray-200 bg-white text-gray-600 hover:border-gray-300"
+                  ? "border-[var(--orange)] bg-[var(--orange-soft)] text-[var(--orange)] shadow-sm font-semibold"
+                  : "border-[var(--border)] bg-[var(--surface)] text-[var(--text-2)] hover:border-[var(--orange-mid)] hover:bg-[var(--bg)]"
               }`}
               title={opt.desc}
             >
               <span className="font-semibold text-sm">{opt.label}</span>
-              <span className="opacity-60">{opt.desc}</span>
+              <span className="opacity-75">{opt.desc}</span>
             </button>
           ))}
         </div>
@@ -524,25 +576,27 @@ function SearchTab({ caseId, onRowsAdded }: { caseId: string; onRowsAdded: (n: n
 
       {/* Kombi-Einstellungen */}
       {searchMode === "combined" && (
-        <div className="bg-purple-50 rounded-lg p-3 border border-purple-200">
-          <span className="text-xs font-semibold text-purple-700">Primäre Quelle:</span>
+        <div className="bg-[var(--orange-soft)] rounded-lg p-3 border border-[var(--orange-mid)]">
+          <span className="text-xs font-semibold text-[var(--orange)]">Primäre Quelle:</span>
           <div className="flex gap-2 mt-1.5">
             <button
+              type="button"
               onClick={() => setCombinedPrimary("maps")}
-              className={`px-3 py-1 rounded text-xs font-medium ${
+              className={`px-3 py-1 rounded text-xs font-medium cursor-pointer transition-colors ${
                 combinedPrimary === "maps"
-                  ? "bg-purple-600 text-white"
-                  : "bg-white text-purple-600 border border-purple-200"
+                  ? "bg-[var(--orange)] text-white"
+                  : "bg-[var(--surface)] text-[var(--orange)] border border-[var(--orange-mid)]"
               }`}
             >
               🗺️ Maps zuerst (strukturierte Daten priorisieren)
             </button>
             <button
+              type="button"
               onClick={() => setCombinedPrimary("search")}
-              className={`px-3 py-1 rounded text-xs font-medium ${
+              className={`px-3 py-1 rounded text-xs font-medium cursor-pointer transition-colors ${
                 combinedPrimary === "search"
-                  ? "bg-purple-600 text-white"
-                  : "bg-white text-purple-600 border border-purple-200"
+                  ? "bg-[var(--orange)] text-white"
+                  : "bg-[var(--surface)] text-[var(--orange)] border border-[var(--orange-mid)]"
               }`}
             >
               🔍 Web zuerst (breitere Abdeckung)
@@ -552,9 +606,9 @@ function SearchTab({ caseId, onRowsAdded }: { caseId: string; onRowsAdded: (n: n
       )}
 
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Suchanfragen (eine pro Zeile)</label>
+        <label className="block text-xs font-semibold text-[var(--text-2)] uppercase tracking-wide mb-1">Suchanfragen (eine pro Zeile)</label>
         <textarea
-          className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono resize-none focus:outline-none focus:ring-2 focus:ring-purple-500"
+          className="w-full border border-[var(--border)] rounded-lg px-3 py-2 text-sm font-mono resize-none focus:outline-none focus:ring-2 focus:ring-[var(--orange-soft)] focus:border-[var(--orange)]"
           rows={5}
           placeholder={"Heizungsbauer Rostock\nHeizungsbauer Schwerin\nHaustechnik Greifswald"}
           value={queries}
@@ -563,11 +617,11 @@ function SearchTab({ caseId, onRowsAdded }: { caseId: string; onRowsAdded: (n: n
         />
       </div>
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">
-          Region-Template <span className="text-gray-400 font-normal">(optional, wird für alle Städte der Region expandiert)</span>
+        <label className="block text-xs font-semibold text-[var(--text-2)] uppercase tracking-wide mb-1">
+          Region-Template <span className="text-[var(--text-3)] font-normal normal-case">(optional, wird für alle Städte der Region expandiert)</span>
         </label>
         <input
-          className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+          className="w-full border border-[var(--border)] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--orange-soft)] focus:border-[var(--orange)]"
           placeholder='z.B. "Heizungsbauer {city} MV" — {city} wird durch alle Städte ersetzt'
           value={template}
           onChange={(e) => setTemplate(e.target.value)}
@@ -592,7 +646,7 @@ function SearchTab({ caseId, onRowsAdded }: { caseId: string; onRowsAdded: (n: n
       )}
       <div className="flex justify-end">
         <button
-          className="px-4 py-2 text-sm bg-purple-600 text-white rounded-lg hover:bg-purple-700 font-medium disabled:opacity-50"
+          className="btn-v2 btn-v2-primary px-4 py-2 text-sm font-medium disabled:opacity-50"
           onClick={handleRun}
           disabled={loading || (!queries.trim() && !template.trim())}
         >
@@ -714,12 +768,12 @@ function CatalogTab({ caseId, onRowsAdded }: { caseId: string; onRowsAdded: (n: 
         />
       </div>
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Max. Seiten</label>
+        <label className="block text-xs font-semibold text-[var(--text-2)] uppercase tracking-wide mb-1">Max. Seiten</label>
         <input
           type="number"
           min={1}
           max={20}
-          className="w-24 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="w-24 border border-[var(--border)] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--orange-soft)] focus:border-[var(--orange)]"
           value={maxPages}
           onChange={(e) => setMaxPages(Number(e.target.value))}
           disabled={loading}
@@ -733,7 +787,7 @@ function CatalogTab({ caseId, onRowsAdded }: { caseId: string; onRowsAdded: (n: 
       )}
       <div className="flex justify-end">
         <button
-          className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium disabled:opacity-50"
+          className="btn-v2 btn-v2-primary px-4 py-2 text-sm font-medium disabled:opacity-50"
           onClick={handleRun}
           disabled={loading || !url.trim()}
         >

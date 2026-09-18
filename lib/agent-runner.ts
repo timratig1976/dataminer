@@ -160,6 +160,7 @@ export async function startAgentRun(
     braveApiKeyAvailable: !!braveApiKey,
     edenKeyAvailable: true,
     useMaps: goal.useMaps ?? true,
+    sourceMode: goal.sourceMode ?? "auto",
     systemPromptOverride: systemPromptOverride ?? null,
   });
 

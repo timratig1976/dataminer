@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useId, useState } from "react";
-import { X, Sparkles, Type, Hash } from "lucide-react";
+import { Sparkles, Type, Hash } from "lucide-react";
 import type { AiColumn, Case } from "@/lib/types";
 import { DEFAULT_MODEL_OPTIONS, mergeModelOptions } from "@/lib/model-options";
+import { Modal, FormField, Input, Select, Textarea } from "@/components/ui/ModalMaster";
 
 const randomUUID = () => globalThis.crypto.randomUUID();
 
@@ -229,234 +230,271 @@ Regeln:
   }
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-h-[92vh] overflow-y-auto" style={{ maxWidth: "1080px" }}>
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
-          <div className="flex items-center gap-2">
-            <Sparkles className="w-4 h-4 text-green-600" />
-            <h3 className="font-semibold text-gray-900">Spalte hinzufügen</h3>
-          </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
-            <X className="w-4 h-4" />
+    <Modal
+      onClose={onClose}
+      title="Spalte hinzufügen"
+      icon={<Sparkles style={{ width: 15, height: 15 }} />}
+      maxWidth="1060px"
+      footer={
+        <>
+          <button onClick={onClose} className="btn-v2" style={{ padding: "7px 16px" }}>
+            Abbrechen
           </button>
+          <button
+            onClick={save}
+            disabled={saving || !canSave}
+            className="btn-v2 btn-v2-primary"
+            style={{ padding: "7px 20px" }}
+          >
+            {saving ? "Wird hinzugefügt…" : "Spalte hinzufügen"}
+          </button>
+        </>
+      }
+    >
+      <div style={{ padding: "20px 24px", display: "flex", flexDirection: "column", gap: 20 }}>
+        {/* Primary type selection */}
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-2)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 10 }}>
+            Spaltentyp wählen
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            {/* Batch column */}
+            <button
+              type="button"
+              onClick={() => { setColType("ai"); setBatchTool("batch_enrich"); setMode("preset"); }}
+              className={`flex flex-col gap-2 p-4 rounded-xl border-2 text-left transition-all cursor-pointer ${colType === "ai" && isBatch ? "border-[var(--orange)] bg-[var(--orange-soft)] shadow-sm" : "border-[var(--border)] hover:border-[var(--orange-mid)] hover:bg-[var(--bg)]"}`}
+            >
+              <div className="flex items-center gap-2">
+                <span className="text-xl">🚀</span>
+                <span className="font-semibold text-sm text-[var(--text-1)]">Batch-Spalte</span>
+              </div>
+              <p className="text-xs text-[var(--text-2)] leading-relaxed">
+                Scrapt Website & sucht Kontakte — 1 Aufruf füllt <strong>viele Felder</strong> gleichzeitig. Ideal für Firmendaten & Entscheider.
+              </p>
+              <div className="flex gap-1 flex-wrap mt-1">
+                <span className="text-[10px] bg-[var(--surface)] text-[var(--orange)] border border-[var(--orange-mid)] px-2 py-0.5 rounded-full font-medium">Firmendaten</span>
+                <span className="text-[10px] bg-[var(--surface)] text-[var(--orange)] border border-[var(--orange-mid)] px-2 py-0.5 rounded-full font-medium">Entscheider</span>
+                <span className="text-[10px] bg-[var(--surface)] text-[var(--orange)] border border-[var(--orange-mid)] px-2 py-0.5 rounded-full font-medium">Multi-Feld</span>
+              </div>
+            </button>
+
+            {/* Places summary column */}
+            <button
+              type="button"
+              onClick={() => { setColType("ai"); setBatchTool("places_summary"); setMode("preset"); }}
+              className={`flex flex-col gap-2 p-4 rounded-xl border-2 text-left transition-all cursor-pointer ${colType === "ai" && batchTool === "places_summary" ? "border-sky-500 bg-sky-50/60 shadow-sm" : "border-[var(--border)] hover:border-sky-300 hover:bg-[var(--bg)]"}`}
+            >
+              <div className="flex items-center gap-2">
+                <span className="text-xl">📍</span>
+                <span className="font-semibold text-sm text-[var(--text-1)]">Places-Auswertung</span>
+              </div>
+              <p className="text-xs text-[var(--text-2)] leading-relaxed">
+                Wertet Maps-Daten aus dem Row aus — Adresse, Telefon, Kategorie, Rating. Per Prompt zu <strong>Fließtext oder JSON</strong>.
+              </p>
+              <div className="flex gap-1 flex-wrap mt-1">
+                <span className="text-[10px] bg-[var(--surface)] text-sky-700 border border-sky-200 px-2 py-0.5 rounded-full font-medium">Kein Scraping</span>
+                <span className="text-[10px] bg-[var(--surface)] text-sky-700 border border-sky-200 px-2 py-0.5 rounded-full font-medium">Maps-Daten</span>
+                <span className="text-[10px] bg-[var(--surface)] text-sky-700 border border-sky-200 px-2 py-0.5 rounded-full font-medium">Fließtext/JSON</span>
+              </div>
+            </button>
+
+            {/* GMB Check column */}
+            <button
+              type="button"
+              onClick={() => { setColType("ai"); setBatchTool("gmb_check"); setMode("preset"); if (!name) { setName("GMB Check"); setOutputKey("gmb_status"); } }}
+              className={`flex flex-col gap-2 p-4 rounded-xl border-2 text-left transition-all cursor-pointer ${colType === "ai" && batchTool === "gmb_check" ? "border-[var(--green)] bg-[var(--green-soft)] shadow-sm" : "border-[var(--border)] hover:border-[var(--green-mid)] hover:bg-[var(--bg)]"}`}
+            >
+              <div className="flex items-center gap-2">
+                <span className="text-xl">🗺️</span>
+                <span className="font-semibold text-sm text-[var(--text-1)]">GMB Check</span>
+              </div>
+              <p className="text-xs text-[var(--text-2)] leading-relaxed">
+                Prüft via Google Places, ob ein Maps-Profil existiert. Ergebnis: <strong>Kein Eintrag</strong>, <strong>Vorhanden</strong> oder <strong>Unbeansprucht</strong>.
+              </p>
+              <div className="flex gap-1 flex-wrap mt-1">
+                <span className="text-[10px] bg-[var(--surface)] text-[var(--green)] border border-[var(--green-mid)] px-2 py-0.5 rounded-full font-medium">Google Places</span>
+                <span className="text-[10px] bg-[var(--surface)] text-[var(--green)] border border-[var(--green-mid)] px-2 py-0.5 rounded-full font-medium">Kein LLM</span>
+                <span className="text-[10px] bg-[var(--surface)] text-[var(--green)] border border-[var(--green-mid)] px-2 py-0.5 rounded-full font-medium">1 Feld</span>
+              </div>
+            </button>
+
+            {/* AI column */}
+            <button
+              type="button"
+              onClick={() => { setColType("ai"); setBatchTool(undefined); setMode("preset"); }}
+              className={`flex flex-col gap-2 p-4 rounded-xl border-2 text-left transition-all cursor-pointer ${colType === "ai" && !isBatch && batchTool !== "places_summary" ? "border-[var(--green)] bg-[var(--green-soft)] shadow-sm" : "border-[var(--border)] hover:border-[var(--green-mid)] hover:bg-[var(--bg)]"}`}
+            >
+              <div className="flex items-center gap-2">
+                <Sparkles className="w-5 h-5 text-[var(--green)]" />
+                <span className="font-semibold text-sm text-[var(--text-1)]">KI-Spalte</span>
+              </div>
+              <p className="text-xs text-[var(--text-2)] leading-relaxed">
+                Eigener Prompt pro Zeile — liefert <strong>einen Wert</strong>. Optional mit Web-Suche. Frei konfigurierbar.
+              </p>
+              <div className="flex gap-1 flex-wrap mt-1">
+                <span className="text-[10px] bg-[var(--surface)] text-[var(--green)] border border-[var(--green-mid)] px-2 py-0.5 rounded-full font-medium">Freier Prompt</span>
+                <span className="text-[10px] bg-[var(--surface)] text-[var(--green)] border border-[var(--green-mid)] px-2 py-0.5 rounded-full font-medium">Web-Suche</span>
+                <span className="text-[10px] bg-[var(--surface)] text-[var(--green)] border border-[var(--green-mid)] px-2 py-0.5 rounded-full font-medium">1 Feld</span>
+              </div>
+            </button>
+
+            {/* Data column */}
+            <button
+              type="button"
+              onClick={() => { setColType("text"); setBatchTool(undefined); }}
+              className={`flex flex-col gap-2 p-4 rounded-xl border-2 text-left transition-all cursor-pointer ${isPlain ? "border-zinc-400 bg-zinc-100/60 shadow-sm" : "border-[var(--border)] hover:border-zinc-300 hover:bg-[var(--bg)]"}`}
+            >
+              <div className="flex items-center gap-2">
+                <Type className="w-5 h-5 text-[var(--text-2)]" />
+                <span className="font-semibold text-sm text-[var(--text-1)]">Datenspalte</span>
+              </div>
+              <p className="text-xs text-[var(--text-2)] leading-relaxed">
+                Leere Spalte für manuelle Eingabe oder als Ziel für Batch-Felder (Text oder Zahl).
+              </p>
+              <div className="flex gap-1 flex-wrap mt-1">
+                <span className="text-[10px] bg-[var(--surface)] text-[var(--text-2)] border border-[var(--border)] px-2 py-0.5 rounded-full font-medium">Text</span>
+                <span className="text-[10px] bg-[var(--surface)] text-[var(--text-2)] border border-[var(--border)] px-2 py-0.5 rounded-full font-medium">Zahl</span>
+                <span className="text-[10px] bg-[var(--surface)] text-[var(--text-2)] border border-[var(--border)] px-2 py-0.5 rounded-full font-medium">Manuell</span>
+              </div>
+            </button>
+          </div>
         </div>
 
-        <div className="p-6 space-y-6">
-          {/* Primary type selection */}
-          <div>
-            <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Spaltentyp wählen</div>
+        {/* Data column subtype + inputs */}
+        {isPlain && (
+          <div className="space-y-3">
+            <div className="flex gap-2">
+              {(["text", "number"] as ColType[]).map(t => (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => setColType(t)}
+                  className={`flex items-center gap-2 px-3 py-1.5 rounded-md border text-xs font-medium cursor-pointer transition-colors ${colType === t ? "border-[var(--orange)] bg-[var(--orange-soft)] text-[var(--orange)]" : "border-[var(--border)] text-[var(--text-2)] hover:bg-[var(--bg)]"}`}
+                >
+                  {t === "text" ? <><Type className="w-3 h-3" /> Text</> : <><Hash className="w-3 h-3" /> Zahl</>}
+                </button>
+              ))}
+            </div>
             <div className="grid grid-cols-2 gap-3">
-              {/* Batch column */}
-              <button
-                onClick={() => { setColType("ai"); setBatchTool("batch_enrich"); setMode("preset"); }}
-                className={`flex flex-col gap-2 p-4 rounded-xl border-2 text-left transition-colors ${colType === "ai" && isBatch ? "border-violet-500 bg-violet-50" : "border-gray-200 hover:border-violet-300 hover:bg-violet-50/30"}`}>
-                <div className="flex items-center gap-2">
-                  <span className="text-xl">🚀</span>
-                  <span className="font-semibold text-sm text-gray-900">Batch-Spalte</span>
-                </div>
-                <p className="text-xs text-gray-500 leading-relaxed">
-                  Scrapt Website & sucht Kontakte — 1 Aufruf füllt <strong>viele Felder</strong> gleichzeitig. Ideal für Firmendaten & Entscheider.
-                </p>
-                <div className="flex gap-1 flex-wrap mt-1">
-                  <span className="text-[10px] bg-violet-100 text-violet-700 px-2 py-0.5 rounded-full">Firmendaten</span>
-                  <span className="text-[10px] bg-violet-100 text-violet-700 px-2 py-0.5 rounded-full">Entscheider</span>
-                  <span className="text-[10px] bg-violet-100 text-violet-700 px-2 py-0.5 rounded-full">Multi-Feld</span>
-                </div>
-              </button>
-
-              {/* Places summary column */}
-              <button
-                onClick={() => { setColType("ai"); setBatchTool("places_summary"); setMode("preset"); }}
-                className={`flex flex-col gap-2 p-4 rounded-xl border-2 text-left transition-colors ${colType === "ai" && batchTool === "places_summary" ? "border-sky-500 bg-sky-50" : "border-gray-200 hover:border-sky-300 hover:bg-sky-50/30"}`}>
-                <div className="flex items-center gap-2">
-                  <span className="text-xl">📍</span>
-                  <span className="font-semibold text-sm text-gray-900">Places-Auswertung</span>
-                </div>
-                <p className="text-xs text-gray-500 leading-relaxed">
-                  Wertet Maps-Daten aus dem Row aus — Adresse, Telefon, Kategorie, Rating. Per Prompt zu <strong>Fließtext oder JSON</strong>.
-                </p>
-                <div className="flex gap-1 flex-wrap mt-1">
-                  <span className="text-[10px] bg-sky-100 text-sky-700 px-2 py-0.5 rounded-full">Kein Scraping</span>
-                  <span className="text-[10px] bg-sky-100 text-sky-700 px-2 py-0.5 rounded-full">Maps-Daten</span>
-                  <span className="text-[10px] bg-sky-100 text-sky-700 px-2 py-0.5 rounded-full">Fließtext/JSON</span>
-                </div>
-              </button>
-
-              {/* GMB Check column */}
-              <button
-                onClick={() => { setColType("ai"); setBatchTool("gmb_check"); setMode("preset"); if (!name) { setName("GMB Check"); setOutputKey("gmb_status"); } }}
-                className={`flex flex-col gap-2 p-4 rounded-xl border-2 text-left transition-colors ${colType === "ai" && batchTool === "gmb_check" ? "border-emerald-500 bg-emerald-50" : "border-gray-200 hover:border-emerald-300 hover:bg-emerald-50/30"}`}>
-                <div className="flex items-center gap-2">
-                  <span className="text-xl">🗺️</span>
-                  <span className="font-semibold text-sm text-gray-900">GMB Check</span>
-                </div>
-                <p className="text-xs text-gray-500 leading-relaxed">
-                  Prüft via Google Places, ob ein Maps-Profil existiert. Ergebnis: <strong>Kein Eintrag</strong>, <strong>Vorhanden</strong> oder <strong>Unbeansprucht</strong>.
-                </p>
-                <div className="flex gap-1 flex-wrap mt-1">
-                  <span className="text-[10px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">Google Places</span>
-                  <span className="text-[10px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">Kein LLM</span>
-                  <span className="text-[10px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">1 Feld</span>
-                </div>
-              </button>
-
-              {/* AI column */}
-              <button
-                onClick={() => { setColType("ai"); setBatchTool(undefined); setMode("preset"); }}
-                className={`flex flex-col gap-2 p-4 rounded-xl border-2 text-left transition-colors ${colType === "ai" && !isBatch && batchTool !== "places_summary" ? "border-green-500 bg-green-50" : "border-gray-200 hover:border-green-300 hover:bg-green-50/30"}`}>
-                <div className="flex items-center gap-2">
-                  <Sparkles className="w-5 h-5 text-green-600" />
-                  <span className="font-semibold text-sm text-gray-900">KI-Spalte</span>
-                </div>
-                <p className="text-xs text-gray-500 leading-relaxed">
-                  Eigener Prompt pro Zeile — liefert <strong>einen Wert</strong>. Optional mit Web-Suche. Frei konfigurierbar.
-                </p>
-                <div className="flex gap-1 flex-wrap mt-1">
-                  <span className="text-[10px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full">Freier Prompt</span>
-                  <span className="text-[10px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full">Web-Suche</span>
-                  <span className="text-[10px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full">1 Feld</span>
-                </div>
-              </button>
-
-              {/* Data column */}
-              <button
-                onClick={() => { setColType("text"); setBatchTool(undefined); }}
-                className={`flex flex-col gap-2 p-4 rounded-xl border-2 text-left transition-colors ${isPlain ? "border-gray-400 bg-gray-50" : "border-gray-200 hover:border-gray-400 hover:bg-gray-50/30"}`}>
-                <div className="flex items-center gap-2">
-                  <Type className="w-5 h-5 text-gray-500" />
-                  <span className="font-semibold text-sm text-gray-900">Datenspalte</span>
-                </div>
-                <p className="text-xs text-gray-500 leading-relaxed">
-                  Leere Spalte für manuelle Eingabe oder als Ziel für Batch-Felder (Text oder Zahl).
-                </p>
-                <div className="flex gap-1 flex-wrap mt-1">
-                  <span className="text-[10px] bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">Text</span>
-                  <span className="text-[10px] bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">Zahl</span>
-                  <span className="text-[10px] bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">Manuell</span>
-                </div>
-              </button>
+              <FormField label="Spaltenname">
+                <Input
+                  value={name}
+                  onChange={e => { setName(e.target.value); if (!outputKey) setOutputKey(e.target.value.toLowerCase().replace(/\s+/g, "_")); }}
+                  placeholder={colType === "number" ? "z.B. Mitarbeiter" : "z.B. Notizen"}
+                />
+              </FormField>
+              <FormField label="Feldname (Key)">
+                <Input
+                  mono
+                  value={outputKey}
+                  onChange={e => setOutputKey(e.target.value)}
+                  placeholder={colType === "number" ? "z.B. employees" : "z.B. notes"}
+                />
+              </FormField>
             </div>
           </div>
+        )}
 
-          {/* Data column subtype + inputs */}
-          {isPlain && (
-            <div className="space-y-3">
-              <div className="flex gap-2">
-                {(["text", "number"] as ColType[]).map(t => (
-                  <button key={t} onClick={() => setColType(t)}
-                    className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors ${colType === t ? "border-gray-400 bg-gray-100 text-gray-800" : "border-gray-200 text-gray-500 hover:border-gray-300"}`}>
-                    {t === "text" ? <><Type className="w-3 h-3" /> Text</> : <><Hash className="w-3 h-3" /> Zahl</>}
+        {/* Name + key for AI cols */}
+        {colType === "ai" && (
+          <div className="grid grid-cols-2 gap-3">
+            <FormField label="Spaltenname">
+              <Input
+                value={name}
+                onChange={e => setName(e.target.value)}
+                placeholder="z.B. Website"
+              />
+            </FormField>
+            <FormField label="Output Key">
+              <Input
+                mono
+                value={outputKey}
+                onChange={e => setOutputKey(e.target.value)}
+                placeholder="z.B. website"
+              />
+            </FormField>
+          </div>
+        )}
+
+        {/* AI column config */}
+        {colType === "ai" && (
+          <>
+            <div className="grid grid-cols-1 md:grid-cols-[1fr_280px] gap-3 items-end">
+              <div className="flex gap-1 bg-[var(--bg)] border border-[var(--border)] p-1 rounded-md w-fit">
+                <button
+                  type="button"
+                  onClick={() => setMode("preset")}
+                  className={`px-3 py-1 rounded text-xs font-medium cursor-pointer transition-colors ${mode === "preset" ? "bg-[var(--surface)] shadow-sm text-[var(--orange)] font-semibold" : "text-[var(--text-2)] hover:text-[var(--text-1)]"}`}
+                >
+                  {isBatch ? "Batch-Preset" : "Aus Vorlage"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMode("custom")}
+                  className={`px-3 py-1 rounded text-xs font-medium cursor-pointer transition-colors ${mode === "custom" ? "bg-[var(--surface)] shadow-sm text-[var(--orange)] font-semibold" : "text-[var(--text-2)] hover:text-[var(--text-1)]"}`}
+                >
+                  {isBatch ? "Anpassen" : "Eigener Prompt"}
+                </button>
+              </div>
+              <FormField label="Modell">
+                <Select value={model} onChange={e => setModel(e.target.value)}>
+                  {mergeModelOptions([model], modelOptions).map(m => <option key={m}>{m}</option>)}
+                </Select>
+              </FormField>
+            </div>
+
+            {mode === "preset" ? (
+              <div className="grid grid-cols-2 gap-2.5">
+                {presets.map((p) => (
+                  <button
+                    key={p.outputKey}
+                    type="button"
+                    onClick={() => applyPreset(p)}
+                    className="text-left border border-[var(--border)] rounded-xl p-3 hover:border-[var(--orange-mid)] hover:bg-[var(--orange-soft)] transition-colors cursor-pointer"
+                  >
+                    <div className="font-medium text-sm text-[var(--text-1)]">{p.name}</div>
+                    <div className="text-xs text-[var(--text-3)] font-mono mt-0.5">→ {p.outputKey}</div>
                   </button>
                 ))}
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs font-medium text-gray-600 uppercase tracking-wide">Spaltenname</label>
-                  <input value={name}
-                    onChange={e => { setName(e.target.value); if (!outputKey) setOutputKey(e.target.value.toLowerCase().replace(/\s+/g, "_")); }}
-                    placeholder={colType === "number" ? "z.B. Mitarbeiter" : "z.B. Notizen"}
-                    className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" />
-                </div>
-                <div>
-                  <label className="text-xs font-medium text-gray-600 uppercase tracking-wide">Feldname (Key)</label>
-                  <input value={outputKey} onChange={e => setOutputKey(e.target.value)}
-                    placeholder={colType === "number" ? "z.B. employees" : "z.B. notes"}
-                    className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-green-500" />
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Name + key for AI cols */}
-          {colType === "ai" && (
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-xs font-medium text-gray-600 uppercase tracking-wide">Spaltenname</label>
-                <input value={name} onChange={e => setName(e.target.value)} placeholder="z.B. Website"
-                  className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" />
-              </div>
-              <div>
-                <label className="text-xs font-medium text-gray-600 uppercase tracking-wide">Output Key</label>
-                <input value={outputKey} onChange={e => setOutputKey(e.target.value)} placeholder="z.B. website"
-                  className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-green-500" />
-              </div>
-            </div>
-          )}
-          {/* AI column config */}
-          {colType === "ai" && (
-            <>
-              <div className="grid grid-cols-1 md:grid-cols-[1fr_280px] gap-3 items-end">
-                <div className="flex gap-1 bg-gray-100 p-1 rounded-lg w-fit">
-                  <button onClick={() => setMode("preset")}
-                    className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${mode === "preset" ? "bg-white shadow-sm text-gray-900" : "text-gray-500 hover:text-gray-700"}`}>
-                    {isBatch ? "Batch-Preset" : "Aus Vorlage"}
-                  </button>
-                  <button onClick={() => setMode("custom")}
-                    className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${mode === "custom" ? "bg-white shadow-sm text-gray-900" : "text-gray-500 hover:text-gray-700"}`}>
-                    {isBatch ? "Anpassen" : "Eigener Prompt"}
-                  </button>
-                </div>
-                <div>
-                  <label className="text-xs font-medium text-gray-600 uppercase tracking-wide">Modell</label>
-                  <select value={model} onChange={e => setModel(e.target.value)}
-                    className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500">
-                    {mergeModelOptions([model], modelOptions).map(m => <option key={m}>{m}</option>)}
-                  </select>
-                </div>
-              </div>
-
-              {mode === "preset" ? (
-                <div className="grid grid-cols-2 gap-2">
-                  {presets.map((p) => (
-                    <button key={p.outputKey} onClick={() => applyPreset(p)}
-                      className="text-left border border-gray-200 rounded-xl p-3 hover:border-green-300 hover:bg-green-50 transition-colors">
-                      <div className="font-medium text-sm text-gray-900">{p.name}</div>
-                      <div className="text-xs text-gray-400 mt-0.5">→ {p.outputKey}</div>
-                    </button>
-                  ))}
-                </div>
-              ) : (
-                <div className="space-y-4">
-
-                  {/* Places summary config */}
-                  {isPlacesSummary && (
-                    <div className="rounded-xl border-2 border-sky-200 bg-sky-50 p-4 space-y-3">
-                      <div className="flex items-center gap-2">
-                        <span className="text-lg">📍</span>
-                        <div>
-                          <div className="font-semibold text-sky-900 text-sm">Places-Auswertung</div>
-                          <div className="text-xs text-sky-600">Liest Adresse, Telefon, Kategorie, Rating aus dem Row — kein Scraping nötig</div>
-                        </div>
-                      </div>
+            ) : (
+              <div className="space-y-4">
+                {/* Places summary config */}
+                {isPlacesSummary && (
+                  <div className="rounded-xl border border-sky-200 bg-sky-50/60 p-4 space-y-3">
+                    <div className="flex items-center gap-2">
+                      <span className="text-lg">📍</span>
                       <div>
-                        <div className="text-xs font-semibold text-sky-700 mb-1">Ausgabe-Format</div>
-                        <div className="flex gap-2">
-                          {(["text", "json"] as const).map(m => (
-                            <button key={m} onClick={() => setOutputMode(m)}
-                              className={`px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors ${outputMode === m ? "border-sky-500 bg-sky-100 text-sky-800" : "border-gray-200 text-gray-500 hover:border-sky-300"}`}>
-                              {m === "text" ? "📝 Fließtext" : "{ } JSON"}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                      <div>
-                        <div className="text-xs font-semibold text-sky-700 mb-1">Prompt / Aufgabe</div>
-                        <textarea
-                          value={prompt}
-                          onChange={e => setPrompt(e.target.value)}
-                          rows={3}
-                          placeholder={outputMode === "json"
-                            ? 'z.B. "Extrahiere PLZ, Stadt und Telefon als JSON: {plz, city, phone}"'
-                            : 'z.B. "Schreibe ein 2-Satz Firmenprofil auf Deutsch"'}
-                          className="w-full border border-sky-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400 bg-white"
-                        />
-                        <div className="text-xs text-sky-600 mt-1">Leer lassen für Standard-Auswertung. Verfügbare Felder: address, phone, category, maps_rating, maps_reviews, city, zip</div>
-                      </div>
-                      <div className="text-xs text-sky-700 bg-sky-100 rounded-lg p-2">
-                        <strong>Ausgabe-Felder:</strong> {outputMode === "json" ? `${outputKey || "places_data"} → JSON-Objekt` : `${outputKey || "places_summary"} → Fließtext`}
+                        <div className="font-semibold text-sky-900 text-sm">Places-Auswertung</div>
+                        <div className="text-xs text-sky-600">Liest Adresse, Telefon, Kategorie, Rating aus dem Row — kein Scraping nötig</div>
                       </div>
                     </div>
-                  )}
+                    <div>
+                      <div className="text-xs font-semibold text-sky-700 mb-1">Ausgabe-Format</div>
+                      <div className="flex gap-2">
+                        {(["text", "json"] as const).map(m => (
+                          <button key={m} type="button" onClick={() => setOutputMode(m)}
+                            className={`px-3 py-1.5 rounded-lg border text-xs font-medium cursor-pointer transition-colors ${outputMode === m ? "border-sky-500 bg-sky-100 text-sky-800" : "border-gray-200 text-gray-500 hover:border-sky-300"}`}>
+                            {m === "text" ? "📝 Fließtext" : "{ } JSON"}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <FormField label="Prompt / Aufgabe" hint="Leer lassen für Standard-Auswertung. Verfügbare Felder: address, phone, category, maps_rating, maps_reviews, city, zip">
+                      <Textarea
+                        value={prompt}
+                        onChange={e => setPrompt(e.target.value)}
+                        rows={3}
+                        placeholder={outputMode === "json"
+                          ? 'z.B. "Extrahiere PLZ, Stadt und Telefon als JSON: {plz, city, phone}"'
+                          : 'z.B. "Schreibe ein 2-Satz Firmenprofil auf Deutsch"'}
+                      />
+                    </FormField>
+                    <div className="text-xs text-sky-700 bg-sky-100 rounded-lg p-2">
+                      <strong>Ausgabe-Felder:</strong> {outputMode === "json" ? `${outputKey || "places_data"} → JSON-Objekt` : `${outputKey || "places_summary"} → Fließtext`}
+                    </div>
+                  </div>
+                )}
 
                   {/* Batch contacts config */}
                   {batchTool === "batch_contacts" && (
@@ -898,19 +936,7 @@ Regeln:
               )}
             </>
           )}
-        </div>
-
-        <div className="px-6 pb-6 flex gap-2">
-          <button onClick={save} disabled={saving || !canSave}
-            className="flex-1 bg-green-600 text-white py-2.5 rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-40">
-            {saving ? "Wird hinzugefügt…" : "Spalte hinzufügen"}
-          </button>
-          <button onClick={onClose}
-            className="flex-1 border border-gray-300 text-gray-700 py-2.5 rounded-lg text-sm font-medium hover:bg-gray-50">
-            Abbrechen
-          </button>
-        </div>
       </div>
-    </div>
+    </Modal>
   );
 }

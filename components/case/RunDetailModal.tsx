@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { Play, Loader2, CheckCircle, AlertCircle, CheckCircle2, Sparkles } from "lucide-react";
 import type { AiColumn, RowData, CellStatus } from "@/lib/types";
 import { DEFAULT_MODEL_OPTIONS, mergeModelOptions } from "@/lib/model-options";
+import { Modal } from "@/components/ui/ModalMaster";
 
 type Tab = "result" | "sources" | "llm" | "raw" | "crawl" | "data" | "reasoning";
 
@@ -147,61 +148,67 @@ export default function RunDetailModal({ col, row: initialRow, caseId, onClose, 
   ].filter(t => t.show) as { id: Tab; label: string; show: boolean }[];
 
   return (
-    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center"}}
-      onClick={e=>{if(e.target===e.currentTarget)onClose();}}>
-      <div style={{background:"#fff",borderRadius:12,width:"min(720px,96vw)",maxHeight:"88vh",display:"flex",flexDirection:"column",boxShadow:"0 28px 80px rgba(0,0,0,0.28)"}}>
-
-        {/* ── Header ── */}
-        <div style={{padding:"12px 16px",borderBottom:"1px solid #e5e7eb",display:"flex",alignItems:"center",gap:8,flexShrink:0}}>
-          <Sparkles style={{width:14,height:14,color:"#7c3aed",flexShrink:0}}/>
-          <div style={{flex:1,minWidth:0}}>
-            <span style={{fontWeight:700,fontSize:13,color:"#111"}}>{col.name}</span>
-            {companyName && <span style={{fontSize:12,color:"#9ca3af",marginLeft:8}}>— {companyName}</span>}
-            {row.data["maps_url"] && (() => {
-              // Convert place_id URL to proper search URL that opens the entry
-              const rawUrl = row.data["maps_url"]!;
-              const placeIdMatch = rawUrl.match(/place_id[=:](\d+)/);
-              const name = row.data["company_name"] ?? row.data["Unternehmensname"] ?? "";
-              const city = row.data["city"] ?? row.data["Stadt"] ?? "";
-              const query = [name, city].filter(Boolean).join(" ");
-              const mapsHref = placeIdMatch
-                ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}&query_place_id=${placeIdMatch[1]}`
-                : rawUrl;
-              return (
-                <a href={mapsHref} target="_blank" rel="noreferrer"
-                  style={{fontSize:11,color:"#0369a1",background:"#e0f2fe",padding:"2px 8px",borderRadius:6,textDecoration:"none",display:"inline-flex",alignItems:"center",gap:3,marginLeft:6,flexShrink:0}}
-                  onClick={e => e.stopPropagation()}>
-                  📍 Maps öffnen ↗
-                </a>
-              );
-            })()}
-          </div>
-          {/* Status + cost */}
-          <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
-            {running && <span style={{display:"inline-flex",alignItems:"center",gap:4,fontSize:11,color:"#d97706",background:"#fef3c7",padding:"2px 8px",borderRadius:8}}><Loader2 style={{width:10,height:10}} className="animate-spin"/> Läuft…</span>}
-            {!running && savedStatus==="done"    && <span style={{display:"inline-flex",alignItems:"center",gap:4,fontSize:11,color:"#15803d",background:"#dcfce7",padding:"2px 8px",borderRadius:8}}><CheckCircle2 style={{width:10,height:10}}/> Fertig</span>}
-            {!running && savedStatus==="error"   && <span style={{display:"inline-flex",alignItems:"center",gap:4,fontSize:11,color:"#dc2626",background:"#fef2f2",padding:"2px 8px",borderRadius:8}}><AlertCircle style={{width:10,height:10}}/> Fehler</span>}
-            {!running && savedStatus==="skipped" && <span style={{fontSize:11,color:"#9ca3af",background:"#f3f4f6",padding:"2px 8px",borderRadius:8}}>⏭ Übersprungen</span>}
-            {tokens && <span style={{fontSize:10,color:"#6366f1",background:"#eef2ff",padding:"2px 7px",borderRadius:6,fontFamily:"monospace"}}>{tokens.total} tok</span>}
-            {costUsd != null && <span style={{fontSize:10,color:"#0369a1",background:"#e0f2fe",padding:"2px 7px",borderRadius:6,fontFamily:"monospace"}}>${costUsd.toFixed(5)}</span>}
-          </div>
+    <Modal
+      onClose={onClose}
+      title={col.name}
+      subtitle={companyName ? companyName : undefined}
+      icon={<Sparkles style={{ width: 14, height: 14 }} />}
+      maxWidth="min(740px, 96vw)"
+      maxHeight="88vh"
+      headerRight={
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          {row.data["maps_url"] && (() => {
+            const rawUrl = row.data["maps_url"]!;
+            const placeIdMatch = rawUrl.match(/place_id[=:](\d+)/);
+            const name = row.data["company_name"] ?? row.data["Unternehmensname"] ?? "";
+            const city = row.data["city"] ?? row.data["Stadt"] ?? "";
+            const query = [name, city].filter(Boolean).join(" ");
+            const mapsHref = placeIdMatch
+              ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}&query_place_id=${placeIdMatch[1]}`
+              : rawUrl;
+            return (
+              <a href={mapsHref} target="_blank" rel="noreferrer"
+                style={{ fontSize: 11, color: "var(--orange)", background: "var(--orange-soft)", border: "1px solid var(--orange-mid)", padding: "2px 7px", borderRadius: "var(--rs)", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 3, flexShrink: 0 }}
+                onClick={e => e.stopPropagation()}>
+                📍 Maps ↗
+              </a>
+            );
+          })()}
+          {running && <span className="status-pill status-pill-pending"><Loader2 style={{ width: 10, height: 10 }} className="animate-spin" /> Läuft…</span>}
+          {!running && savedStatus === "done" && <span className="status-pill status-pill-done"><CheckCircle2 style={{ width: 10, height: 10 }} /> Fertig</span>}
+          {!running && savedStatus === "error" && <span className="status-pill status-pill-error"><AlertCircle style={{ width: 10, height: 10 }} /> Fehler</span>}
+          {!running && savedStatus === "skipped" && <span style={{ fontSize: 11, color: "var(--text-3)", background: "var(--bg)", border: "1px solid var(--border)", padding: "2px 8px", borderRadius: "var(--rs)" }}>⏭ Übersprungen</span>}
+          {tokens && <span style={{ fontSize: 10, color: "var(--text-2)", background: "var(--bg)", border: "1px solid var(--border)", padding: "2px 6px", borderRadius: "var(--rs)", fontFamily: "monospace" }}>{tokens.total} tok</span>}
+          {costUsd != null && <span style={{ fontSize: 10, color: "var(--orange)", background: "var(--orange-soft)", border: "1px solid var(--orange-mid)", padding: "2px 6px", borderRadius: "var(--rs)", fontFamily: "monospace" }}>${costUsd.toFixed(5)}</span>}
           <button onClick={handleRun} disabled={running}
-            style={{display:"flex",alignItems:"center",gap:4,padding:"4px 12px",background:running?"#c4b5fd":"#7c3aed",color:"#fff",border:"none",borderRadius:6,cursor:"pointer",fontSize:12,fontWeight:600,flexShrink:0}}>
-            {running ? <Loader2 style={{width:10,height:10}} className="animate-spin"/> : <Play style={{width:10,height:10}}/>}
+            className="btn-v2 btn-v2-ai"
+            style={{ flexShrink: 0, padding: "4px 10px", fontSize: 11.5 }}>
+            {running ? <Loader2 style={{ width: 11, height: 11 }} className="animate-spin" /> : <Play style={{ width: 11, height: 11 }} />}
             {running ? "Läuft" : "Run"}
           </button>
-          <button onClick={onClose} style={{border:"none",background:"none",cursor:"pointer",fontSize:18,color:"#9ca3af",lineHeight:1,padding:"0 2px"}}>×</button>
         </div>
-
-        {/* ── Tabs ── */}
-        <div style={{display:"flex",borderBottom:"1px solid #e5e7eb",background:"#fafafa",flexShrink:0}}>
-          {TABS.map(t => (
-            <button key={t.id} onClick={()=>setActiveTab(t.id)}
-              style={{padding:"8px 16px",border:"none",borderBottom: activeTab===t.id ? "2px solid #7c3aed" : "2px solid transparent",background:"none",cursor:"pointer",fontSize:12,fontWeight:500,color: activeTab===t.id ? "#7c3aed" : "#6b7280",transition:"all 0.1s",marginBottom:-1}}>
-              {t.label}
-            </button>
-          ))}
-        </div>
+      }
+    >
+      {/* ── Tabs ── */}
+      <div style={{ display: "flex", borderBottom: "1px solid var(--border)", background: "var(--bg)", flexShrink: 0, padding: "0 8px" }}>
+        {TABS.map(t => (
+          <button key={t.id} onClick={() => setActiveTab(t.id)}
+            style={{
+              padding: "8px 14px",
+              border: "none",
+              borderBottom: activeTab === t.id ? "2px solid var(--orange)" : "2px solid transparent",
+              background: "none",
+              cursor: "pointer",
+              fontSize: 12,
+              fontWeight: activeTab === t.id ? 600 : 500,
+              color: activeTab === t.id ? "var(--orange)" : "var(--text-2)",
+              transition: "all 0.1s",
+              marginBottom: -1,
+            }}>
+            {t.label}
+          </button>
+        ))}
+      </div>
 
         {/* ── Tab Content ── */}
         <div style={{flex:1,overflowY:"auto",padding:"16px"}}>
@@ -699,25 +706,24 @@ export default function RunDetailModal({ col, row: initialRow, caseId, onClose, 
           {activeTab === "reasoning" && (<>
             {reasoningVal ? (
               <div style={{padding:"4px 0"}}>
-                <div style={{fontSize:11,fontWeight:600,color:"#6b7280",textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:8}}>
+                <div style={{fontSize:11,fontWeight:600,color:"var(--text-2)",textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:8}}>
                   🧠 LLM-Begründung
                 </div>
-                <div style={{background:"#faf5ff",border:"1px solid #e9d5ff",borderRadius:8,padding:"12px 14px",fontSize:13,color:"#4c1d95",lineHeight:1.6,fontStyle:"italic"}}>
+                <div style={{background:"var(--green-soft)",border:"1px solid var(--green-mid)",borderRadius:"var(--r)",padding:"12px 14px",fontSize:12.5,color:"var(--green)",lineHeight:1.6,fontStyle:"italic"}}>
                   {reasoningVal}
                 </div>
-                <div style={{marginTop:8,fontSize:11,color:"#9ca3af"}}>
-                  Gespeichert als <code style={{background:"#f3f4f6",padding:"1px 5px",borderRadius:3}}>_reasoning_{col.outputKey}</code>
+                <div style={{marginTop:8,fontSize:11,color:"var(--text-3)"}}>
+                  Gespeichert als <code style={{background:"var(--bg)",border:"1px solid var(--border)",padding:"1px 5px",borderRadius:3,fontFamily:"monospace"}}>_reasoning_{col.outputKey}</code>
                 </div>
               </div>
             ) : (
-              <div style={{textAlign:"center",padding:"32px 0",color:"#9ca3af",fontSize:13}}>
+              <div style={{textAlign:"center",padding:"32px 0",color:"var(--text-3)",fontSize:13}}>
                 Kein Reasoning vorhanden — Option muss in der Spalten-Konfiguration aktiviert sein.
               </div>
             )}
           </>)}
 
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

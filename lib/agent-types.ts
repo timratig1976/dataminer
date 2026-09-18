@@ -24,6 +24,8 @@ export interface AgentGoal {
   maxIterations?: number;
   /** Whether to include Google Maps/Places steps in the plan (default true) */
   useMaps?: boolean;
+  /** Search source mode: "auto" | "maps" | "search" | "combined" */
+  sourceMode?: "auto" | "maps" | "search" | "combined";
   /** Run LLM validation on Maps results to filter irrelevant entries (adds cost, improves quality) */
   validatePlaces?: boolean;
 }

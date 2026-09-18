@@ -170,6 +170,8 @@ export interface PlannerOptions {
   edenKeyAvailable?: boolean;
   /** Force include google_maps steps even if no Maps key detected */
   useMaps?: boolean;
+  /** Source preference: auto, maps (only maps), search (only web), combined (both) */
+  sourceMode?: "auto" | "maps" | "search" | "combined";
   /** Hard upper limit on results — passed directly to the LLM planner */
   maxResults?: number;
   /** Custom system prompt from DB settings. Overrides built-in prompt when set. */
@@ -188,11 +190,13 @@ export async function createDiscoveryPlan(
     braveApiKeyAvailable = false,
     edenKeyAvailable = true,
     useMaps = true,
+    sourceMode = "auto",
     maxResults,
     systemPromptOverride,
   } = options;
 
-  const mapsAvailable = useMaps && (serpApiKeyAvailable || serperApiKeyAvailable);
+  const effectiveUseMaps = sourceMode === "search" ? false : useMaps;
+  const mapsAvailable = effectiveUseMaps && (serpApiKeyAvailable || serperApiKeyAvailable);
 
   const builtInSystemPrompt = buildSystemPrompt({
     serpapi: serpApiKeyAvailable,
@@ -203,11 +207,18 @@ export async function createDiscoveryPlan(
   });
   const systemPrompt = systemPromptOverride?.trim() || builtInSystemPrompt;
 
-  const mapsHint = !useMaps
-    ? "\nIMPORTANT: Do NOT use google_maps steps — use catalog_scrape and google_search only."
-    : !mapsAvailable
-    ? "\nIMPORTANT: No Google Maps API key available. Avoid google_maps steps; use catalog_scrape + google_search instead."
-    : "";
+  let sourceHint = "";
+  if (sourceMode === "maps") {
+    sourceHint = "\nIMPORTANT: Prioritize google_maps steps for all relevant cities and branches. Only use web search if no maps entry is possible.";
+  } else if (sourceMode === "search") {
+    sourceHint = "\nIMPORTANT: Do NOT use google_maps steps — use google_search and catalog_scrape only.";
+  } else if (sourceMode === "combined") {
+    sourceHint = "\nIMPORTANT: Generate a BALANCED plan containing BOTH google_maps steps (structured data) AND google_search steps (broad web coverage).";
+  } else if (!effectiveUseMaps) {
+    sourceHint = "\nIMPORTANT: Do NOT use google_maps steps — use catalog_scrape and google_search only.";
+  } else if (!mapsAvailable) {
+    sourceHint = "\nIMPORTANT: No Google Maps API key available. Avoid google_maps steps; use catalog_scrape + google_search instead.";
+  }
 
   const unlimited = !maxResults || maxResults === 0;
   const maxResultsHint = unlimited
@@ -219,7 +230,7 @@ export async function createDiscoveryPlan(
     region: "us",
     model,
     system: systemPrompt,
-    prompt: `Research goal: ${prompt}${mapsHint}${maxResultsHint}`,
+    prompt: `Research goal: ${prompt}${sourceHint}${maxResultsHint}`,
     maxTokens: 3000,
     temperature: 0.1,
   });
