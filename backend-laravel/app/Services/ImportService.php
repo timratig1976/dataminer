@@ -188,14 +188,20 @@ class ImportService
             $caseData = $snapshotData['case'] ?? $snapshotData;
             $caseId = $caseData['id'] ?? (string) Str::uuid();
 
+            // Support both camelCase (Next.js exporter) and snake_case
+            $aiColumns = $caseData['ai_columns'] ?? $caseData['aiColumns'] ?? [];
+            $colOrder = $caseData['col_order'] ?? $caseData['colOrder'] ?? [];
+            $columns = $caseData['columns'] ?? [];
+
             // Upsert DataCase
             $case = DataCase::updateOrCreate(
                 ['id' => $caseId],
                 [
                     'name' => $caseData['name'] ?? 'Imported Snapshot',
                     'description' => $caseData['description'] ?? null,
-                    'columns' => $caseData['columns'] ?? [],
-                    'tags' => $caseData['tags'] ?? [],
+                    'columns' => $columns,
+                    'ai_columns' => $aiColumns,
+                    'col_order' => $colOrder,
                 ]
             );
 
@@ -207,13 +213,18 @@ class ImportService
             $batchSize = 500;
 
             foreach ($rows as $index => $r) {
+                // Support both camelCase and snake_case for cellStatuses and row_index
+                $cellStatuses = $r['cell_statuses'] ?? $r['cellStatuses'] ?? [];
+                $cellErrors = $r['cell_errors'] ?? $r['cellErrors'] ?? [];
+                $rowIndex = $r['row_index'] ?? $r['rowIndex'] ?? $index;
+
                 $batch[] = [
                     'id' => $r['id'] ?? (string) Str::uuid(),
                     'case_id' => $case->id,
-                    'row_index' => $r['row_index'] ?? $index,
+                    'row_index' => $rowIndex,
                     'data' => json_encode($r['data'] ?? []),
-                    'cell_statuses' => json_encode($r['cell_statuses'] ?? []),
-                    'cell_errors' => json_encode($r['cell_errors'] ?? []),
+                    'cell_statuses' => json_encode($cellStatuses),
+                    'cell_errors' => json_encode($cellErrors),
                     'created_at' => now(),
                     'updated_at' => now(),
                 ];
