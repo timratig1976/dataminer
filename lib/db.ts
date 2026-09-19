@@ -727,7 +727,7 @@ export async function clearAllLogs(): Promise<void> {
 
 const SCRAPE_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
-export async function getCachedScrape(url: string): Promise<{ markdown: string; title?: string } | null> {
+export async function getCachedScrape(url: string): Promise<{ markdown: string; title?: string; fetchedAt?: string } | null> {
   await initDb();
   const result = await getDb()
     .select({ markdown: scrapeCache.markdown, title: scrapeCache.title, fetchedAt: scrapeCache.fetchedAt })
@@ -738,7 +738,23 @@ export async function getCachedScrape(url: string): Promise<{ markdown: string; 
   if (!row) return null;
   const age = Date.now() - new Date(row.fetchedAt).getTime();
   if (Number.isFinite(age) && age > SCRAPE_CACHE_TTL_MS) return null;
-  return { markdown: row.markdown, title: row.title ?? undefined };
+  return { markdown: row.markdown, title: row.title ?? undefined, fetchedAt: toIso(row.fetchedAt) };
+}
+
+export async function getScrapeCacheMap(urls: string[]): Promise<Map<string, { markdown: string; title?: string; fetchedAt: string }>> {
+  await initDb();
+  if (!urls.length) return new Map();
+  const cleanUrls = [...new Set(urls.filter(Boolean))];
+  const map = new Map<string, { markdown: string; title?: string; fetchedAt: string }>();
+  // Query all cache entries that match any of these URLs or domains
+  const results = await getDb()
+    .select({ url: scrapeCache.url, markdown: scrapeCache.markdown, title: scrapeCache.title, fetchedAt: scrapeCache.fetchedAt })
+    .from(scrapeCache);
+  
+  for (const r of results) {
+    map.set(r.url, { markdown: r.markdown, title: r.title ?? undefined, fetchedAt: toIso(r.fetchedAt) });
+  }
+  return map;
 }
 
 export async function setCachedScrape(url: string, markdown: string, title?: string): Promise<void> {

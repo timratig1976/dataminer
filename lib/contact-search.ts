@@ -14,6 +14,7 @@
 
 import { edenChatCompletion, edenScrapeUrl } from "./edenai";
 import { webSearch } from "./search";
+import { getCachedScrape, setCachedScrape } from "./db";
 
 /** Strip surrogate pairs and other invalid UTF-16 sequences that Eden AI rejects. */
 function sanitizeForLlm(text: string): string {
@@ -51,6 +52,7 @@ export interface Contact {
 
 export interface ContactSearchOptions {
   edenApiKey: string;
+  directFirecrawlApiKey?: string;
   model?: string;
   serpApiKey?: string;
   braveApiKey?: string;
@@ -140,6 +142,7 @@ export async function searchContacts(
 ): Promise<ContactSearchResult> {
   const {
     edenApiKey,
+    directFirecrawlApiKey,
     model = "openai/gpt-4o-mini",
     serpApiKey,
     braveApiKey,
@@ -164,30 +167,72 @@ export async function searchContacts(
   let googleSnippets: string | undefined;
   let linkedinSnippets: string | undefined;
 
-  // 1. Scrape Impressum / Kontakt page
+  // ── 1. Cache-First Impressum & Homepage Resolution ──
+  // Check if we already have a scrape in rowData (from batch_company) or in PostgreSQL scrape_cache
   if (scrapeImpressum && domain) {
-    try {
-      const base = `https://${domain.replace(/^https?:\/\//, "").replace(/^www\./, "")}`;
-      let impressumText = "";
-      let impressumUrl = "";
-      for (const path of ["/impressum", "/impressum.html", "/kontakt", "/kontakt.html", "/about", "/team", "/management"]) {
-        try {
-          const result = await edenScrapeUrl({ apiKey: edenApiKey, url: `${base}${path}` });
-          if (result.markdown && result.markdown.length > 200) {
-            // filter cookie/nav noise same as batch-enrich
-            impressumText = filterImpressum(result.markdown.slice(0, 4000));
-            impressumUrl = `${base}${path}`;
-            break;
-          }
-        } catch { continue; }
+    const base = `https://${domain.replace(/^https?:\/\//, "").replace(/^www\./, "")}`;
+    let rawText = "";
+    let sourceOrigin = "";
+    let pageUrl = "";
+
+    // A: Check if rowData already carries the scrape from batch_company
+    const rowImpressumMd = rowData["_batch_impressum_md"] || rowData["_batch_impressum_md__batch_firmendaten"];
+    const rowScrapeMd = rowData["_batch_scrape_md"] || rowData["_batch_scrape_md__batch_firmendaten"];
+
+    if (rowImpressumMd && rowImpressumMd.length > 20) {
+      rawText = rowImpressumMd;
+      sourceOrigin = "cache:row_impressum";
+      pageUrl = `${base}/impressum`;
+    } else if (rowScrapeMd && rowScrapeMd.length > 20) {
+      rawText = rowScrapeMd;
+      sourceOrigin = "cache:row_homepage";
+      pageUrl = base;
+    }
+
+    // B: Check PostgreSQL scrape_cache for impressum or homepage
+    if (!rawText) {
+      const cachedImp = await getCachedScrape(`${base}/impressum`).catch(() => null);
+      if (cachedImp?.markdown && cachedImp.markdown.length > 20) {
+        rawText = cachedImp.markdown;
+        sourceOrigin = "cache:db_impressum";
+        pageUrl = `${base}/impressum`;
+      } else {
+        const cachedBase = await getCachedScrape(base).catch(() => null);
+        if (cachedBase?.markdown && cachedBase.markdown.length > 20) {
+          rawText = cachedBase.markdown;
+          sourceOrigin = "cache:db_homepage";
+          pageUrl = base;
+        }
       }
-      if (impressumText) {
-        impressumContent = impressumText;
-        contextParts.push(`## Impressum / Kontaktseite (${domain})\n${impressumText}`);
-        sourcesUsed.push(`impressum:${impressumUrl.replace(/^https?:\/\/[^/]+/,"")||`/impressum`}`);
-        sourceUrls.push(impressumUrl || `${base}/impressum`);
+    }
+
+    // C: Only if NO cache exists: Scrape AT MOST 1 targeted URL (never a blind loop)
+    if (!rawText) {
+      const targetUrl = `${base}/impressum`;
+      try {
+        const result = await edenScrapeUrl({
+          apiKey: edenApiKey,
+          directFirecrawlApiKey,
+          url: targetUrl,
+          signal,
+        });
+        if (result.markdown && result.markdown.length > 20) {
+          rawText = result.markdown;
+          sourceOrigin = "live:scrape_impressum";
+          pageUrl = targetUrl;
+          await setCachedScrape(targetUrl, result.markdown, result.title).catch(() => {});
+        }
+      } catch {
+        // live scrape failed, proceed to search
       }
-    } catch { /* ignore */ }
+    }
+
+    if (rawText) {
+      impressumContent = filterImpressum(rawText.slice(0, 4500));
+      contextParts.push(`## Impressum / Kontaktdaten (${sourceOrigin})\n${impressumContent}`);
+      sourcesUsed.push(sourceOrigin);
+      sourceUrls.push(pageUrl);
+    }
   }
 
   // 2. Google: company + decision maker keywords

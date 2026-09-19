@@ -31,6 +31,7 @@ const FLAT_CONTACT_KEYS = new Set([
 
 /** Check if a key should be hidden from the visible table/export */
 export function isHiddenColumn(key: string, aiColumns: AiColumn[]): boolean {
+  if (key === "_scrape_cached_ts") return false;
   const aiOutputKeySet = new Set(aiColumns.map((c) => c.outputKey));
   if (aiOutputKeySet.has(key)) return false;
   if (key.startsWith("_")) return true;
@@ -85,6 +86,7 @@ export function getColumnLabel(key: string, caseData: Case): string {
     maps_rating: "★ Rating",
     maps_reviews: "Bewertungen",
     category: "Kategorie",
+    _scrape_cached_ts: "⚡ Cache-Status",
   };
   return labels[key] ?? key;
 }

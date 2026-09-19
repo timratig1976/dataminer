@@ -94,6 +94,8 @@ export function useCaseData(caseId: string): UseCaseDataReturn {
         ? [/^first_name$/, /^last_name$/, /^position$/, /^contact_email$/, /^contact_phone$/, /^linkedin$/]
         : [];
       const isHidden = (k: string) => {
+        // Explicitly allow cache status column
+        if (k === "_scrape_cached_ts") return false;
         // Never hide AI output columns — even if their key starts with "_"
         if (aiOutputKeys.includes(k)) return false;
         if (k.startsWith("_")) return true;
@@ -139,6 +141,8 @@ export function useCaseData(caseId: string): UseCaseDataReturn {
       function buildSmartOrder(): string[] {
         // 1. Domain — always first anchor
         const domain = allVisibleKeys.includes("domain") ? ["domain"] : [];
+        // 1b. Cache Status — directly after domain
+        const cacheCol = allVisibleKeys.includes("_scrape_cached_ts") ? ["_scrape_cached_ts"] : [];
         // 2. Maps display fields — right after domain when present
         const mapsDisplay = MAPS_DISPLAY.filter(k => allVisibleKeys.includes(k));
         // 3. batch_company AI col — runs after domain+maps, fills everything below
@@ -146,18 +150,18 @@ export function useCaseData(caseId: string): UseCaseDataReturn {
         // 4. company_name + identity cols — placed AFTER enrich
         const nameCol = IDENTITY_COLS.filter(k => allVisibleKeys.includes(k) && k !== "domain");
         // 5. Company data fields (written by batch_company) — skip any already in nameCol
-        const nameSet = new Set([...domain, ...mapsDisplay, ...nameCol]);
+        const nameSet = new Set([...domain, ...cacheCol, ...mapsDisplay, ...nameCol]);
         const companyData = COMPANY_DATA_FIELDS.filter(k => allVisibleKeys.includes(k) && !nameSet.has(k));
         // 6. batch_contact AI col
         const contactAi = batchContactCol ? [batchContactCol.outputKey] : [];
         // 7. Remaining source cols not yet placed
-        const placed = new Set([...domain, ...mapsDisplay, ...enrichAi, ...nameCol, ...companyData, ...contactAi]);
+        const placed = new Set([...domain, ...cacheCol, ...mapsDisplay, ...enrichAi, ...nameCol, ...companyData, ...contactAi]);
         const remaining = otherSrcKeys.filter(k => !placed.has(k));
         // 8. Other AI cols · 9. Meta/discovery at end
         const orphanRemaining = orphanKeys.filter(k => !placed.has(k) && !remaining.includes(k));
         // Deduplicate while preserving order
         const seen = new Set<string>();
-        return [...domain, ...mapsDisplay, ...enrichAi, ...nameCol, ...companyData, ...contactAi, ...remaining, ...otherAiKeys, ...orphanRemaining, ...metaCols]
+        return [...domain, ...cacheCol, ...mapsDisplay, ...enrichAi, ...nameCol, ...companyData, ...contactAi, ...remaining, ...otherAiKeys, ...orphanRemaining, ...metaCols]
           .filter(k => { if (seen.has(k)) return false; seen.add(k); return true; });
       }
 

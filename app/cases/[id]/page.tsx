@@ -51,6 +51,7 @@ const COL_LABELS: Record<string, string> = {
   maps_rating: "★ Rating",
   maps_reviews: "Bewertungen",
   category: "Kategorie",
+  _scrape_cached_ts: "⚡ Cache-Status",
   // Batch AI columns
   _batch_firmendaten: "🏢 Firmendaten",
   _batch_kontakte: "👤 Entscheider",
@@ -1127,6 +1128,9 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
   const [editingPromptCell, setEditingPromptCell] = useState<{col: AiColumn; row: RowData} | null>(null);
   const [runDetailCell, setRunDetailCell] = useState<{col: AiColumn; row: RowData} | null>(null);
   const [reasoningModal, setReasoningModal] = useState<{content: string; title: string} | null>(null);
+  const [cacheModalRow, setCacheModalRow] = useState<RowData | null>(null);
+  const [cacheModalEntries, setCacheModalEntries] = useState<Array<{url:string; title?:string; length:number; markdown:string; fetchedAt:string}>>([]);
+  const [cacheModalLoading, setCacheModalLoading] = useState(false);
   const [viewMode, setViewMode] = useState<"flat" | "grouped">("flat");
   const [showRunOptions, setShowRunOptions] = useState(false);
   const [showExport, setShowExport] = useState(false);
@@ -1424,6 +1428,8 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
   const hasBatchContactsCol = caseData?.aiColumns.some(c => c.tool === "batch_contact") ?? false;
   const aiOutputKeySet = new Set(caseData?.aiColumns.map(c => c.outputKey) ?? []);
   const isHiddenCol = (key: string): boolean => {
+    // Explicitly allow cache status column
+    if (key === "_scrape_cached_ts") return false;
     // Never hide AI output columns — even if their outputKey starts with "_"
     if (aiOutputKeySet.has(key)) return false;
     if (key.startsWith("_")) return true;
@@ -1483,15 +1489,8 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
           </button>
         </div>
 
-        {/* Section: New Case & Case Info */}
+        {/* Section: Main Nav & Case Info */}
         <div style={{padding:"14px 14px 6px",flex:1,overflowY:"auto"}}>
-          <button onClick={() => router.push("/cases")}
-            style={{width:"100%",display:"flex",alignItems:"center",gap:6,padding:"6px 9px",borderRadius:"var(--rs)",border:"1px dashed var(--border)",background:"transparent",cursor:"pointer",fontSize:12,color:"var(--text-3)",textAlign:"left",marginBottom:12,transition:"all 0.12s"}}
-            onMouseEnter={e=>{e.currentTarget.style.borderColor="var(--orange)";e.currentTarget.style.color="var(--orange)";e.currentTarget.style.background="var(--orange-soft)";}}
-            onMouseLeave={e=>{e.currentTarget.style.borderColor="var(--border)";e.currentTarget.style.color="var(--text-3)";e.currentTarget.style.background="transparent";}}>
-            <Plus style={{width:13,height:13}} /> Neuer Case
-          </button>
-
           <div style={{display:"flex",flexDirection:"column",gap:2,marginBottom:12}}>
             <button onClick={() => router.push("/dashboard")}
               style={{width:"100%",display:"flex",alignItems:"center",gap:8,padding:"5px 8px",borderRadius:"var(--rs)",border:"none",background:"transparent",cursor:"pointer",fontSize:12,color:"var(--text-2)",textAlign:"left"}}
@@ -2481,6 +2480,41 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
                           );
                         }
 
+                        // ── Cache Timestamp / Status Cell ────────────────
+                        if (key === "_scrape_cached_ts") {
+                          const cached = row.data["_scrape_cached"] === "true" || !!row.data["_scrape_cached_ts"];
+                          const ts = val ? new Date(val).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" }) : "";
+                          const date = val ? new Date(val).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" }) : "";
+                          return (
+                            <td key={key} style={{padding:"5px 10px",borderRight:"1px solid #f3f4f6",whiteSpace:"nowrap"}}>
+                              {cached ? (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setCacheModalRow(row);
+                                    setCacheModalLoading(true);
+                                    const d = row.data["domain"] ?? row.data["source_domain"] ?? "";
+                                    fetch(`/api/cache?domain=${encodeURIComponent(d)}`)
+                                      .then(r => r.json())
+                                      .then(data => setCacheModalEntries(data.entries ?? []))
+                                      .catch(() => setCacheModalEntries([]))
+                                      .finally(() => setCacheModalLoading(false));
+                                  }}
+                                  style={{display:"inline-flex",alignItems:"center",gap:4,fontSize:11,color:"#15803d",background:"#dcfce7",border:"1px solid #bbf7d0",padding:"2px 8px",borderRadius:4,fontWeight:600,cursor:"pointer",transition:"all 0.15s"}}
+                                  onMouseEnter={e => { e.currentTarget.style.background = "#bbf7d0"; }}
+                                  onMouseLeave={e => { e.currentTarget.style.background = "#dcfce7"; }}
+                                  title={`Klicken für alle Cache-Details (${date} um ${ts} Uhr)`}
+                                >
+                                  ⚡ Gecached {ts ? `(${ts})` : ""} 🔍
+                                </button>
+                              ) : (
+                                <span style={{fontSize:11,color:"#9ca3af"}} title="Noch kein Web-Scrape im lokalen Cache">—</span>
+                              )}
+                            </td>
+                          );
+                        }
+
                         // ── Contacts aggregation cell ─────────────────────
                         // Matches both the "contacts" source col and batch_contact AI cols (e.g. _batch_kontakte)
                         const isContactsCell = key === "contacts" && isSrc;
@@ -2670,6 +2704,13 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
                                             e.preventDefault();
                                             const newData = { ...(row.data as Record<string,string|null>) };
                                             newData[key] = null;
+                                            if (key === "domain") {
+                                              // Also clear row cache flags so user sees cache is cleared for this row
+                                              delete newData["_scrape_cached"];
+                                              delete newData["_scrape_cached_ts"];
+                                              delete newData["_batch_scrape_md"];
+                                              delete newData["_batch_impressum_md"];
+                                            }
                                             await fetch(`/api/rows/${row.id}`, {
                                               method: "PATCH",
                                               headers: { "Content-Type": "application/json" },
@@ -3269,6 +3310,69 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
           }}
         />
       )}
+      {cacheModalRow && (
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:9999,padding:16}}
+          onClick={() => setCacheModalRow(null)}>
+          <div style={{background:"#fff",borderRadius:12,width:"100%",maxWidth:800,maxHeight:"85vh",display:"flex",flexDirection:"column",boxShadow:"0 20px 60px rgba(0,0,0,0.2)"}}
+            onClick={e => e.stopPropagation()}>
+            <div style={{padding:"16px 20px",borderBottom:"1px solid #e5e7eb",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+              <div>
+                <h3 style={{fontSize:16,fontWeight:700,color:"#111827",margin:0,display:"flex",alignItems:"center",gap:6}}>
+                  ⚡ Gecachte Scrape-Daten für {cacheModalRow.data["company_name"] || cacheModalRow.data["domain"] || "Zeile"}
+                </h3>
+                <div style={{fontSize:11.5,color:"#6b7280",marginTop:2}}>
+                  Domain: <code style={{background:"#f3f4f6",padding:"1px 6px",borderRadius:4,fontFamily:"monospace"}}>{cacheModalRow.data["domain"] || "keine Domain"}</code> · Kosten dieser Daten: $0,00 (aus PostgreSQL scrape_cache)
+                </div>
+              </div>
+              <button onClick={() => setCacheModalRow(null)} style={{border:"none",background:"none",cursor:"pointer",padding:4,color:"#9ca3af",borderRadius:6}}>
+                <XCircle style={{width:20,height:20}} />
+              </button>
+            </div>
+
+            <div style={{flex:1,overflowY:"auto",padding:20,display:"flex",flexDirection:"column",gap:16}}>
+              {cacheModalLoading ? (
+                <div style={{display:"flex",alignItems:"center",justifyContent:"center",padding:40,gap:8,color:"#6b7280"}}>
+                  <Loader2 className="animate-spin" style={{width:18,height:18,color:"#15803d"}} /> Lade Cache-Einträge…
+                </div>
+              ) : cacheModalEntries.length === 0 ? (
+                <div style={{padding:24,background:"#f9fafb",borderRadius:8,textAlign:"center",color:"#6b7280",fontSize:13}}>
+                  Kein direkter PostgreSQL-Cache-Eintrag für diese Domain gefunden.
+                  {cacheModalRow.data["_batch_scrape_md"] && (
+                    <div style={{marginTop:12,textAlign:"left"}}>
+                      <div style={{fontWeight:600,color:"#374151",marginBottom:4}}>In dieser Zeile gespeicherter Homepage-Scrape:</div>
+                      <pre style={{fontSize:11,background:"#fff",border:"1px solid #e5e7eb",padding:10,borderRadius:6,maxHeight:240,overflow:"auto",whiteSpace:"pre-wrap"}}>
+                        {cacheModalRow.data["_batch_scrape_md"]}
+                      </pre>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                cacheModalEntries.map((entry, idx) => (
+                  <div key={idx} style={{border:"1px solid #e5e7eb",borderRadius:8,overflow:"hidden"}}>
+                    <div style={{padding:"10px 14px",background:"#f8fafc",borderBottom:"1px solid #e5e7eb",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                      <div style={{minWidth:0,flex:1}}>
+                        <div style={{fontWeight:600,fontSize:12.5,color:"#1e293b",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                          🔗 {entry.url}
+                        </div>
+                        <div style={{fontSize:10.5,color:"#64748b",marginTop:1}}>
+                          {entry.title ? `Titel: "${entry.title}" · ` : ""}Größe: {Math.round(entry.length / 1024 * 10) / 10} KB · Gecached am: {new Date(entry.fetchedAt).toLocaleString("de-DE")}
+                        </div>
+                      </div>
+                      <span style={{fontSize:11,fontWeight:600,color:"#15803d",background:"#dcfce7",border:"1px solid #bbf7d0",padding:"1px 7px",borderRadius:99}}>
+                        ⚡ $0 Re-use
+                      </span>
+                    </div>
+                    <div style={{maxHeight:240,overflowY:"auto",padding:12,background:"#fff",fontSize:11.5,lineHeight:1.6,color:"#334155",fontFamily:"monospace",whiteSpace:"pre-wrap",wordBreak:"break-word"}}>
+                      {entry.markdown}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {reasoningModal && (
         <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.5)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:50}}>
           <div style={{background:"#fff",borderRadius:12,padding:24,maxWidth:600,width:"90%",maxHeight:"80vh",display:"flex",flexDirection:"column"}}>

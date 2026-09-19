@@ -145,30 +145,6 @@ export default function AppShell({
 
         {/* Section: Main Nav & Cases */}
         <div className="flex-1 overflow-y-auto px-3.5 py-3">
-          {/* Quick Add Button */}
-          <button
-            onClick={() => router.push("/cases")}
-            className="w-full text-left px-2.5 py-1.5 rounded text-xs cursor-pointer transition-all flex items-center gap-1.5 mb-3"
-            style={{
-              border: "1px dashed var(--border)",
-              color: "var(--text-3)",
-              background: "transparent",
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.borderColor = "var(--orange)";
-              e.currentTarget.style.color = "var(--orange)";
-              e.currentTarget.style.background = "var(--orange-soft)";
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.borderColor = "var(--border)";
-              e.currentTarget.style.color = "var(--text-3)";
-              e.currentTarget.style.background = "transparent";
-            }}
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>Neuer Case</span>
-          </button>
-
           {/* Primary Nav Links */}
           <div className="flex flex-col gap-0.5 mb-3">
             <button

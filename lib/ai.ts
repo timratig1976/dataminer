@@ -311,7 +311,11 @@ export async function runAiColumn(
     // Store debug info for detail modal
     if (result.debugPrompt) multiValues[`_llm_prompt_${column.outputKey}`] = result.debugPrompt;
     if (result.debugRawResponse) multiValues[`_llm_raw_${column.outputKey}`] = result.debugRawResponse;
-    if (result.scrapeMarkdown) multiValues[`_batch_scrape_md_${column.outputKey}`] = result.scrapeMarkdown.slice(0, 12000);
+    if (result.scrapeMarkdown) {
+      multiValues[`_batch_scrape_md_${column.outputKey}`] = result.scrapeMarkdown.slice(0, 12000);
+      multiValues[`_scrape_cached`] = "true";
+      multiValues[`_scrape_cached_ts`] = new Date().toISOString();
+    }
     if (result.impressumMarkdown) multiValues[`_batch_impressum_md_${column.outputKey}`] = result.impressumMarkdown.slice(0, 6000);
     if (result.searchSnippets) multiValues[`_batch_search_snip_${column.outputKey}`] = result.searchSnippets.slice(0, 6000);
     if (result.scrapeError) multiValues[`_batch_scrape_error_${column.outputKey}`] = result.scrapeError;
@@ -335,12 +339,20 @@ export async function runAiColumn(
 
   // ── Contact search — Impressum + LinkedIn + Google → Entscheider ──────────
   if (column.tool === "batch_contact") {
-    const serpApiKey = process.env.SERP_API_KEY || undefined;
-    const braveApiKey = process.env.BRAVE_API_KEY || undefined;
+    const { resolveSearchKeys, resolveFirecrawlKey } = await import("./db");
+    const [searchKeys, dbFirecrawlKey] = await Promise.all([
+      resolveSearchKeys().catch(() => ({ serpApiKey: undefined, braveApiKey: undefined, firecrawlApiKey: undefined })),
+      resolveFirecrawlKey().catch(() => undefined),
+    ]);
+
+    const serpApiKey = searchKeys.serpApiKey || process.env.SERP_API_KEY || undefined;
+    const braveApiKey = searchKeys.braveApiKey || process.env.BRAVE_API_KEY || undefined;
+    const directFirecrawlApiKey = dbFirecrawlKey || searchKeys.firecrawlApiKey || process.env.FIRECRAWL_API_KEY || undefined;
     const maxContacts = column.batchContactsMax ?? 3;
 
     const result = await searchContacts(rowData as Record<string, string | null>, {
       edenApiKey: apiKey,
+      directFirecrawlApiKey,
       model: normalizeEdenModel(column.model ?? "openai/gpt-4o-mini"),
       serpApiKey,
       braveApiKey,
@@ -798,10 +810,22 @@ Antworte NUR mit dem JSON-Objekt.`;
     for (const src of column.crawlSources) {
       try {
         if (src === "domain" && domain) {
-          // Scrape company website
-          const scraped = await edenScrapeUrl({ apiKey, url: domain.startsWith("http") ? domain : `https://${domain}` }).catch(() => null);
-          if (scraped?.markdown) {
-            crawlBlocks.push(`#WEBSITE CONTENT (${domain}):\n${scraped.markdown.slice(0, 8000)}\n#END WEBSITE CONTENT`);
+          // Scrape company website — check cache first!
+          const targetUrl = domain.startsWith("http") ? domain : `https://${domain}`;
+          let markdownText = "";
+          const cached = await getCachedScrape(targetUrl).catch(() => null);
+          if (cached?.markdown) {
+            markdownText = cached.markdown;
+          } else {
+            const scraped = await edenScrapeUrl({ apiKey, url: targetUrl }).catch(() => null);
+            if (scraped?.markdown) {
+              markdownText = scraped.markdown;
+              await setCachedScrape(targetUrl, scraped.markdown, scraped.title).catch(() => {});
+            }
+          }
+
+          if (markdownText) {
+            crawlBlocks.push(`#WEBSITE CONTENT (${domain}):\n${markdownText.slice(0, 8000)}\n#END WEBSITE CONTENT`);
             hasPageContent = true;
           }
         } else if (src === "maps_details" && apifyToken) {

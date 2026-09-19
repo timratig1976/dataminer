@@ -393,12 +393,19 @@ export default function RunDetailModal({ col, row: initialRow, caseId, onClose, 
                 }
               }
               // Impressum (beide tools)
-              const impressumSrc = srcs.find(s=>s.startsWith("impressum:"));
+              const impressumSrc = srcs.find(s=>s.startsWith("impressum:") || s.startsWith("cache:") || s.startsWith("live:"));
+              const isCache = impressumSrc?.startsWith("cache:") || srcs.some(s=>s.startsWith("cache:"));
               const impressumContent = batchImpressumMd;
               if (impressumSrc || impressumContent) {
-                const path = impressumSrc?.replace("impressum:","") ?? "/impressum";
+                const path = impressumSrc?.replace("impressum:","").replace("cache:","").replace("live:","") ?? "/impressum";
                 const url = row.data["domain"] ? `https://${row.data["domain"]}${path}` : undefined;
-                entries.push({ id:"impressum", icon:"🔥", label:`Impressum/Kontakt (${path})`, url, content: impressumContent || undefined });
+                entries.push({
+                  id:"impressum",
+                  icon: isCache ? "⚡" : "🔥",
+                  label: isCache ? `Impressum/Kontakt (${path} · Cache-Treffer $0)` : `Impressum/Kontakt (${path})`,
+                  url,
+                  content: impressumContent || undefined
+                });
               }
               // Google-Suche
               if (srcs.some(s=>s==="google"||s==="google_management"||s==="search") || batchSearchSnip || contactsGoogleSnip) {

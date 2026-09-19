@@ -1,14 +1,15 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useRef, useState, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Plus, Search, Trash2, ChevronRight, Database, LayoutTemplate, Check, Download, Upload, Loader2 } from "lucide-react";
 import type { Case } from "@/lib/types";
 import type { ProjectTemplate } from "@/lib/templates";
 import AppShell from "@/components/AppShell";
 
-export default function CasesPage() {
+function CasesView() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [cases, setCases] = useState<Case[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
@@ -17,6 +18,12 @@ export default function CasesPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [templates, setTemplates] = useState<ProjectTemplate[]>([]);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>("standard");
+
+  useEffect(() => {
+    if (searchParams.get("new") === "1") {
+      setCreating(true);
+    }
+  }, [searchParams]);
 
   const [importing, setImporting] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
@@ -351,5 +358,13 @@ export default function CasesPage() {
         </div>
       )}
     </AppShell>
+  );
+}
+
+export default function CasesPage() {
+  return (
+    <Suspense fallback={null}>
+      <CasesView />
+    </Suspense>
   );
 }

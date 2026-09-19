@@ -274,17 +274,20 @@ export async function batchEnrichRow(
   if (isRealDomain) {
     const base = domain.startsWith("http") ? domain : `https://${domain}`;
     let rawHomepageMarkdown = cachedScrape;
+    let homepageCachedAt: string | undefined;
 
     // Check PostgreSQL scrape_cache if cachedScrape wasn't passed directly
     if (!rawHomepageMarkdown) {
       const dbCached = await getCachedScrape(base).catch(() => null);
       if (dbCached?.markdown) {
         rawHomepageMarkdown = dbCached.markdown;
+        homepageCachedAt = dbCached.fetchedAt;
       }
     }
 
     if (rawHomepageMarkdown) {
       scrapeMarkdown = filterScrapedContent(rawHomepageMarkdown);
+      if (!homepageCachedAt) homepageCachedAt = new Date().toISOString();
     } else {
       try {
         const result = await edenScrapeUrl({
@@ -296,6 +299,7 @@ export async function batchEnrichRow(
         rawHomepageMarkdown = result.markdown ?? "";
         scrapeMarkdown = filterScrapedContent(rawHomepageMarkdown.slice(0, 6000));
         rowScrapeCostUsd += (result.costUsd ?? 0.00435);
+        homepageCachedAt = new Date().toISOString();
         // Persist homepage in scrape_cache
         if (rawHomepageMarkdown.trim()) {
           await setCachedScrape(base, rawHomepageMarkdown, result.title).catch(() => {});
@@ -307,7 +311,7 @@ export async function batchEnrichRow(
 
     if (scrapeMarkdown?.trim()) {
       contextParts.push(`## Homepage (${domain})\n${scrapeMarkdown}`);
-      sourcesUsed.push("scrape");
+      sourcesUsed.push(homepageCachedAt ? `scrape (cached: ${homepageCachedAt})` : "scrape");
     }
 
     // ── Targeted Impressum Scrape (P0 IP Protection & Cost Optimization) ──
