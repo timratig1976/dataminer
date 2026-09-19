@@ -6,6 +6,9 @@ use App\Http\Controllers\Api\CaseController;
 use App\Http\Controllers\Api\RowController;
 use App\Http\Controllers\Api\ExportController;
 use App\Http\Controllers\Api\EnrichmentJobController;
+use App\Http\Controllers\Api\ImportController;
+use App\Http\Controllers\Api\SettingsController;
+use App\Http\Controllers\Api\AgentRunController;
 
 // Public or Authenticated routes via Sanctum
 Route::middleware(['auth:sanctum'])->group(function () {
@@ -21,6 +24,8 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::get('/export', [ExportController::class, 'exportCsv']);
     Route::get('/enrichment/jobs/{id}', [EnrichmentJobController::class, 'show']);
     Route::get('/enrichment/jobs/{id}/stream', [EnrichmentJobController::class, 'stream']);
+    Route::get('/settings', [SettingsController::class, 'show']);
+    Route::get('/agent/runs/{id}/stream', [AgentRunController::class, 'stream']);
 
     // Write access for Editor & Super-Admin
     Route::middleware(['role:Super-Admin|Editor'])->group(function () {
@@ -32,12 +37,19 @@ Route::middleware(['auth:sanctum'])->group(function () {
 
         Route::post('/enrichment/dispatch', [EnrichmentJobController::class, 'dispatchJob']);
         Route::post('/enrichment/jobs/{id}/cancel', [EnrichmentJobController::class, 'cancel']);
+
+        Route::post('/import/csv', [ImportController::class, 'importCsv']);
+        Route::post('/import/snapshot', [ImportController::class, 'importSnapshot']);
+
+        Route::post('/agent/runs', [AgentRunController::class, 'store']);
+        Route::post('/agent/runs/{id}/step', [AgentRunController::class, 'executeStep']);
     });
 
-    // Destructive access: Super-Admin only
+    // Destructive / Settings access: Super-Admin only
     Route::middleware(['role:Super-Admin'])->group(function () {
         Route::delete('/cases/{id}', [CaseController::class, 'destroy']);
         Route::delete('/rows', [RowController::class, 'destroy']);
+        Route::put('/settings', [SettingsController::class, 'update']);
     });
 });
 

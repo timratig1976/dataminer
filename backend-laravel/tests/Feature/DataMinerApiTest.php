@@ -14,6 +14,8 @@ class DataMinerApiTest extends TestCase
     {
         parent::setUp();
         
+        $this->seed(\Database\Seeders\RoleAndPermissionSeeder::class);
+
         $admin = User::firstOrCreate(
             ['email' => 'admin@dataminer.local'],
             ['name' => 'Super Admin', 'password' => bcrypt('password')]
