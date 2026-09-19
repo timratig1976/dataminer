@@ -21,6 +21,9 @@ Route::middleware(['web', 'auth'])->group(function () {
     Route::get('/stats', [\App\Http\Controllers\Api\StatsController::class, 'index']);
     Route::get('/cases', [CaseController::class, 'index']);
     Route::get('/cases/templates', [CaseController::class, 'templates']);
+    Route::get('/presets', function () {
+        return response()->json(\App\Services\PresetService::getPresets());
+    });
     Route::get('/cases/{id}', [CaseController::class, 'show']);
     Route::get('/rows', [RowController::class, 'index']);
     Route::get('/export', [ExportController::class, 'exportCsv']);
