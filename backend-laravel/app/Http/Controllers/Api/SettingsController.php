@@ -211,6 +211,65 @@ class SettingsController extends Controller
                 ]);
             }
 
+            if ($provider === 'firecrawl') {
+                $key = $bodyKey ?: ($settings->firecrawl_api_key ?: env('FIRECRAWL_API_KEY'));
+                if (!$key) return response()->json(['ok' => false, 'error' => 'Kein Firecrawl-Key vorhanden']);
+
+                // Firecrawl v1 scrape test against example.com
+                $response = \Illuminate\Support\Facades\Http::withHeaders([
+                    'Authorization' => "Bearer {$key}",
+                    'Content-Type' => 'application/json',
+                ])->timeout(15)->post('https://api.firecrawl.dev/v1/scrape', [
+                    'url' => 'https://example.com',
+                    'formats' => ['markdown'],
+                ]);
+
+                if ($response->successful()) {
+                    $json = $response->json();
+                    $markdown = $json['data']['markdown'] ?? '';
+                    return response()->json([
+                        'ok' => !empty($markdown),
+                        'provider' => 'firecrawl',
+                        'hits' => 1,
+                        'sample' => substr($markdown, 0, 80) . '...',
+                        'note' => 'Direkte Firecrawl API (v1/scrape)',
+                        'latencyMs' => round((microtime(true) - $t0) * 1000),
+                    ]);
+                } else {
+                    return response()->json([
+                        'ok' => false,
+                        'error' => 'Firecrawl API Fehler: HTTP ' . $response->status(),
+                    ]);
+                }
+            }
+
+            if ($provider === 'apify') {
+                $token = $bodyKey ?: ($settings->apify_api_token ?: env('APIFY_API_TOKEN'));
+                if (!$token) return response()->json(['ok' => false, 'error' => 'Kein Apify-Token vorhanden']);
+
+                $response = \Illuminate\Support\Facades\Http::withHeaders([
+                    'Authorization' => "Bearer {$token}",
+                ])->timeout(10)->get('https://api.apify.com/v2/users/me');
+
+                if ($response->successful()) {
+                    $json = $response->json();
+                    $username = $json['data']['username'] ?? 'User';
+                    return response()->json([
+                        'ok' => true,
+                        'provider' => 'apify',
+                        'hits' => 1,
+                        'sample' => "Angemeldet als {$username}",
+                        'note' => 'Apify Actor Platform Authenticated',
+                        'latencyMs' => round((microtime(true) - $t0) * 1000),
+                    ]);
+                } else {
+                    return response()->json([
+                        'ok' => false,
+                        'error' => 'Apify Authentifizierung fehlgeschlagen: HTTP ' . $response->status(),
+                    ]);
+                }
+            }
+
             if ($provider === 'serper-places') {
                 $key = $bodyKey ?: ($settings->serper_api_key ?: env('SERPER_API_KEY'));
                 if (!$key) return response()->json(['ok' => false, 'error' => 'Kein Serper-Key vorhanden']);
