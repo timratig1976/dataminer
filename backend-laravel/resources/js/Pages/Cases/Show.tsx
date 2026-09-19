@@ -6,8 +6,8 @@ import {
     Building2, UserCheck, Users, Globe, ExternalLink, Flame, RotateCcw
 } from 'lucide-react';
 import { Link } from '@inertiajs/react';
-import AgentGoalModal from '../../Components/AgentGoalModal';
-import AddColumnModal from '../../Components/AddColumnModal';
+import { AgentGoalModal } from '../../Components/AgentGoalModal';
+import { AddColumnModal } from '../../Components/AddColumnModal';
 import ImportModal from '../../Components/ImportModal';
 import EditPromptModal from '../../Components/case/EditPromptModal';
 import { apiFetch } from '../../api';
@@ -490,8 +490,9 @@ export default function CaseShow({ case: c }: Props) {
             {showAgentModal && (
                 <AgentGoalModal
                     caseId={caseData.id}
+                    rowsCount={total}
                     onClose={() => setShowAgentModal(false)}
-                    onRunStarted={() => { loadPage(1); refreshCase(); }}
+                    onImported={() => { loadPage(1); refreshCase(); }}
                 />
             )}
 
@@ -499,7 +500,8 @@ export default function CaseShow({ case: c }: Props) {
                 <AddColumnModal
                     caseId={caseData.id}
                     onClose={() => setShowAddColModal(false)}
-                    onColumnAdded={() => { refreshCase(); loadPage(page); }}
+                    onAdded={() => { refreshCase(); loadPage(page); }}
+                    availableFields={baseCols.map(c => c.key)}
                 />
             )}
 
