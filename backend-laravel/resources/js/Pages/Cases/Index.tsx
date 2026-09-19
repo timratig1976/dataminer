@@ -44,6 +44,12 @@ export default function CasesIndex({ cases: initialCases }: Props) {
                 body: JSON.stringify(snap),
             });
 
+            if (res.status === 401) {
+                // Session abgelaufen oder nicht eingeloggt -> auf Login leiten
+                window.location.href = '/login';
+                return;
+            }
+
             const data = await res.json();
             if (!res.ok) throw new Error(data.message || data.error || 'Import fehlgeschlagen');
 
