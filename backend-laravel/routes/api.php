@@ -26,6 +26,7 @@ Route::middleware(['web', 'auth'])->group(function () {
     });
     Route::get('/cases/{id}', [CaseController::class, 'show']);
     Route::get('/rows', [RowController::class, 'index']);
+    Route::get('/contact-rows', [\App\Http\Controllers\Api\ContactRowController::class, 'index']);
     Route::get('/export', [ExportController::class, 'exportCsv']);
     Route::get('/export/snapshot', [ExportController::class, 'exportSnapshot']);
     Route::get('/enrichment/jobs/{id}', [EnrichmentJobController::class, 'show']);
@@ -42,6 +43,8 @@ Route::middleware(['web', 'auth'])->group(function () {
 
         Route::post('/rows', [RowController::class, 'store']);
         Route::patch('/rows/{id}', [RowController::class, 'update']);
+        Route::post('/cases/{id}/dedupe', [\App\Http\Controllers\Api\DeduplicationController::class, 'dedupe']);
+        Route::patch('/contact-rows', [\App\Http\Controllers\Api\ContactRowController::class, 'upsert']);
 
         Route::post('/run/cell', [\App\Http\Controllers\Api\CellRunController::class, 'run']);
 
