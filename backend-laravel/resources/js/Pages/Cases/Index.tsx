@@ -20,6 +20,7 @@ export default function CasesIndex({ cases: initialCases }: Props) {
     const [importing, setImporting] = useState(false);
     const [importError, setImportError] = useState<string | null>(null);
     const [creating, setCreating] = useState(false);
+    const [selectedTemplateId, setSelectedTemplateId] = useState<string>('standard');
     const [newName, setNewName] = useState('');
     const [newDesc, setNewDesc] = useState('');
     const [savingCase, setSavingCase] = useState(false);
@@ -81,6 +82,7 @@ export default function CasesIndex({ cases: initialCases }: Props) {
                 body: JSON.stringify({
                     name: newName.trim(),
                     description: newDesc.trim() || undefined,
+                    template: selectedTemplateId,
                 }),
             });
 
@@ -211,63 +213,109 @@ export default function CasesIndex({ cases: initialCases }: Props) {
                     ))}
                 </div>
 
-                {/* Create Case Modal */}
+                {/* Create Case Modal (mit Original Template-Auswahl) */}
                 {creating && (
-                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-                        <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl p-6 space-y-4 animate-in zoom-in-95">
-                            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4">
+                        <div 
+                            className="w-full max-w-lg rounded-xl shadow-2xl p-6 space-y-4 animate-in zoom-in-95"
+                            style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}
+                        >
+                            <div className="flex items-center justify-between pb-3" style={{ borderBottom: '1px solid var(--border-xs)' }}>
                                 <div className="flex items-center gap-2.5">
-                                    <div className="p-2 bg-emerald-950/80 border border-emerald-800 text-emerald-400 rounded-xl">
-                                        <FolderPlus className="w-5 h-5" />
+                                    <div 
+                                        className="w-7 h-7 rounded flex items-center justify-center text-white text-xs font-bold"
+                                        style={{ background: 'var(--orange)' }}
+                                    >
+                                        <FolderPlus className="w-4 h-4" />
                                     </div>
-                                    <h3 className="font-semibold text-sm text-slate-100">Neuen Case anlegen</h3>
+                                    <div>
+                                        <h3 className="font-semibold text-sm" style={{ color: 'var(--text-1)' }}>Neuen Case anlegen</h3>
+                                        <p className="text-[11px]" style={{ color: 'var(--text-3)' }}>Wähle ein Template mit vorkonfigurierten Spalten</p>
+                                    </div>
                                 </div>
-                                <button onClick={() => setCreating(false)} className="text-slate-400 hover:text-slate-200 p-1">
+                                <button onClick={() => setCreating(false)} className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer">
                                     <X className="w-4 h-4" />
                                 </button>
                             </div>
 
-                            <form onSubmit={handleCreateCase} className="space-y-3.5">
+                            <form onSubmit={handleCreateCase} className="space-y-4">
                                 <div>
-                                    <label className="text-xs font-semibold text-slate-300 uppercase tracking-wider block mb-1">
-                                        Projektname
+                                    <label className="text-[11px] font-semibold uppercase tracking-wider block mb-1" style={{ color: 'var(--text-3)' }}>
+                                        Case-Name
                                     </label>
                                     <input
                                         type="text"
                                         value={newName}
                                         onChange={e => setNewName(e.target.value)}
-                                        placeholder="z.B. SHK Handwerker Bayern"
-                                        className="w-full bg-slate-950 border border-slate-800 focus:border-emerald-500 rounded-xl px-3 py-2 text-xs text-slate-100 outline-none"
+                                        placeholder="z.B. Handwerker München & Umland"
+                                        className="w-full border rounded px-3 py-1.5 text-xs focus:outline-none"
+                                        style={{ borderColor: 'var(--border)', background: 'var(--bg)', color: 'var(--text-1)' }}
                                         required
                                         autoFocus
                                     />
                                 </div>
 
                                 <div>
-                                    <label className="text-xs font-semibold text-slate-300 uppercase tracking-wider block mb-1">
-                                        Beschreibung (optional)
+                                    <label className="text-[11px] font-semibold uppercase tracking-wider block mb-1.5" style={{ color: 'var(--text-3)' }}>
+                                        Projekt-Template / Spalten-Konfiguration
                                     </label>
-                                    <textarea
-                                        value={newDesc}
-                                        onChange={e => setNewDesc(e.target.value)}
-                                        rows={3}
-                                        placeholder="Optionale Notizen zum Recherche-Ziel..."
-                                        className="w-full bg-slate-950 border border-slate-800 focus:border-emerald-500 rounded-xl p-3 text-xs text-slate-200 outline-none leading-relaxed"
-                                    />
+                                    <div className="grid grid-cols-1 gap-2">
+                                        {[
+                                            {
+                                                id: 'standard',
+                                                name: 'Standard (Empfohlen)',
+                                                desc: '19 Spalten (Firmenname, Domain, Telefon, E-Mail, Adresse, Rating, Ansprechpartner) + 2 KI-Aktionen (🏢 Firmendaten & 👤 Entscheider)',
+                                                icon: '⚡',
+                                            },
+                                            {
+                                                id: 'vilocal',
+                                                name: 'ViLocal Audit (GBP & Google Places)',
+                                                desc: '14 Spalten inkl. Google Maps Rating & Reviews + GBP Audit KI-Spalte',
+                                                icon: '📍',
+                                            },
+                                            {
+                                                id: 'none',
+                                                name: 'Leeres Projekt',
+                                                desc: 'Startet ohne vordefinierte Spalten (für manuelle Konfiguration)',
+                                                icon: '📄',
+                                            }
+                                        ].map(t => (
+                                            <div
+                                                key={t.id}
+                                                onClick={() => setSelectedTemplateId(t.id)}
+                                                className="p-3 rounded border transition-all cursor-pointer flex items-start gap-3"
+                                                style={{
+                                                    background: selectedTemplateId === t.id ? 'var(--orange-soft)' : 'var(--bg)',
+                                                    borderColor: selectedTemplateId === t.id ? 'var(--orange)' : 'var(--border)',
+                                                }}
+                                            >
+                                                <span className="text-base">{t.icon}</span>
+                                                <div className="flex-1 min-w-0">
+                                                    <div className="flex items-center justify-between">
+                                                        <span className="text-xs font-semibold" style={{ color: 'var(--text-1)' }}>{t.name}</span>
+                                                        {selectedTemplateId === t.id && (
+                                                            <span className="text-[10px] font-bold px-1.5 py-0.2 rounded" style={{ background: 'var(--orange)', color: '#fff' }}>Aktiv</span>
+                                                        )}
+                                                    </div>
+                                                    <p className="text-[11px] leading-relaxed mt-0.5" style={{ color: 'var(--text-2)' }}>{t.desc}</p>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
                                 </div>
 
-                                <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-800">
+                                <div className="flex items-center justify-end gap-2.5 pt-3" style={{ borderTop: '1px solid var(--border-xs)' }}>
                                     <button
                                         type="button"
                                         onClick={() => setCreating(false)}
-                                        className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-medium cursor-pointer"
+                                        className="btn-v2"
                                     >
                                         Abbrechen
                                     </button>
                                     <button
                                         type="submit"
                                         disabled={savingCase || !newName.trim()}
-                                        className="flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-xl text-xs font-semibold cursor-pointer"
+                                        className="btn-v2 btn-v2-primary"
                                     >
                                         {savingCase ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
                                         Case erstellen

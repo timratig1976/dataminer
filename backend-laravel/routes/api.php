@@ -18,7 +18,9 @@ Route::middleware(['auth:sanctum'])->group(function () {
     });
 
     // Read access for all authenticated roles (Super-Admin, Editor, Viewer)
+    Route::get('/stats', [\App\Http\Controllers\Api\StatsController::class, 'index']);
     Route::get('/cases', [CaseController::class, 'index']);
+    Route::get('/cases/templates', [CaseController::class, 'templates']);
     Route::get('/cases/{id}', [CaseController::class, 'show']);
     Route::get('/rows', [RowController::class, 'index']);
     Route::get('/export', [ExportController::class, 'exportCsv']);

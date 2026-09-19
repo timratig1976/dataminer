@@ -57,7 +57,41 @@ class WebController extends Controller
                 'has_serper_api_key' => !empty($settings->serper_api_key),
                 'has_brave_api_key' => !empty($settings->brave_api_key),
                 'has_firecrawl_api_key' => !empty($settings->firecrawl_api_key),
+                'has_apify_api_token' => !empty($settings->apify_api_token),
+                'edenApiKeyMasked' => $settings->eden_api_key ? substr($settings->eden_api_key, 0, 4) . '...' : null,
+                'serperApiKeyMasked' => $settings->serper_api_key ? substr($settings->serper_api_key, 0, 4) . '...' : null,
+                'serpApiKeyMasked' => $settings->serp_api_key ? substr($settings->serp_api_key, 0, 4) . '...' : null,
+                'braveApiKeyMasked' => $settings->brave_api_key ? substr($settings->brave_api_key, 0, 4) . '...' : null,
+                'firecrawlApiKeyMasked' => $settings->firecrawl_api_key ? substr($settings->firecrawl_api_key, 0, 4) . '...' : null,
+                'apifyApiTokenMasked' => $settings->apify_api_token ? substr($settings->apify_api_token, 0, 4) . '...' : null,
+                'planner_system_prompt' => $settings->planner_system_prompt,
             ]
         ]);
+    }
+
+    public function modelsSettings(): Response
+    {
+        $settings = GlobalSetting::instance();
+        return Inertia::render('Settings/Models', [
+            'allowlist' => $settings->model_allowlist ?? [],
+        ]);
+    }
+
+    public function plannerSettings(): Response
+    {
+        $settings = GlobalSetting::instance();
+        return Inertia::render('Settings/Planner', [
+            'plannerPrompt' => $settings->planner_system_prompt,
+        ]);
+    }
+
+    public function llmTestSettings(): Response
+    {
+        return Inertia::render('Settings/LlmTest');
+    }
+
+    public function scraplingTest(): Response
+    {
+        return Inertia::render('ScraplingTest');
     }
 }

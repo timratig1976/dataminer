@@ -35,9 +35,9 @@ export default function Layout({
 
     const bottomNav = [
         { href: '/settings', title: 'API & Keys', label: 'Keys', icon: <Settings className="w-3.5 h-3.5" /> },
-        { href: '/settings', title: 'Modell-Auswahl', label: 'Models', icon: <Sliders className="w-3.5 h-3.5" /> },
-        { href: '/settings', title: 'Planner Prompt', label: 'Planner', icon: <Sparkles className="w-3.5 h-3.5" /> },
-        { href: '/settings', title: 'LLM-Testing', label: 'LLM', icon: <Zap className="w-3.5 h-3.5" /> },
+        { href: '/settings/models', title: 'Modell-Auswahl', label: 'Models', icon: <Sliders className="w-3.5 h-3.5" /> },
+        { href: '/settings/planner', title: 'Planner Prompt', label: 'Planner', icon: <Sparkles className="w-3.5 h-3.5" /> },
+        { href: '/settings/llm-test', title: 'LLM-Testing', label: 'LLM', icon: <Zap className="w-3.5 h-3.5" /> },
     ];
 
     return (
