@@ -27,6 +27,7 @@ Route::middleware(['web', 'auth'])->group(function () {
     Route::get('/cases/{id}', [CaseController::class, 'show']);
     Route::get('/cases/{id}/agent', [AgentRunController::class, 'indexForCase']);
     Route::get('/rows', [RowController::class, 'index']);
+    Route::get('/rows/grouped', [\App\Http\Controllers\Api\GroupedRowsController::class, 'index']);
     Route::get('/contact-rows', [\App\Http\Controllers\Api\ContactRowController::class, 'index']);
     Route::get('/export', [ExportController::class, 'exportCsv']);
     Route::get('/export/snapshot', [ExportController::class, 'exportSnapshot']);

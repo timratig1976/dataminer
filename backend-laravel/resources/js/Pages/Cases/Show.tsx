@@ -10,6 +10,7 @@ import { AgentGoalModal } from '../../Components/AgentGoalModal';
 import { AddColumnModal } from '../../Components/AddColumnModal';
 import ImportModal from '../../Components/ImportModal';
 import EditPromptModal from '../../Components/case/EditPromptModal';
+import GroupedTableView from '../../Components/GroupedTableView';
 import { apiFetch } from '../../api';
 
 interface CaseDetail {
@@ -57,6 +58,7 @@ export default function CaseShow({ case: c }: Props) {
 
     // Active Tab (Exact match to Next.js tabs)
     const [activeTab, setActiveTab] = useState<TabType>("Firmen");
+    const [viewMode, setViewMode] = useState<'flat' | 'grouped'>('flat');
 
     // Modals
     const [showAgentModal, setShowAgentModal] = useState(false);
@@ -307,6 +309,33 @@ export default function CaseShow({ case: c }: Props) {
                     <div style={{ display: "flex", alignItems: "center", gap: 6, paddingRight: 4 }}>
                         {activeTab === "Firmen" && (
                             <>
+                                <div style={{ display: "flex", gap: 1, background: "var(--bg)", border: "1px solid var(--border)", borderRadius: "var(--rs)", padding: 2 }}>
+                                    <button 
+                                        onClick={() => setViewMode("flat")}
+                                        style={{
+                                            padding: "2px 8px", borderRadius: 3, fontSize: 11, cursor: "pointer", border: "none", transition: "0.1s",
+                                            background: viewMode === "flat" ? "var(--surface)" : "transparent",
+                                            color: viewMode === "flat" ? "var(--text-1)" : "var(--text-2)",
+                                            boxShadow: viewMode === "flat" ? "var(--shadow-sm)" : "none",
+                                            fontWeight: viewMode === "flat" ? 600 : 400
+                                        }}
+                                    >
+                                        Flach
+                                    </button>
+                                    <button 
+                                        onClick={() => setViewMode("grouped")}
+                                        style={{
+                                            padding: "2px 8px", borderRadius: 3, fontSize: 11, cursor: "pointer", border: "none", transition: "0.1s",
+                                            background: viewMode === "grouped" ? "var(--surface)" : "transparent",
+                                            color: viewMode === "grouped" ? "var(--text-1)" : "var(--text-2)",
+                                            boxShadow: viewMode === "grouped" ? "var(--shadow-sm)" : "none",
+                                            fontWeight: viewMode === "grouped" ? 600 : 400
+                                        }}
+                                    >
+                                        Gruppiert
+                                    </button>
+                                </div>
+
                                 <button 
                                     onClick={() => { setRows(prev => prev.map(r => ({ ...r, cell_statuses: {}, cell_errors: {} }))); }}
                                     title="Alle Status zurücksetzen"
@@ -347,8 +376,12 @@ export default function CaseShow({ case: c }: Props) {
                     </div>
                 )}
 
-                {/* Tab: Firmen (Main Table) */}
-                {activeTab === "Firmen" && (
+                {/* Tab: Firmen (Main Table or GroupedTableView) */}
+                {activeTab === "Firmen" && viewMode === "grouped" && (
+                    <GroupedTableView caseId={caseData.id} />
+                )}
+
+                {activeTab === "Firmen" && viewMode === "flat" && (
                     <div className="overflow-x-auto max-h-[72vh]">
                         <table className="w-full text-left border-collapse text-xs">
                             <thead 
