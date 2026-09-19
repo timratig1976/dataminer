@@ -48,6 +48,9 @@ Route::middleware(['web', 'auth'])->group(function () {
         Route::post('/cases/{id}/resolve-domains', [\App\Http\Controllers\Api\DomainResolveController::class, 'resolve']);
         Route::post('/cases/{id}/sub-industries', [\App\Http\Controllers\Api\SubIndustryController::class, 'analyse']);
         Route::post('/cases/{id}/flag-catalog', [\App\Http\Controllers\Api\CatalogFlagController::class, 'flag']);
+        Route::post('/cases/{id}/deep-crawl-catalogs', [\App\Http\Controllers\Api\CatalogCrawlController::class, 'crawl']);
+        Route::post('/verify-email', [\App\Http\Controllers\Api\EmailVerifyController::class, 'verify']);
+        Route::post('/verify-email-all', [\App\Http\Controllers\Api\EmailVerifyController::class, 'verifyAll']);
         Route::patch('/contact-rows', [\App\Http\Controllers\Api\ContactRowController::class, 'upsert']);
 
         Route::post('/run/cell', [\App\Http\Controllers\Api\CellRunController::class, 'run']);
