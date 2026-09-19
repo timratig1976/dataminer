@@ -25,6 +25,8 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::get('/enrichment/jobs/{id}', [EnrichmentJobController::class, 'show']);
     Route::get('/enrichment/jobs/{id}/stream', [EnrichmentJobController::class, 'stream']);
     Route::get('/settings', [SettingsController::class, 'show']);
+    Route::post('/settings/test-eden', [SettingsController::class, 'testEden']);
+    Route::post('/settings/test-search', [SettingsController::class, 'testSearch']);
     Route::get('/agent/runs/{id}/stream', [AgentRunController::class, 'stream']);
 
     // Write access for Editor & Super-Admin
@@ -52,6 +54,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::delete('/cases/{id}', [CaseController::class, 'destroy']);
         Route::delete('/rows', [RowController::class, 'destroy']);
         Route::put('/settings', [SettingsController::class, 'update']);
+        Route::delete('/settings', [SettingsController::class, 'destroyKey']);
     });
 });
 
