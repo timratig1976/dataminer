@@ -74,6 +74,9 @@ Route::middleware(['web', 'auth'])->group(function () {
         Route::post('/agent/runs/{id}/step', [AgentRunController::class, 'executeStep']);
         Route::post('/cases/{id}/agent', [AgentRunController::class, 'store']);
         Route::post('/cases/{id}/agent/{runId}/step', [AgentRunController::class, 'executeStep']);
+        Route::post('/cases/{id}/agent/{runId}/extend', [\App\Http\Controllers\Api\AgentExtendController::class, 'extend']);
+        Route::post('/import/preview', [\App\Http\Controllers\Api\ImportPreviewController::class, 'preview']);
+        Route::post('/import/llm-map', [\App\Http\Controllers\Api\ImportPreviewController::class, 'llmMap']);
     });
 
     // Destructive / Settings access: Super-Admin only
