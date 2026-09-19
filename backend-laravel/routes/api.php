@@ -44,6 +44,8 @@ Route::middleware(['web', 'auth'])->group(function () {
         Route::post('/rows', [RowController::class, 'store']);
         Route::patch('/rows/{id}', [RowController::class, 'update']);
         Route::post('/cases/{id}/dedupe', [\App\Http\Controllers\Api\DeduplicationController::class, 'dedupe']);
+        Route::post('/cases/{id}/extrapolate-email', [\App\Http\Controllers\Api\EmailExtrapolateController::class, 'extrapolate']);
+        Route::post('/cases/{id}/resolve-domains', [\App\Http\Controllers\Api\DomainResolveController::class, 'resolve']);
         Route::patch('/contact-rows', [\App\Http\Controllers\Api\ContactRowController::class, 'upsert']);
 
         Route::post('/run/cell', [\App\Http\Controllers\Api\CellRunController::class, 'run']);
