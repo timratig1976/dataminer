@@ -19,34 +19,48 @@ class AgentRunController extends Controller
     }
 
     /**
-     * Start a new agent discovery run.
-     * POST /api/agent/runs
+     * List all agent runs for a case.
+     * GET /api/cases/{id}/agent
      */
-    public function store(Request $request): JsonResponse
+    public function indexForCase(string $id): JsonResponse
     {
-        $request->validate([
-            'case_id' => 'required|uuid|exists:cases,id',
-            'goal' => 'required|string|max:1000',
-        ]);
+        $runs = AgentRun::where('case_id', $id)->orderByDesc('created_at')->get();
+        return response()->json($runs);
+    }
 
-        $run = $this->agentRunner->startRun(
-            $request->input('case_id'),
-            $request->input('goal')
-        );
+    /**
+     * Start a new agent discovery run.
+     * POST /api/agent/runs OR POST /api/cases/{id}/agent
+     */
+    public function store(Request $request, ?string $id = null): JsonResponse
+    {
+        $caseId = $id ?: $request->input('case_id');
+        $rawGoal = $request->input('goal');
+
+        // Support string or Next.js AgentGoal object: { description, targetCount, region, ... }
+        $description = is_array($rawGoal) ? ($rawGoal['description'] ?? '') : (string) $rawGoal;
+
+        if (empty(trim($description))) {
+            return response()->json(['error' => 'goal / description required'], 400);
+        }
+
+        $run = $this->agentRunner->startRun($caseId, $description);
 
         return response()->json([
             'message' => 'Agent run created',
             'run' => $run,
+            ...$run->toArray(),
         ], 201);
     }
 
     /**
      * Execute the next step in an existing agent run.
-     * POST /api/agent/runs/{id}/step
+     * POST /api/agent/runs/{id}/step OR POST /api/cases/{caseId}/agent/{runId}/step
      */
-    public function executeStep(string $id): JsonResponse
+    public function executeStep(string $id, ?string $runId = null): JsonResponse
     {
-        $run = AgentRun::findOrFail($id);
+        $targetId = $runId ?: $id;
+        $run = AgentRun::findOrFail($targetId);
         $result = $this->agentRunner->executeNextStep($run);
 
         return response()->json($result);

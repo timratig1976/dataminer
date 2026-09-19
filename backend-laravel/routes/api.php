@@ -25,6 +25,7 @@ Route::middleware(['web', 'auth'])->group(function () {
         return response()->json(\App\Services\PresetService::getPresets());
     });
     Route::get('/cases/{id}', [CaseController::class, 'show']);
+    Route::get('/cases/{id}/agent', [AgentRunController::class, 'indexForCase']);
     Route::get('/rows', [RowController::class, 'index']);
     Route::get('/contact-rows', [\App\Http\Controllers\Api\ContactRowController::class, 'index']);
     Route::get('/export', [ExportController::class, 'exportCsv']);
@@ -65,6 +66,8 @@ Route::middleware(['web', 'auth'])->group(function () {
 
         Route::post('/agent/runs', [AgentRunController::class, 'store']);
         Route::post('/agent/runs/{id}/step', [AgentRunController::class, 'executeStep']);
+        Route::post('/cases/{id}/agent', [AgentRunController::class, 'store']);
+        Route::post('/cases/{id}/agent/{runId}/step', [AgentRunController::class, 'executeStep']);
     });
 
     // Destructive / Settings access: Super-Admin only
