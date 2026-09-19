@@ -81,16 +81,19 @@ class EnrichmentJobController extends Controller
             ],
         ]);
 
-        // Dispatch chunks to queue
-        $chunks = array_chunk($targetIds, $chunkSize);
-        foreach ($chunks as $chunk) {
-            ProcessEnrichmentChunk::dispatch($jobId, $chunk);
+        // Dispatch initial dynamic worker(s) using FOR UPDATE SKIP LOCKED
+        // We can spawn e.g. up to 2 concurrent workers to consume chunks safely
+        $concurrency = min(2, max(1, (int) ceil(count($targetIds) / $chunkSize)));
+        for ($i = 0; $i < $concurrency; $i++) {
+            ProcessEnrichmentChunk::dispatch($jobId);
         }
+
+        $totalChunks = (int) ceil(count($targetIds) / $chunkSize);
 
         return response()->json([
             'job_id' => $jobId,
             'total_rows' => count($targetIds),
-            'total_chunks' => count($chunks),
+            'total_chunks' => $totalChunks,
             'chunk_size' => $chunkSize,
             'status' => 'running',
         ], 202);
@@ -136,5 +139,62 @@ class EnrichmentJobController extends Controller
 
         $job->update(['status' => 'cancelled']);
         return response()->json(['ok' => true, 'status' => 'cancelled']);
+    }
+
+    /**
+     * GET /api/enrichment/jobs/{id}/stream
+     * Server-Sent Events stream for real-time progress updates
+     */
+    public function stream(string $id)
+    {
+        return response()->stream(function () use ($id) {
+            $startTime = time();
+            while (true) {
+                // Abort if client disconnected or timeout exceeds 30 minutes
+                if (connection_aborted() || (time() - $startTime) > 1800) {
+                    break;
+                }
+
+                $job = EnrichmentJob::find($id);
+                if (!$job) {
+                    echo "event: error\ndata: " . json_encode(['error' => 'Job not found']) . "\n\n";
+                    if (ob_get_level() > 0) { ob_flush(); }
+                    flush();
+                    break;
+                }
+
+                $total = max(1, $job->total_rows);
+                $done = $job->processed_rows + $job->failed_rows;
+                $percent = round(($done / $total) * 100, 1);
+
+                $payload = [
+                    'id' => $job->id,
+                    'status' => $job->status,
+                    'total_rows' => $job->total_rows,
+                    'processed_rows' => $job->processed_rows,
+                    'failed_rows' => $job->failed_rows,
+                    'progress_percent' => $percent,
+                    'error' => $job->error,
+                ];
+
+                echo "event: progress\ndata: " . json_encode($payload) . "\n\n";
+                if (ob_get_level() > 0) { ob_flush(); }
+                flush();
+
+                if (in_array($job->status, ['completed', 'failed', 'cancelled'])) {
+                    echo "event: done\ndata: " . json_encode($payload) . "\n\n";
+                    if (ob_get_level() > 0) { ob_flush(); }
+                    flush();
+                    break;
+                }
+
+                sleep(1);
+            }
+        }, 200, [
+            'Content-Type' => 'text/event-stream',
+            'Cache-Control' => 'no-cache, no-transform',
+            'Connection' => 'keep-alive',
+            'X-Accel-Buffering' => 'no',
+        ]);
     }
 }

@@ -12,15 +12,35 @@ class RowController extends Controller
 {
     public function index(Request $request)
     {
-        $caseId = $request->query('caseId');
+        $caseId = $request->query('caseId') ?: $request->query('case_id');
         if (!$caseId) {
             return response()->json(['error' => 'caseId required'], 400);
         }
 
-        $rows = Row::where('case_id', $caseId)
-            ->orderBy('row_index', 'asc')
-            ->get();
+        $query = Row::where('case_id', $caseId)->orderBy('row_index', 'asc');
 
+        // Optional pagination support for 100k+ rows scaling
+        if ($request->has('limit') || $request->has('page') || $request->has('offset')) {
+            $limit = min((int) $request->query('limit', 100), 1000);
+            $offset = (int) $request->query('offset', 0);
+            if ($request->has('page')) {
+                $page = max(1, (int) $request->query('page'));
+                $offset = ($page - 1) * $limit;
+            }
+
+            $total = $query->count();
+            $rows = $query->offset($offset)->limit($limit)->get();
+
+            return response()->json([
+                'rows' => $rows,
+                'total' => $total,
+                'limit' => $limit,
+                'offset' => $offset,
+                'has_more' => ($offset + $limit) < $total,
+            ]);
+        }
+
+        $rows = $query->get();
         return response()->json($rows);
     }
 

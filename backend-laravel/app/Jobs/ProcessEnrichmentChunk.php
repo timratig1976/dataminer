@@ -25,7 +25,7 @@ class ProcessEnrichmentChunk implements ShouldQueue
 
     public function __construct(
         public string $jobId,
-        public array $rowIds
+        public ?array $rowIds = null
     ) {}
 
     public function handle(
@@ -33,7 +33,7 @@ class ProcessEnrichmentChunk implements ShouldQueue
         ContactSearchService $contactSearch
     ): void {
         $job = EnrichmentJob::find($this->jobId);
-        if (!$job || in_array($job->status, ['paused', 'cancelled', 'failed'])) {
+        if (!$job || in_array($job->status, ['paused', 'cancelled', 'failed', 'completed'])) {
             return;
         }
 
@@ -61,8 +61,52 @@ class ProcessEnrichmentChunk implements ShouldQueue
 
         $outputKey = $column['outputKey'] ?? $job->column_id;
         $tool = $column['tool'] ?? $job->tool;
+        $chunkSize = $job->config['chunk_size'] ?? 25;
+        $runMode = $job->config['run_mode'] ?? 'empty_only';
 
-        $rows = Row::whereIn('id', $this->rowIds)->get();
+        // Atomic row reservation using FOR UPDATE SKIP LOCKED
+        $rows = DB::transaction(function () use ($job, $outputKey, $runMode, $chunkSize) {
+            if (!empty($this->rowIds)) {
+                $query = Row::whereIn('id', $this->rowIds);
+            } else {
+                $query = Row::where('case_id', $job->case_id)
+                    ->where(function ($q) use ($outputKey) {
+                        $q->whereNull("cell_statuses->{$outputKey}")
+                          ->orWhere("cell_statuses->{$outputKey}", 'idle');
+                    });
+
+                if ($runMode === 'empty_only') {
+                    $query->where(function ($q) use ($outputKey) {
+                        $q->whereNull("data->{$outputKey}")
+                          ->orWhere("data->{$outputKey}", '')
+                          ->orWhereRaw("data->>? ILIKE 'notfound'", [$outputKey]);
+                    });
+                }
+            }
+
+            $selected = $query->orderBy('row_index', 'asc')
+                ->limit($chunkSize)
+                ->lockForUpdate()
+                ->get();
+
+            // Atomically mark running inside the lock
+            foreach ($selected as $r) {
+                $statuses = $r->cell_statuses ?? [];
+                $statuses[$outputKey] = 'running';
+                $r->update(['cell_statuses' => $statuses]);
+            }
+
+            return $selected;
+        });
+
+        if ($rows->isEmpty()) {
+            // Check if entire job is completed
+            $refreshed = DB::table('enrichment_jobs')->where('id', $this->jobId)->first();
+            if ($refreshed && in_array($refreshed->status, ['running'])) {
+                DB::table('enrichment_jobs')->where('id', $this->jobId)->update(['status' => 'completed']);
+            }
+            return;
+        }
 
         foreach ($rows as $row) {
             // Re-check job cancellation between rows
@@ -70,11 +114,6 @@ class ProcessEnrichmentChunk implements ShouldQueue
             if (in_array($currentStatus, ['paused', 'cancelled'])) {
                 break;
             }
-
-            // Mark running
-            $statuses = $row->cell_statuses ?? [];
-            $statuses[$outputKey] = 'running';
-            $row->update(['cell_statuses' => $statuses]);
 
             try {
                 if ($tool === 'batch_contact') {
@@ -123,10 +162,16 @@ class ProcessEnrichmentChunk implements ShouldQueue
             }
         }
 
-        // Check if entire job is completed
+        // Check if entire job is completed or dispatch next chunk
         $refreshed = DB::table('enrichment_jobs')->where('id', $this->jobId)->first();
-        if ($refreshed && ($refreshed->processed_rows + $refreshed->failed_rows) >= $refreshed->total_rows) {
-            DB::table('enrichment_jobs')->where('id', $this->jobId)->update(['status' => 'completed']);
+        if ($refreshed) {
+            $totalDone = $refreshed->processed_rows + $refreshed->failed_rows;
+            if ($totalDone >= $refreshed->total_rows) {
+                DB::table('enrichment_jobs')->where('id', $this->jobId)->update(['status' => 'completed']);
+            } elseif (empty($this->rowIds) && $refreshed->status === 'running') {
+                // If using dynamic SKIP LOCKED mode, dispatch the next chunk
+                self::dispatch($this->jobId);
+            }
         }
     }
 }

@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { ChevronDown, ChevronRight, Loader2, Building2, User } from "lucide-react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import type { GroupedRowsResponse, CompanyGroup } from "@/lib/types";
 
 interface Props {
@@ -85,6 +86,14 @@ export default function GroupedTableView({ caseId, groupKey = "company_name" }: 
 
   const totalPages = Math.max(1, Math.ceil(data.totalCompanies / perPage));
 
+  const parentRef = useRef<HTMLDivElement>(null);
+  const rowVirtualizer = useVirtualizer({
+    count: data.companies.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => 56, // Base height for a collapsed company row
+    overscan: 5,
+  });
+
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", background: "var(--bg)" }}>
       {/* Toolbar */}
@@ -111,18 +120,35 @@ export default function GroupedTableView({ caseId, groupKey = "company_name" }: 
         </button>
       </div>
 
-      {/* Table */}
-      <div style={{ flex: 1, overflowY: "auto", overflowX: "auto", background: "var(--bg)", padding: 16 }}>
-        {data.companies.map(group => (
-          <CompanyRow
-            key={group.companyRow.id}
-            group={group}
-            caseId={caseId}
-            expanded={expandedCompanies.has(group.companyRow.id)}
-            onToggle={() => toggleCompany(group.companyRow.id)}
-            onRefresh={() => fetchPage(page)}
-          />
-        ))}
+      {/* Virtualized Table Container */}
+      <div ref={parentRef} style={{ flex: 1, overflowY: "auto", overflowX: "auto", background: "var(--bg)", padding: 16 }}>
+        <div style={{ height: `${rowVirtualizer.getTotalSize()}px`, width: "100%", position: "relative" }}>
+          {rowVirtualizer.getVirtualItems().map(virtualRow => {
+            const group = data.companies[virtualRow.index];
+            return (
+              <div
+                key={group.companyRow.id}
+                ref={rowVirtualizer.measureElement}
+                data-index={virtualRow.index}
+                style={{
+                  position: "absolute",
+                  top: 0,
+                  left: 0,
+                  width: "100%",
+                  transform: `translateY(${virtualRow.start}px)`,
+                }}
+              >
+                <CompanyRow
+                  group={group}
+                  caseId={caseId}
+                  expanded={expandedCompanies.has(group.companyRow.id)}
+                  onToggle={() => toggleCompany(group.companyRow.id)}
+                  onRefresh={() => fetchPage(page)}
+                />
+              </div>
+            );
+          })}
+        </div>
       </div>
 
       {/* Pagination */}

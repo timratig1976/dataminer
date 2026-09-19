@@ -6,10 +6,23 @@ use Tests\TestCase;
 use App\Models\User;
 use App\Models\DataCase;
 use App\Models\Row;
-use Illuminate\Foundation\Testing\RefreshDatabase;
+use Laravel\Sanctum\Sanctum;
 
 class DataMinerApiTest extends TestCase
 {
+    protected function setUp(): void
+    {
+        parent::setUp();
+        
+        $admin = User::firstOrCreate(
+            ['email' => 'admin@dataminer.local'],
+            ['name' => 'Super Admin', 'password' => bcrypt('password')]
+        );
+        $admin->assignRole('Super-Admin');
+
+        Sanctum::actingAs($admin, ['*']);
+    }
+
     public function test_can_list_cases(): void
     {
         $response = $this->getJson('/api/cases');
