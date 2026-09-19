@@ -26,10 +26,25 @@ class DataMinerApiTest extends TestCase
 
     public function test_can_fetch_case_rows(): void
     {
-        $case = DataCase::first();
-        if (!$case) {
-            $this->markTestSkipped('No case available in database');
-        }
+        $case = DataCase::firstOrCreate(
+            ['name' => 'Automated Test Case'],
+            [
+                'id' => (string) \Illuminate\Support\Str::uuid(),
+                'ai_columns' => [],
+                'col_order' => [],
+                'eden_region' => 'us',
+            ]
+        );
+
+        $row = Row::firstOrCreate(
+            ['case_id' => $case->id, 'row_index' => 0],
+            [
+                'id' => (string) \Illuminate\Support\Str::uuid(),
+                'data' => ['company_name' => 'Acme Test GmbH'],
+                'cell_statuses' => [],
+                'cell_errors' => [],
+            ]
+        );
 
         $response = $this->getJson("/api/rows?caseId={$case->id}");
 
