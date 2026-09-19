@@ -24,8 +24,7 @@ class ProcessEnrichmentChunk implements ShouldQueue
     public int $tries = 2;
 
     public function __construct(
-        public string $jobId,
-        public ?array $rowIds = null
+        public string $jobId
     ) {}
 
     public function handle(
@@ -66,22 +65,18 @@ class ProcessEnrichmentChunk implements ShouldQueue
 
         // Atomic row reservation using FOR UPDATE SKIP LOCKED
         $rows = DB::transaction(function () use ($job, $outputKey, $runMode, $chunkSize) {
-            if (!empty($this->rowIds)) {
-                $query = Row::whereIn('id', $this->rowIds);
-            } else {
-                $query = Row::where('case_id', $job->case_id)
-                    ->where(function ($q) use ($outputKey) {
-                        $q->whereNull("cell_statuses->{$outputKey}")
-                          ->orWhere("cell_statuses->{$outputKey}", 'idle');
-                    });
+            $query = Row::where('case_id', $job->case_id)
+                ->where(function ($q) use ($outputKey) {
+                    $q->whereNull("cell_statuses->{$outputKey}")
+                      ->orWhere("cell_statuses->{$outputKey}", 'idle');
+                });
 
-                if ($runMode === 'empty_only') {
-                    $query->where(function ($q) use ($outputKey) {
-                        $q->whereNull("data->{$outputKey}")
-                          ->orWhere("data->{$outputKey}", '')
-                          ->orWhereRaw("data->>? ILIKE 'notfound'", [$outputKey]);
-                    });
-                }
+            if ($runMode === 'empty_only') {
+                $query->where(function ($q) use ($outputKey) {
+                    $q->whereNull("data->{$outputKey}")
+                      ->orWhere("data->{$outputKey}", '')
+                      ->orWhereRaw("data->>? ILIKE 'notfound'", [$outputKey]);
+                });
             }
 
             $selected = $query->orderBy('row_index', 'asc')

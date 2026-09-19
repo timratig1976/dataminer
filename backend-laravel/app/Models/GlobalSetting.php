@@ -29,6 +29,13 @@ class GlobalSetting extends Model
         'catalog_domains' => 'array',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
+        // API-Keys werden verschlüsselt gespeichert (APP_KEY wird als Schlüssel verwendet)
+        'eden_api_key' => 'encrypted',
+        'serp_api_key' => 'encrypted',
+        'serper_api_key' => 'encrypted',
+        'brave_api_key' => 'encrypted',
+        'apify_api_token' => 'encrypted',
+        'firecrawl_api_key' => 'encrypted',
     ];
 
     public static function instance(): self

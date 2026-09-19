@@ -35,11 +35,13 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::post('/rows', [RowController::class, 'store']);
         Route::patch('/rows/{id}', [RowController::class, 'update']);
 
-        Route::post('/enrichment/dispatch', [EnrichmentJobController::class, 'dispatchJob']);
+        Route::post('/enrichment/dispatch', [EnrichmentJobController::class, 'dispatchJob'])
+            ->middleware('throttle:20,1'); // Max 20 Dispatches pro Minute pro User
         Route::post('/enrichment/jobs/{id}/cancel', [EnrichmentJobController::class, 'cancel']);
 
         Route::post('/import/csv', [ImportController::class, 'importCsv']);
         Route::post('/import/snapshot', [ImportController::class, 'importSnapshot']);
+        Route::post('/import/xlsx', [ImportController::class, 'importXlsx']);
 
         Route::post('/agent/runs', [AgentRunController::class, 'store']);
         Route::post('/agent/runs/{id}/step', [AgentRunController::class, 'executeStep']);

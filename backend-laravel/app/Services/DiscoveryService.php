@@ -116,18 +116,26 @@ class DiscoveryService
 
     protected function getExistingDomains(string $caseId): array
     {
-        $rows = Row::where('case_id', $caseId)->pluck('data');
-        $domains = [];
-        foreach ($rows as $data) {
-            if (is_array($data)) {
-                $site = $data['Website'] ?? $data['website'] ?? $data['Domain'] ?? $data['domain'] ?? null;
-                if ($site) {
-                    $d = $this->extractDomain($site);
-                    if ($d) $domains[] = $d;
-                }
-            }
-        }
-        return array_unique($domains);
+        // Nur die JSON-domain-Spalten via PostgreSQL-Operator extrahieren – kein volles Row-Objekt laden
+        $domains = \Illuminate\Support\Facades\DB::table('rows')
+            ->where('case_id', $caseId)
+            ->selectRaw("
+                COALESCE(
+                    data->>'Website',
+                    data->>'website',
+                    data->>'Domain',
+                    data->>'domain'
+                ) as site
+            ")
+            ->whereRaw("COALESCE(data->>'Website', data->>'website', data->>'Domain', data->>'domain') IS NOT NULL")
+            ->pluck('site')
+            ->map(fn($s) => $this->extractDomain($s))
+            ->filter()
+            ->unique()
+            ->values()
+            ->toArray();
+
+        return $domains;
     }
 
     protected function extractDomain(string $url): ?string

@@ -64,4 +64,30 @@ class ImportController extends Controller
             'case' => $case->loadCount('rows'),
         ], 201);
     }
+
+    /**
+     * Import XLSX/XLS/ODS file into a given Case.
+     * POST /api/import/xlsx
+     */
+    public function importXlsx(Request $request): JsonResponse
+    {
+        $request->validate([
+            'case_id' => 'required|uuid|exists:cases,id',
+            'file' => 'required|file|mimes:xlsx,xls,ods,csv',
+            'column_mapping' => 'nullable|array',
+        ]);
+
+        $path = $request->file('file')->getRealPath();
+
+        $result = $this->importService->importXlsx(
+            $request->input('case_id'),
+            $path,
+            $request->input('column_mapping')
+        );
+
+        return response()->json([
+            'message' => 'XLSX imported successfully',
+            'result' => $result,
+        ]);
+    }
 }

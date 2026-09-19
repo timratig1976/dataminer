@@ -6,6 +6,7 @@ use App\Models\DataCase;
 use App\Models\Row;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use PhpOffice\PhpSpreadsheet\IOFactory;
 
 class ImportService
 {
@@ -98,6 +99,83 @@ class ImportService
             'imported' => $importedCount,
             'total_rows' => $rowIndex,
             'headers' => $headers,
+        ];
+    }
+
+    /**
+     * Parse and import an XLSX/ODS/XLS file into a Case.
+     * Reads via PhpSpreadsheet, converts rows to same format as importCsv.
+     */
+    public function importXlsx(string $caseId, string $filePath, ?array $columnMapping = null): array
+    {
+        $case = DataCase::findOrFail($caseId);
+
+        $spreadsheet = IOFactory::load($filePath);
+        $sheet = $spreadsheet->getActiveSheet();
+        $rows = $sheet->toArray(null, true, true, false);
+
+        if (empty($rows)) {
+            return ['imported' => 0, 'headers' => []];
+        }
+
+        // First row = headers
+        $headers = array_map(fn($v) => trim((string) $v), array_shift($rows));
+        $headers = array_filter($headers); // remove empty header cells
+
+        $totalExisting = Row::where('case_id', $caseId)->count();
+        $rowIndex = $totalExisting;
+        $batch = [];
+        $batchSize = 500;
+        $importedCount = 0;
+
+        foreach ($rows as $cells) {
+            $rowData = [];
+            foreach ($headers as $idx => $header) {
+                $key = $columnMapping[$header] ?? $header;
+                $val = $cells[$idx] ?? null;
+                $rowData[$key] = $val !== null ? trim((string) $val) : null;
+            }
+
+            if (array_filter($rowData) === []) continue; // skip empty rows
+
+            $batch[] = [
+                'id' => (string) Str::uuid(),
+                'case_id' => $caseId,
+                'row_index' => $rowIndex++,
+                'data' => json_encode($rowData),
+                'cell_statuses' => json_encode([]),
+                'cell_errors' => json_encode([]),
+                'created_at' => now(),
+                'updated_at' => now(),
+            ];
+
+            if (count($batch) >= $batchSize) {
+                Row::insert($batch);
+                $importedCount += count($batch);
+                $batch = [];
+            }
+        }
+
+        if (!empty($batch)) {
+            Row::insert($batch);
+            $importedCount += count($batch);
+        }
+
+        // Update case column schema
+        $existingCols = $case->columns ?? [];
+        $existingColKeys = array_column($existingCols, 'key');
+        $updatedCols = $existingCols;
+        foreach ($headers as $h) {
+            if (!in_array($h, $existingColKeys) && !empty($h)) {
+                $updatedCols[] = ['id' => (string) Str::uuid(), 'key' => $h, 'label' => $h, 'type' => 'text'];
+            }
+        }
+        $case->update(['columns' => $updatedCols]);
+
+        return [
+            'imported' => $importedCount,
+            'total_rows' => $rowIndex,
+            'headers' => array_values($headers),
         ];
     }
 
