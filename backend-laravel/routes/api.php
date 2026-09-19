@@ -21,10 +21,18 @@ Route::middleware(['web', 'auth'])->group(function () {
     Route::get('/stats', [\App\Http\Controllers\Api\StatsController::class, 'index']);
     Route::get('/cases', [CaseController::class, 'index']);
     Route::get('/cases/templates', [CaseController::class, 'templates']);
+    Route::get('/llm/models', [\App\Http\Controllers\Api\LlmTestController::class, 'models']);
+    Route::post('/llm/smoke', [\App\Http\Controllers\Api\LlmTestController::class, 'smoke']);
+    Route::post('/llm/compare', [\App\Http\Controllers\Api\LlmTestController::class, 'compare']);
     Route::get('/presets', function () {
         return response()->json(\App\Services\PresetService::getPresets());
     });
     Route::get('/cases/{id}', [CaseController::class, 'show']);
+    Route::post('/cases/{id}/plan', [\App\Http\Controllers\Api\CaseDiscoveryController::class, 'plan']);
+    Route::post('/cases/{id}/discover', [\App\Http\Controllers\Api\CaseDiscoveryController::class, 'discover']);
+    Route::post('/cases/{id}/append', [\App\Http\Controllers\Api\CaseDiscoveryController::class, 'append']);
+    Route::post('/cases/{id}/add-column', [\App\Http\Controllers\Api\CaseDiscoveryController::class, 'addColumn']);
+    Route::post('/cases/{id}/delete-column', [\App\Http\Controllers\Api\CaseDiscoveryController::class, 'deleteColumn']);
     Route::get('/cases/{id}/agent', [AgentRunController::class, 'indexForCase']);
     Route::get('/rows', [RowController::class, 'index']);
     Route::get('/rows/grouped', [\App\Http\Controllers\Api\GroupedRowsController::class, 'index']);
