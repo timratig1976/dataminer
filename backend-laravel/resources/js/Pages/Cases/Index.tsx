@@ -2,6 +2,7 @@ import React, { useState, useRef } from 'react';
 import AppLayout from '../../Layouts/AppLayout';
 import { Link, router } from '@inertiajs/react';
 import { Plus, Calendar, Download, Upload, RefreshCw, AlertCircle, Trash2, FolderPlus, X } from 'lucide-react';
+import { apiFetch } from '../../api';
 
 interface CaseItem {
     id: string;
@@ -37,7 +38,7 @@ export default function CasesIndex({ cases: initialCases }: Props) {
             const text = await file.text();
             const snap = JSON.parse(text);
 
-            const res = await fetch('/api/import/snapshot', {
+            const res = await apiFetch('/api/import/snapshot', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(snap),
@@ -56,6 +57,8 @@ export default function CasesIndex({ cases: initialCases }: Props) {
         } catch (err: any) {
             setImportError(err.message || 'Ungültige Snapshot-JSON-Datei');
             setImporting(false);
+        } finally {
+            if (fileInputRef.current) fileInputRef.current.value = '';
         }
     };
 

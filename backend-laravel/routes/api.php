@@ -10,8 +10,8 @@ use App\Http\Controllers\Api\ImportController;
 use App\Http\Controllers\Api\SettingsController;
 use App\Http\Controllers\Api\AgentRunController;
 
-// Public or Authenticated routes via Sanctum
-Route::middleware(['auth:sanctum'])->group(function () {
+// Public or Authenticated routes via Sanctum or Session
+Route::middleware(['web', 'auth'])->group(function () {
     // Current authenticated user profile & roles
     Route::get('/user', function (Request $request) {
         return $request->user()->load('roles', 'permissions');
