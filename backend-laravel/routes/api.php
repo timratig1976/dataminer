@@ -40,6 +40,8 @@ Route::middleware(['web', 'auth'])->group(function () {
         Route::post('/rows', [RowController::class, 'store']);
         Route::patch('/rows/{id}', [RowController::class, 'update']);
 
+        Route::post('/run/cell', [\App\Http\Controllers\Api\CellRunController::class, 'run']);
+
         Route::post('/enrichment/dispatch', [EnrichmentJobController::class, 'dispatchJob'])
             ->middleware('throttle:20,1'); // Max 20 Dispatches pro Minute pro User
         Route::post('/enrichment/jobs/{id}/cancel', [EnrichmentJobController::class, 'cancel']);

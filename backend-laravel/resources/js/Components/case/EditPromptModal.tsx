@@ -2,9 +2,9 @@
 
 import { useState, useEffect, useRef } from "react";
 import { Play, Loader2, Save, Sparkles, Zap, Info } from "lucide-react";
-import type { AiColumn, CellStatus, Case } from "../types";
-import { DEFAULT_MODEL_OPTIONS, mergeModelOptions } from "../types/model-options";
-import { Modal, FormField, Input, Select, Textarea } from "./ui/ModalMaster";
+import type { AiColumn, CellStatus, Case } from "../../types";
+import { DEFAULT_MODEL_OPTIONS, mergeModelOptions } from "../../types/model-options";
+import { Modal, FormField, Input, Select, Textarea } from "../ui/ModalMaster";
 
 // Client-safe copies (avoid importing lib/batch-enrich which pulls in playwright)
 const BATCH_FIELDS = [
