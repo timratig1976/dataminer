@@ -29,6 +29,8 @@ Route::middleware(['web', 'auth'])->group(function () {
     Route::get('/rows', [RowController::class, 'index']);
     Route::get('/rows/grouped', [\App\Http\Controllers\Api\GroupedRowsController::class, 'index']);
     Route::get('/contact-rows', [\App\Http\Controllers\Api\ContactRowController::class, 'index']);
+    Route::get('/logs', [\App\Http\Controllers\Api\LogController::class, 'index']);
+    Route::delete('/logs', [\App\Http\Controllers\Api\LogController::class, 'destroy']);
     Route::get('/export', [ExportController::class, 'exportCsv']);
     Route::get('/export/snapshot', [ExportController::class, 'exportSnapshot']);
     Route::get('/enrichment/jobs/{id}', [EnrichmentJobController::class, 'show']);
@@ -51,6 +53,7 @@ Route::middleware(['web', 'auth'])->group(function () {
         Route::post('/cases/{id}/sub-industries', [\App\Http\Controllers\Api\SubIndustryController::class, 'analyse']);
         Route::post('/cases/{id}/flag-catalog', [\App\Http\Controllers\Api\CatalogFlagController::class, 'flag']);
         Route::post('/cases/{id}/deep-crawl-catalogs', [\App\Http\Controllers\Api\CatalogCrawlController::class, 'crawl']);
+        Route::post('/contact-rows/cleanup', [\App\Http\Controllers\Api\ContactCleanupController::class, 'cleanup']);
         Route::post('/verify-email', [\App\Http\Controllers\Api\EmailVerifyController::class, 'verify']);
         Route::post('/verify-email-all', [\App\Http\Controllers\Api\EmailVerifyController::class, 'verifyAll']);
         Route::patch('/contact-rows', [\App\Http\Controllers\Api\ContactRowController::class, 'upsert']);
