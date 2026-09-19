@@ -189,7 +189,7 @@ function SettingsPanel({ caseId, onCaseUpdated }: { caseId: string; onCaseUpdate
 
   async function saveColEdit() {
     if (!editingCol || !caseData) return;
-    await saveCols(caseData.aiColumns.map(c => c.id === editingCol.id ? editingCol : c));
+    await saveCols((caseData?.aiColumns ?? []).map(c => c.id === editingCol.id ? editingCol : c));
     setEditingCol(null);
   }
 
@@ -201,7 +201,7 @@ function SettingsPanel({ caseId, onCaseUpdated }: { caseId: string; onCaseUpdate
       outputMode: newCol.outputMode as "text"|"json"|undefined,
       jsonKey: newCol.jsonKey, condition: newCol.condition, conditionField: newCol.conditionField,
     };
-    await saveCols([...caseData.aiColumns, col]);
+    await saveCols([...(caseData?.aiColumns ?? []), col]);
     setAddingCol(false); setNewCol({});
   }
 
@@ -319,7 +319,7 @@ function SettingsPanel({ caseId, onCaseUpdated }: { caseId: string; onCaseUpdate
       {/* AI Columns */}
       <div style={card}>
         <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16}}>
-          <div style={{fontSize:15,fontWeight:700,color:"#111"}}>✨ KI-Spalten ({caseData.aiColumns.length})</div>
+          <div style={{fontSize:15,fontWeight:700,color:"#111"}}>✨ KI-Spalten ({(caseData?.aiColumns ?? []).length})</div>
           <button style={btn("#7c3aed")} onClick={()=>{setAddingCol(true);setNewCol({model:"openai/gpt-4o-mini",outputMode:"text"});}}>
             <Plus style={{width:12,height:12}} /> Neue KI-Spalte
           </button>
@@ -337,14 +337,14 @@ function SettingsPanel({ caseId, onCaseUpdated }: { caseId: string; onCaseUpdate
           </div>
         )}
 
-        {caseData.aiColumns.length === 0 && !addingCol && (
+        {(caseData?.aiColumns ?? []).length === 0 && !addingCol && (
           <div style={{textAlign:"center",padding:"32px 0",color:"#9ca3af",fontSize:13}}>
             Noch keine KI-Spalten. Klicke auf "Neue KI-Spalte" um zu starten.
           </div>
         )}
 
         <div style={{display:"grid",gap:8}}>
-          {caseData.aiColumns.map(col => (
+          {(caseData?.aiColumns ?? []).map(col => (
             <div key={col.id} style={{border:"1px solid #e5e7eb",borderRadius:8,overflow:"hidden"}}>
               <div style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",cursor:"pointer",background:editingCol?.id===col.id?"#f5f3ff":"#fff"}}
                 onClick={()=>setEditingCol(editingCol?.id===col.id ? null : {...col})}>
@@ -357,7 +357,7 @@ function SettingsPanel({ caseId, onCaseUpdated }: { caseId: string; onCaseUpdate
                   </div>
                 </div>
                 <span style={{fontSize:11,color:"#9ca3af"}}>{editingCol?.id===col.id?"▲":"▼"}</span>
-                <button onClick={e=>{e.stopPropagation();if(!confirm(`"${col.name}" löschen?`))return;saveCols(caseData.aiColumns.filter(c=>c.id!==col.id));}}
+                <button onClick={e=>{e.stopPropagation();if(!confirm(`"${col.name}" löschen?`))return;saveCols((caseData?.aiColumns ?? []).filter(c=>c.id!==col.id));}}
                   style={{padding:4,border:"none",background:"none",cursor:"pointer",color:"#d1d5db"}}
                   onMouseEnter={e=>(e.currentTarget.style.color="#dc2626")}
                   onMouseLeave={e=>(e.currentTarget.style.color="#d1d5db")}>
@@ -1296,7 +1296,7 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
   async function handleColDrop(targetKey: string) {
     if (!dragCol || dragCol === targetKey || !caseData) return;
     const order = colOrder.length > 0 ? colOrder : [
-      ...sourceColumns, ...caseData.aiColumns.map(c => c.outputKey)
+      ...sourceColumns, ...(caseData?.aiColumns ?? []).map(c => c.outputKey)
     ];
     const from = order.indexOf(dragCol);
     const to = order.indexOf(targetKey);
@@ -1331,7 +1331,7 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
 
   async function deleteColumn(colId: string) {
     if (!caseData) return;
-    const updated = caseData.aiColumns.filter((c) => c.id !== colId);
+    const updated = (caseData?.aiColumns ?? []).filter((c) => c.id !== colId);
     const res = await fetch(`/api/cases/${caseId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -1425,8 +1425,8 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
 
   // ── Hidden-column filter: fields written by batch_contact should not appear as own columns ──
   const BATCH_CONTACTS_FLAT_KEYS = new Set(["first_name", "last_name", "position", "contact_email", "contact_phone", "linkedin", "email_extrapolated", "email_fallback"]);
-  const hasBatchContactsCol = caseData?.aiColumns.some(c => c.tool === "batch_contact") ?? false;
-  const aiOutputKeySet = new Set(caseData?.aiColumns.map(c => c.outputKey) ?? []);
+  const hasBatchContactsCol = caseData?.aiColumns?.some(c => c.tool === "batch_contact") ?? false;
+  const aiOutputKeySet = new Set(caseData?.aiColumns?.map(c => c.outputKey) ?? []);
   const isHiddenCol = (key: string): boolean => {
     // Explicitly allow cache status column
     if (key === "_scrape_cached_ts") return false;
@@ -1447,7 +1447,7 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
     const missingAi = aiKeys.filter(k => !base.includes(k) && !manuallyHiddenCols.has(k));
     let merged = [...base];
     for (const aiKey of missingAi) {
-      const col = caseData?.aiColumns.find(c => c.outputKey === aiKey);
+      const col = caseData?.aiColumns?.find(c => c.outputKey === aiKey);
       if (col?.tool === "batch_company") {
         const domainIdx = merged.indexOf("domain");
         if (domainIdx !== -1) {
@@ -1565,8 +1565,8 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
               <span>{dataRows.length} Zeilen</span>
               {catalogRows.length > 0 && <span>{catalogRows.length} Kataloge</span>}
               <span>{sourceColumns.length} Quellspalten</span>
-              <span style={{color:"var(--green)",fontWeight:500}}>{caseData.aiColumns.length} KI-Spalten</span>
-              <CostDashboard totals={totals} rowCount={rows.length} colCount={caseData.aiColumns.length} />
+              <span style={{color:"var(--green)",fontWeight:500}}>{(caseData?.aiColumns ?? []).length} KI-Spalten</span>
+              <CostDashboard totals={totals} rowCount={rows.length} colCount={(caseData?.aiColumns ?? []).length} />
             </div>
           </div>
 
@@ -1765,8 +1765,8 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
                   </button>
                   {showColVisibility && (() => {
                     const allCols = colOrder.filter(k => !isHiddenCol(k));
-                    const srcCols = allCols.filter(k => !caseData.aiColumns.some(c => c.outputKey === k));
-                    const aiCols = allCols.filter(k => caseData.aiColumns.some(c => c.outputKey === k));
+                    const srcCols = allCols.filter(k => !(caseData?.aiColumns ?? []).some(c => c.outputKey === k));
+                    const aiCols = allCols.filter(k => (caseData?.aiColumns ?? []).some(c => c.outputKey === k));
                     const toggle = (k: string) => setManuallyHiddenCols(prev => { const n = new Set(prev); n.has(k) ? n.delete(k) : n.add(k); return n; });
 
                     return (
@@ -1792,7 +1792,7 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
                         {/* AI cols */}
                         {aiCols.length > 0 && <div style={{fontSize:10,fontWeight:600,color:"var(--green)",textTransform:"uppercase",padding:"8px 2px 2px",marginBottom:2,borderTop:"1px solid var(--border-xs)",marginTop:6}}>KI-Spalten</div>}
                         {aiCols.map(k => {
-                          const col = caseData.aiColumns.find(c => c.outputKey === k);
+                          const col = (caseData?.aiColumns ?? []).find(c => c.outputKey === k);
                           return (
                             <label key={k} style={{display:"flex",alignItems:"center",gap:8,padding:"4px 6px",borderRadius:"var(--rs)",cursor:"pointer",fontSize:12,color:"var(--green)"}}>
                               <input type="checkbox" checked={!manuallyHiddenCols.has(k)} onChange={()=>toggle(k)} style={{accentColor:"var(--green)"}}/>
@@ -1855,7 +1855,7 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
           {(runningColumnId || runningRowIds.size > 0) && (
             <div style={{padding:"8px 16px",background:"#eff6ff",borderBottom:"1px solid #bfdbfe",display:"flex",flexWrap:"wrap",alignItems:"center",gap:10}}>
               {runningColumnId && (() => {
-                const col = caseData.aiColumns.find(c => c.id === runningColumnId);
+                const col = (caseData?.aiColumns ?? []).find(c => c.id === runningColumnId);
                 return col ? (
                   <div style={{display:"flex",alignItems:"center",gap:6,fontSize:12}}>
                     <Loader2 style={{width:11,height:11,color:"#2563eb"}} className="animate-spin"/>
@@ -1875,7 +1875,7 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
               )}
               <button
                 onClick={() => {
-                  const col = caseData.aiColumns.find(c => c.id === runningColumnId);
+                  const col = (caseData?.aiColumns ?? []).find(c => c.id === runningColumnId);
                   if (col) stopColumn(col);
                 }}
                 style={{marginLeft:"auto",padding:"2px 10px",background:"#dc2626",color:"#fff",border:"none",borderRadius:5,cursor:"pointer",fontSize:11,fontWeight:600}}>
@@ -1885,7 +1885,7 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
           )}
 
           {/* No AI columns warning */}
-          {activeTab === "Firmen" && caseData.aiColumns.length === 0 && (
+          {activeTab === "Firmen" && (caseData?.aiColumns ?? []).length === 0 && (
             <div style={{padding:"6px 16px",background:"#fefce8",borderBottom:"1px solid #fde68a",display:"flex",alignItems:"center",gap:8,fontSize:12,color:"#92400e"}}>
               ⚠️ Keine KI-Spalten — <button onClick={()=>setShowAddCol(true)} style={{padding:"1px 8px",background:"#7c3aed",color:"#fff",border:"none",borderRadius:4,cursor:"pointer",fontSize:11,fontWeight:600}}>+ Spalte hinzufügen</button>
             </div>
@@ -1922,8 +1922,8 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
                   <th style={{padding:"0 11px",height:34,borderBottom:"1px solid var(--border)",textAlign:"left",fontWeight:600,fontSize:10.5,letterSpacing:"0.05em",textTransform:"uppercase",color:"var(--text-3)",whiteSpace:"nowrap",minWidth:90}}>
                     Status
                   </th>
-                  {(visibleColOrder.length > 0 ? visibleColOrder : [...sourceColumns,...caseData.aiColumns.map(c=>c.outputKey)].filter(k=>!isHiddenCol(k))).map(key => {
-                    const aiCol = caseData.aiColumns.find(c=>c.outputKey===key);
+                  {(visibleColOrder.length > 0 ? visibleColOrder : [...sourceColumns,...(caseData?.aiColumns ?? []).map(c=>c.outputKey)].filter(k=>!isHiddenCol(k))).map(key => {
+                    const aiCol = (caseData?.aiColumns ?? []).find(c=>c.outputKey===key);
                     const isSrc = sourceColumns.includes(key);
                     const isOrphan = !isSrc && !aiCol;
                     const isDragOver = dragOverCol === key;
@@ -2073,13 +2073,13 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
               </thead>
               <tbody>
                 {rows.length === 0 ? (
-                  <tr><td colSpan={sourceColumns.length + caseData.aiColumns.length + 4}
+                  <tr><td colSpan={sourceColumns.length + (caseData?.aiColumns ?? []).length + 4}
                     style={{textAlign:"center",padding:"48px 0",color:"var(--text-3)",fontSize:13}}>
                     Keine Zeilen. CSV importieren um zu starten.
                   </td></tr>
                 ) : pageRows.map((row, rowIdx) => {
-                  const totalCols = caseData.aiColumns.length;
-                  const statuses = caseData.aiColumns.map(c => row.cellStatuses[c.outputKey] ?? "idle");
+                  const totalCols = (caseData?.aiColumns ?? []).length;
+                  const statuses = (caseData?.aiColumns ?? []).map(c => row.cellStatuses[c.outputKey] ?? "idle");
                   const errorCount = statuses.filter(s => s === "error").length;
                   const runningCount = statuses.filter(s => s === "running").length;
                   const doneCount = statuses.filter(s => s === "done" || s === "skipped").length;
@@ -2114,9 +2114,9 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
                           `[Abbrechen] = Nur leere Zellen füllen`
                         );
                         if (choice) {
-                          for (const col of caseData.aiColumns) runCell(row.id, col);
+                          for (const col of (caseData?.aiColumns ?? [])) runCell(row.id, col);
                         } else {
-                          for (const col of caseData.aiColumns) {
+                          for (const col of (caseData?.aiColumns ?? [])) {
                             const val = row.data[col.outputKey];
                             const isEmpty = !val || String(val).trim() === "" || /^notfound$/i.test(String(val));
                             if (isEmpty) runCell(row.id, col);
@@ -2170,8 +2170,8 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
                           );
                         })()}
                       </td>
-                      {(visibleColOrder.length > 0 ? visibleColOrder : [...sourceColumns,...caseData.aiColumns.map(c=>c.outputKey)].filter(k=>!isHiddenCol(k))).map(key => {
-                        const aiCol = caseData.aiColumns.find(c=>c.outputKey===key);
+                      {(visibleColOrder.length > 0 ? visibleColOrder : [...sourceColumns,...(caseData?.aiColumns ?? []).map(c=>c.outputKey)].filter(k=>!isHiddenCol(k))).map(key => {
+                        const aiCol = (caseData?.aiColumns ?? []).find(c=>c.outputKey===key);
                         const isSrc = sourceColumns.includes(key);
                         if (aiCol) {
                           const col = aiCol; // narrow for closure
@@ -2588,7 +2588,7 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
                           );
                         }
                         // ── JSON audit columns (vilocal_audit etc.) ──────
-                        if (caseData.aiColumns.find(c=>c.outputKey===key)?.outputMode === "json" && val?.trimStart().startsWith("{")) {
+                        if ((caseData?.aiColumns ?? []).find(c=>c.outputKey===key)?.outputMode === "json" && val?.trimStart().startsWith("{")) {
                           try {
                             const j = JSON.parse(val);
                             const score = j.score as number | undefined;
@@ -2646,7 +2646,7 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
                                 }
                                 const isUrl = !!href;
                                 // ── JSON AI column: render as structured pills ──
-                                const aiColDef = caseData.aiColumns.find(c => c.outputKey === key);
+                                const aiColDef = (caseData?.aiColumns ?? []).find(c => c.outputKey === key);
                                 const trimmedVal = displayVal?.trimStart() ?? "";
                                 const isJsonAudit = (aiColDef?.outputMode === "json" || trimmedVal.includes('"score"')) && trimmedVal.startsWith("{");
                                 if (isJsonAudit) {
@@ -3112,7 +3112,7 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
             {/* CSV export */}
             <div style={{maxWidth:480,background:"var(--surface)",borderRadius:"var(--r)",border:"1px solid var(--border)",boxShadow:"var(--shadow-sm)",padding:20}}>
               <div style={{fontSize:14,fontWeight:600,color:"var(--text-1)",marginBottom:4}}>📊 CSV exportieren</div>
-              <div style={{fontSize:12,color:"var(--text-2)",marginBottom:14}}>{rows.length} Zeilen · {sourceColumns.length + caseData.aiColumns.length} Spalten — wähle Export-Modus und Spalten aus.</div>
+              <div style={{fontSize:12,color:"var(--text-2)",marginBottom:14}}>{rows.length} Zeilen · {sourceColumns.length + (caseData?.aiColumns ?? []).length} Spalten — wähle Export-Modus und Spalten aus.</div>
               <button onClick={() => setShowExport(true)} className="btn-v2 btn-v2-primary">
                 <Download style={{width:14,height:14}} /> CSV exportieren
               </button>
@@ -3192,14 +3192,14 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
                       </button>
                     </span>
                   )}
-                  {" · "}{caseData?.aiColumns.length ?? 0} KI-Spalten
+                  {" · "}{caseData?.aiColumns?.length ?? 0} KI-Spalten
                 </div>
               </div>
             </div>
 
             {/* Warning for overwrite mode */}
             {runConfirm.mode === "all_force" && (() => {
-              const filledCount = rows.filter(r => caseData?.aiColumns.some(c => r.data[c.outputKey] && r.data[c.outputKey] !== "")).length;
+              const filledCount = rows.filter(r => caseData?.aiColumns?.some(c => r.data[c.outputKey] && r.data[c.outputKey] !== "")).length;
               return filledCount > 0 ? (
                 <div style={{background:"#fef9c3",border:"1px solid #fde68a",borderRadius:8,padding:"10px 12px",fontSize:12,color:"#92400e",marginBottom:16}}>
                   ⚠ <strong>{filledCount} Zeilen</strong> haben bereits Werte — diese werden überschrieben.
@@ -3242,7 +3242,7 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
         });
         setShowAddCol(false);
       }}
-        availableFields={[...sourceColumns, ...caseData.aiColumns.map(c=>c.outputKey)]} />}
+        availableFields={[...sourceColumns, ...(caseData?.aiColumns ?? []).map(c=>c.outputKey)]} />}
       {showAppend && (
         <AppendModal
           caseId={caseId}
@@ -3293,7 +3293,7 @@ export default function CasePage({ params }: { params: Promise<{ id: string }> }
           } : undefined}
           availableFields={[
             ...sourceColumns,
-            ...caseData.aiColumns.filter(c => c.id !== (editingPromptCell?.col.id ?? editingPromptCol?.id)).map(c => c.outputKey),
+            ...(caseData?.aiColumns ?? []).filter(c => c.id !== (editingPromptCell?.col.id ?? editingPromptCol?.id)).map(c => c.outputKey),
           ]}
         />
       )}

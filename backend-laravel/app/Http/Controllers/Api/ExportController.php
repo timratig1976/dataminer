@@ -65,4 +65,59 @@ class ExportController extends Controller
             fclose($handle);
         }, 200, $headers);
     }
+
+    /**
+     * Export complete case as JSON snapshot.
+     * GET /api/export/snapshot?caseId=...
+     */
+    public function exportSnapshot(Request $request)
+    {
+        $caseId = $request->query('caseId');
+        if (!$caseId) {
+            return response()->json(['error' => 'caseId required'], 400);
+        }
+
+        $case = DataCase::find($caseId);
+        if (!$case) {
+            return response()->json(['error' => 'Case not found'], 404);
+        }
+
+        $rows = Row::where('case_id', $caseId)->orderBy('row_index', 'asc')->get();
+        $contacts = ContactRow::where('case_id', $caseId)->get();
+
+        $snapshot = [
+            '_version' => 2,
+            'exportedAt' => now()->toIso8601String(),
+            'case' => [
+                'id' => $case->id,
+                'name' => $case->name,
+                'description' => $case->description,
+                'columns' => $case->columns,
+                'ai_columns' => $case->ai_columns,
+                'col_order' => $case->col_order,
+                'eden_region' => $case->eden_region,
+            ],
+            'rows' => $rows->map(fn($r) => [
+                'id' => $r->id,
+                'row_index' => $r->row_index,
+                'data' => $r->data,
+                'cell_statuses' => $r->cell_statuses,
+                'cell_errors' => $r->cell_errors,
+            ]),
+            'contacts' => $contacts->map(fn($c) => [
+                'id' => $c->id,
+                'data' => $c->data,
+                'cell_statuses' => $c->cell_statuses,
+                'cell_errors' => $c->cell_errors,
+            ]),
+        ];
+
+        $safeName = preg_replace('/[^a-z0-9]/i', '_', $case->name);
+        $filename = "{$safeName}_snapshot.json";
+
+        return response()->json($snapshot, 200, [
+            'Content-Type' => 'application/json; charset=utf-8',
+            'Content-Disposition' => "attachment; filename=\"{$filename}\"",
+        ]);
+    }
 }

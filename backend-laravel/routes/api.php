@@ -22,6 +22,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::get('/cases/{id}', [CaseController::class, 'show']);
     Route::get('/rows', [RowController::class, 'index']);
     Route::get('/export', [ExportController::class, 'exportCsv']);
+    Route::get('/export/snapshot', [ExportController::class, 'exportSnapshot']);
     Route::get('/enrichment/jobs/{id}', [EnrichmentJobController::class, 'show']);
     Route::get('/enrichment/jobs/{id}/stream', [EnrichmentJobController::class, 'stream']);
     Route::get('/settings', [SettingsController::class, 'show']);
