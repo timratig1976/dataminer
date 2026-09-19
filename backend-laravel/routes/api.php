@@ -25,3 +25,8 @@ Route::delete('/rows', [RowController::class, 'destroy']);
 
 // Export API
 Route::get('/export', [ExportController::class, 'exportCsv']);
+
+// Asynchronous Enrichment Queue API (100k+ Scaling)
+Route::post('/enrichment/dispatch', [\App\Http\Controllers\Api\EnrichmentJobController::class, 'dispatchJob']);
+Route::get('/enrichment/jobs/{id}', [\App\Http\Controllers\Api\EnrichmentJobController::class, 'show']);
+Route::post('/enrichment/jobs/{id}/cancel', [\App\Http\Controllers\Api\EnrichmentJobController::class, 'cancel']);
