@@ -100,6 +100,8 @@ class CellRunController extends Controller
                 $filled = count(array_filter($result['fields'] ?? []));
                 $summary = "{$filled}/" . count($fields) . " Felder angereichert";
                 $data[$outputKey] = $summary;
+                $data['_scrape_cached_ts'] = now()->toIso8601String();
+                $data['_scrape_origin'] = $result['source_origin'] ?? 'live:scrape';
 
                 $statuses[$outputKey] = 'done';
                 $row->update(['data' => $data, 'cell_statuses' => $statuses]);

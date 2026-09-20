@@ -140,6 +140,8 @@ class ProcessEnrichmentChunk implements ShouldQueue
                     $data = array_merge($row->data ?? [], $result['fields'] ?? []);
                     $filled = count(array_filter($result['fields'] ?? []));
                     $data[$outputKey] = "{$filled}/" . count($fields) . " Felder angereichert";
+                    $data['_scrape_cached_ts'] = now()->toIso8601String();
+                    $data['_scrape_origin'] = $result['source_origin'] ?? 'live:scrape';
 
                     $statuses[$outputKey] = 'done';
                     $row->update(['data' => $data, 'cell_statuses' => $statuses]);

@@ -83,6 +83,7 @@ class BatchEnrichService
             'tokens' => $chat['tokens']['total'] ?? 0,
             'cost_usd' => $chat['cost_usd'] ?? 0.0004,
             'scrape_markdown' => $rawMarkdown,
+            '_scrape_cached_ts' => now()->toIso8601String(),
         ];
     }
 

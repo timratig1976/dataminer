@@ -92,6 +92,9 @@ export default function CaseShow({ case: c }: Props) {
     const [showAddColModal, setShowAddColModal] = useState(false);
     const [showImportModal, setShowImportModal] = useState(false);
     const [editingCol, setEditingCol] = useState<any | null>(null);
+    const [cacheModalRow, setCacheModalRow] = useState<RowItem | null>(null);
+    const [cacheModalEntries, setCacheModalEntries] = useState<Array<{url:string; title?:string; length:number; markdown:string; fetchedAt:string}>>([]);
+    const [cacheModalLoading, setCacheModalLoading] = useState(false);
 
     // Column Management & Visibility
     const [showColVisibility, setShowColVisibility] = useState(false);
@@ -689,7 +692,29 @@ export default function CaseShow({ case: c }: Props) {
                                                         className="p-2.5 border-r truncate max-w-[280px]"
                                                         style={{ borderColor: "var(--border-xs)" }}
                                                     >
-                                                        {col.isAi ? (
+                                                        {col.key === "_scrape_cached_ts" ? (
+                                                            val ? (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        setCacheModalRow(r);
+                                                                        setCacheModalLoading(true);
+                                                                        const d = r.data["domain"] ?? r.data["source_domain"] ?? "";
+                                                                        apiFetch(`/api/cache?domain=${encodeURIComponent(d)}`)
+                                                                            .then(res => res.json())
+                                                                            .then(data => setCacheModalEntries(data.entries ?? []))
+                                                                            .catch(() => setCacheModalEntries([]))
+                                                                            .finally(() => setCacheModalLoading(false));
+                                                                    }}
+                                                                    className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded cursor-pointer hover:bg-emerald-100 transition-colors"
+                                                                >
+                                                                    ⚡ Gecached ({r.data["_scrape_origin"] || 'db'})
+                                                                </button>
+                                                            ) : (
+                                                                <span className="text-slate-400 italic text-[11px]">—</span>
+                                                            )
+                                                        ) : col.isAi ? (
                                                             <div className="flex items-center justify-between gap-1.5">
                                                                 <span className="truncate">
                                                                     {isRunning ? (
@@ -796,6 +821,63 @@ export default function CaseShow({ case: c }: Props) {
                     }}
                     onClose={() => setEditingCol(null)}
                 />
+            )}
+
+            {/* ⚡ Cache Inspector Modal (1:1 Next.js Original) */}
+            {cacheModalRow && (
+                <div 
+                    className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in"
+                    onClick={() => setCacheModalRow(null)}
+                >
+                    <div 
+                        className="w-full max-w-3xl rounded-xl shadow-2xl flex flex-col max-h-[85vh] overflow-hidden"
+                        style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}
+                        onClick={e => e.stopPropagation()}
+                    >
+                        <div className="p-4 border-b flex items-center justify-between" style={{ borderColor: 'var(--border-xs)' }}>
+                            <div>
+                                <h3 className="text-sm font-bold flex items-center gap-2" style={{ color: 'var(--text-1)' }}>
+                                    ⚡ Gecachte Scrape-Daten für {cacheModalRow.data['company_name'] || cacheModalRow.data['domain'] || 'Zeile'}
+                                </h3>
+                                <div className="text-[11.5px] mt-0.5" style={{ color: 'var(--text-3)' }}>
+                                    Domain: <code className="bg-slate-100 px-1.5 py-0.5 rounded font-mono text-slate-800">{cacheModalRow.data['domain'] || 'keine Domain'}</code> · Kosten dieser Daten: <span className="font-semibold text-emerald-600">$0,00 (aus PostgreSQL scrape_cache)</span>
+                                </div>
+                            </div>
+                            <button onClick={() => setCacheModalRow(null)} className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer">
+                                ✕
+                            </button>
+                        </div>
+
+                        <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                            {cacheModalLoading ? (
+                                <div className="p-12 text-center text-xs text-slate-400 flex items-center justify-center gap-2">
+                                    <RefreshCw className="w-4 h-4 animate-spin text-emerald-600" />
+                                    Lade PostgreSQL Cache-Einträge…
+                                </div>
+                            ) : cacheModalEntries.length === 0 ? (
+                                <div className="p-8 text-center text-xs rounded-lg bg-slate-50 border text-slate-500" style={{ borderColor: 'var(--border-xs)' }}>
+                                    Kein direkter PostgreSQL-Cache-Eintrag für diese Domain gefunden.
+                                </div>
+                            ) : (
+                                cacheModalEntries.map((entry, idx) => (
+                                    <div key={idx} className="border rounded-lg overflow-hidden shadow-xs" style={{ borderColor: 'var(--border)' }}>
+                                        <div className="p-2.5 bg-slate-50 border-b flex items-center justify-between text-xs" style={{ borderColor: 'var(--border-xs)' }}>
+                                            <div className="font-mono text-[11px] truncate flex-1 pr-2" style={{ color: 'var(--text-1)' }}>
+                                                🔗 {entry.url}
+                                            </div>
+                                            <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full shrink-0">
+                                                ⚡ $0 Re-use (Gecacht: {new Date(entry.fetchedAt).toLocaleDateString('de-DE')})
+                                            </span>
+                                        </div>
+                                        <div className="p-3 bg-white text-[11px] font-mono leading-relaxed overflow-y-auto max-h-56 whitespace-pre-wrap select-text text-slate-700">
+                                            {entry.markdown}
+                                        </div>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                    </div>
+                </div>
             )}
         </AppLayout>
     );
