@@ -15,6 +15,7 @@ import EditPromptModal from '../../Components/case/EditPromptModal';
 import RunDetailModal from '../../Components/case/RunDetailModal';
 import { ColumnHeaderMenu } from '../../Components/ColumnHeaderMenu';
 import GroupedTableView from '../../Components/GroupedTableView';
+import ConfirmDialog from '../../Components/ui/ConfirmDialog';
 import { apiFetch } from '../../api';
 
 interface CaseDetail {
@@ -124,6 +125,10 @@ export default function CaseShow({ case: c }: Props) {
 
     // Row selection for bulk actions
     const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
+
+    // Two-Step Confirmation State
+    const [confirmDeleteRows, setConfirmDeleteRows] = useState(false);
+    const [columnToDelete, setColumnToDelete] = useState<any | null>(null);
 
     const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
@@ -277,7 +282,6 @@ export default function CaseShow({ case: c }: Props) {
     // Bulk actions on selected rows
     const deleteSelectedRows = async () => {
         if (selectedRows.size === 0) return;
-        if (!confirm(`${selectedRows.size} ausgewählte Zeile(n) wirklich löschen?`)) return;
         try {
             const res = await apiFetch('/api/rows', {
                 method: 'DELETE',
@@ -327,7 +331,6 @@ export default function CaseShow({ case: c }: Props) {
 
     // Delete column
     const deleteColumn = async (colId: string) => {
-        if (!confirm('Diese KI-Spalte wirklich löschen?')) return;
         try {
             await apiFetch(`/api/cases/${caseData.id}/delete-column`, {
                 method: 'POST',
@@ -335,6 +338,7 @@ export default function CaseShow({ case: c }: Props) {
                 body: JSON.stringify({ columnId: colId }),
             });
             refreshCase();
+            setColumnToDelete(null);
         } catch (e: any) {
             alert('Löschen fehlgeschlagen: ' + e.message);
         }
@@ -451,6 +455,33 @@ export default function CaseShow({ case: c }: Props) {
                     </button>
                     <button onClick={() => setShowExportModal(true)} className="btn-v2">
                         <Download style={{ width: 12, height: 12 }} /> Export
+                    </button>
+                    <button
+                        onClick={async () => {
+                            const name = prompt("Name für diese Spalten-Vorlage eingeben:", caseData.name + " Vorlage");
+                            if (!name || !name.trim()) return;
+                            const desc = prompt("Optionale Beschreibung der Vorlage:");
+                            try {
+                                const res = await apiFetch('/api/templates/from-case', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({
+                                        case_id: caseData.id,
+                                        name: name.trim(),
+                                        description: desc?.trim() || undefined,
+                                    }),
+                                });
+                                if (res.ok) {
+                                    alert(`Vorlage "${name}" erfolgreich gespeichert! Sie steht ab sofort beim Erstellen neuer Cases zur Verfügung.`);
+                                }
+                            } catch (e: any) {
+                                alert("Fehler beim Speichern: " + e.message);
+                            }
+                        }}
+                        className="btn-v2"
+                        title="Aktuelle Spaltenkonfiguration als wiederverwendbares Template sichern"
+                    >
+                        ⭐ Als Vorlage sichern
                     </button>
 
                     <div className="tsep-v2" />
@@ -641,24 +672,74 @@ export default function CaseShow({ case: c }: Props) {
                                                     Quelldaten
                                                 </div>
                                             )}
-                                            {baseCols.map(c => (
-                                                <label key={c.key} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 6px", borderRadius: "var(--rs)", cursor: "pointer", fontSize: 12, color: "var(--text-1)" }}>
-                                                    <input 
-                                                        type="checkbox" 
-                                                        checked={!manuallyHiddenCols.has(c.key)} 
-                                                        onChange={() => {
-                                                            setManuallyHiddenCols(prev => {
-                                                                const next = new Set(prev);
-                                                                next.has(c.key) ? next.delete(c.key) : next.add(c.key);
-                                                                return next;
-                                                            });
-                                                        }} 
-                                                        style={{ accentColor: "var(--orange)" }}
-                                                    />
-                                                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                                                        {c.label}
-                                                    </span>
-                                                </label>
+                                            {baseCols.map((c, idx) => (
+                                                <div key={c.key} className="flex items-center justify-between py-1 px-1.5 rounded hover:bg-slate-50 text-xs">
+                                                    <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", color: "var(--text-1)", flex: 1, minWidth: 0 }}>
+                                                        <input 
+                                                            type="checkbox" 
+                                                            checked={!manuallyHiddenCols.has(c.key)} 
+                                                            onChange={() => {
+                                                                setManuallyHiddenCols(prev => {
+                                                                    const next = new Set(prev);
+                                                                    next.has(c.key) ? next.delete(c.key) : next.add(c.key);
+                                                                    return next;
+                                                                });
+                                                            }} 
+                                                            style={{ accentColor: "var(--orange)" }}
+                                                        />
+                                                        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                                            {c.label}
+                                                        </span>
+                                                    </label>
+                                                    <div className="flex items-center gap-0.5 opacity-60 hover:opacity-100">
+                                                        <button
+                                                            onClick={async (e) => {
+                                                                e.stopPropagation();
+                                                                const current = visibleColumns.map(col => col.key);
+                                                                const pos = current.indexOf(c.key);
+                                                                if (pos > 0) {
+                                                                    const next = [...current];
+                                                                    const tmp = next[pos - 1];
+                                                                    next[pos - 1] = next[pos];
+                                                                    next[pos] = tmp;
+                                                                    setColOrder(next);
+                                                                    await apiFetch(`/api/cases/${caseData.id}`, {
+                                                                        method: 'PATCH',
+                                                                        headers: { 'Content-Type': 'application/json' },
+                                                                        body: JSON.stringify({ col_order: next }),
+                                                                    });
+                                                                }
+                                                            }}
+                                                            className="p-0.5 rounded hover:bg-slate-200 text-slate-500 cursor-pointer"
+                                                            title="Nach oben verschieben"
+                                                        >
+                                                            ↑
+                                                        </button>
+                                                        <button
+                                                            onClick={async (e) => {
+                                                                e.stopPropagation();
+                                                                const current = visibleColumns.map(col => col.key);
+                                                                const pos = current.indexOf(c.key);
+                                                                if (pos !== -1 && pos < current.length - 1) {
+                                                                    const next = [...current];
+                                                                    const tmp = next[pos + 1];
+                                                                    next[pos + 1] = next[pos];
+                                                                    next[pos] = tmp;
+                                                                    setColOrder(next);
+                                                                    await apiFetch(`/api/cases/${caseData.id}`, {
+                                                                        method: 'PATCH',
+                                                                        headers: { 'Content-Type': 'application/json' },
+                                                                        body: JSON.stringify({ col_order: next }),
+                                                                    });
+                                                                }
+                                                            }}
+                                                            className="p-0.5 rounded hover:bg-slate-200 text-slate-500 cursor-pointer"
+                                                            title="Nach unten verschieben"
+                                                        >
+                                                            ↓
+                                                        </button>
+                                                    </div>
+                                                </div>
                                             ))}
 
                                             {/* AI Columns */}
@@ -667,24 +748,74 @@ export default function CaseShow({ case: c }: Props) {
                                                     KI-Spalten
                                                 </div>
                                             )}
-                                            {aiColumns.map(c => (
-                                                <label key={c.outputKey} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 6px", borderRadius: "var(--rs)", cursor: "pointer", fontSize: 12, color: "var(--green)" }}>
-                                                    <input 
-                                                        type="checkbox" 
-                                                        checked={!manuallyHiddenCols.has(c.outputKey)} 
-                                                        onChange={() => {
-                                                            setManuallyHiddenCols(prev => {
-                                                                const next = new Set(prev);
-                                                                next.has(c.outputKey) ? next.delete(c.outputKey) : next.add(c.outputKey);
-                                                                return next;
-                                                            });
-                                                        }} 
-                                                        style={{ accentColor: "var(--green)" }}
-                                                    />
-                                                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontWeight: 500 }}>
-                                                        {c.name}
-                                                    </span>
-                                                </label>
+                                            {aiColumns.map((c, idx) => (
+                                                <div key={c.outputKey} className="flex items-center justify-between py-1 px-1.5 rounded hover:bg-slate-50 text-xs">
+                                                    <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", color: "var(--green)", flex: 1, minWidth: 0 }}>
+                                                        <input 
+                                                            type="checkbox" 
+                                                            checked={!manuallyHiddenCols.has(c.outputKey)} 
+                                                            onChange={() => {
+                                                                setManuallyHiddenCols(prev => {
+                                                                    const next = new Set(prev);
+                                                                    next.has(c.outputKey) ? next.delete(c.outputKey) : next.add(c.outputKey);
+                                                                    return next;
+                                                                });
+                                                            }} 
+                                                            style={{ accentColor: "var(--green)" }}
+                                                        />
+                                                        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontWeight: 500 }}>
+                                                            {c.name}
+                                                        </span>
+                                                    </label>
+                                                    <div className="flex items-center gap-0.5 opacity-60 hover:opacity-100">
+                                                        <button
+                                                            onClick={async (e) => {
+                                                                e.stopPropagation();
+                                                                const current = visibleColumns.map(col => col.key);
+                                                                const pos = current.indexOf(c.outputKey);
+                                                                if (pos > 0) {
+                                                                    const next = [...current];
+                                                                    const tmp = next[pos - 1];
+                                                                    next[pos - 1] = next[pos];
+                                                                    next[pos] = tmp;
+                                                                    setColOrder(next);
+                                                                    await apiFetch(`/api/cases/${caseData.id}`, {
+                                                                        method: 'PATCH',
+                                                                        headers: { 'Content-Type': 'application/json' },
+                                                                        body: JSON.stringify({ col_order: next }),
+                                                                    });
+                                                                }
+                                                            }}
+                                                            className="p-0.5 rounded hover:bg-slate-200 text-slate-500 cursor-pointer"
+                                                            title="Nach oben verschieben"
+                                                        >
+                                                            ↑
+                                                        </button>
+                                                        <button
+                                                            onClick={async (e) => {
+                                                                e.stopPropagation();
+                                                                const current = visibleColumns.map(col => col.key);
+                                                                const pos = current.indexOf(c.outputKey);
+                                                                if (pos !== -1 && pos < current.length - 1) {
+                                                                    const next = [...current];
+                                                                    const tmp = next[pos + 1];
+                                                                    next[pos + 1] = next[pos];
+                                                                    next[pos] = tmp;
+                                                                    setColOrder(next);
+                                                                    await apiFetch(`/api/cases/${caseData.id}`, {
+                                                                        method: 'PATCH',
+                                                                        headers: { 'Content-Type': 'application/json' },
+                                                                        body: JSON.stringify({ col_order: next }),
+                                                                    });
+                                                                }
+                                                            }}
+                                                            className="p-0.5 rounded hover:bg-slate-200 text-slate-500 cursor-pointer"
+                                                            title="Nach unten verschieben"
+                                                        >
+                                                            ↓
+                                                        </button>
+                                                    </div>
+                                                </div>
                                             ))}
                                         </div>
                                     )}
@@ -735,7 +866,7 @@ export default function CaseShow({ case: c }: Props) {
                             ⊘ Dedupe
                         </button>
                         <button
-                            onClick={deleteSelectedRows}
+                            onClick={() => setConfirmDeleteRows(true)}
                             className="btn-v2"
                             style={{ padding: "2px 8px", fontSize: 11, background: "#fff", borderColor: "var(--danger)", color: "var(--danger)", fontWeight: 500 }}
                         >
@@ -845,7 +976,7 @@ export default function CaseShow({ case: c }: Props) {
                                                             column={col.colDef}
                                                             onRunAll={() => runColumn(col.colDef, "all_force")}
                                                             onRunEmptyOnly={() => runColumn(col.colDef, "empty_only")}
-                                                            onDelete={() => deleteColumn(col.colDef.id)}
+                                                            onDelete={() => setColumnToDelete(col.colDef)}
                                                             onEdit={() => setEditingCol(col.colDef)}
                                                         />
                                                     ) : (
@@ -1535,6 +1666,37 @@ export default function CaseShow({ case: c }: Props) {
                     }}
                 />
             )}
+
+            {/* 🛡️ Two-Step Confirmation Dialog: Row Bulk Deletion */}
+            <ConfirmDialog
+                isOpen={confirmDeleteRows}
+                title={`${selectedRows.size} Zeile(n) unwiderruflich löschen?`}
+                message={
+                    <span>
+                        Du bist dabei, <strong>{selectedRows.size}</strong> ausgewählte Zeile(n) aus dem Projekt <strong>{caseData.name}</strong> dauerhaft zu entfernen. Alle zugehörigen angereicherten Daten und Kontaktdaten werden gelöscht.
+                    </span>
+                }
+                confirmLabel="Ja, Zeilen löschen"
+                danger={true}
+                requireTextConfirmation={selectedRows.size > 20 ? "LÖSCHEN" : undefined}
+                onConfirm={deleteSelectedRows}
+                onClose={() => setConfirmDeleteRows(false)}
+            />
+
+            {/* 🛡️ Two-Step Confirmation Dialog: Column Deletion */}
+            <ConfirmDialog
+                isOpen={columnToDelete !== null}
+                title={`Spalte "${columnToDelete?.name}" löschen?`}
+                message={
+                    <span>
+                        Möchtest du die KI-Spalte <strong>{columnToDelete?.name}</strong> (Output-Key: <code className="bg-slate-100 px-1 py-0.5 rounded font-mono">{columnToDelete?.outputKey}</code>) wirklich entfernen? Alle zugehörigen Zell-Ergebnisse in dieser Spalte gehen verloren.
+                    </span>
+                }
+                confirmLabel="Spalte entfernen"
+                danger={true}
+                onConfirm={() => columnToDelete && deleteColumn(columnToDelete.id)}
+                onClose={() => setColumnToDelete(null)}
+            />
 
             {/* ⚡ Cache Inspector Modal */}
             {cacheModalRow && (

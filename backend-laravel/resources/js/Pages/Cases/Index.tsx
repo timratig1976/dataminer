@@ -1,10 +1,11 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import AppLayout from '../../Layouts/AppLayout';
 import { router } from '@inertiajs/react';
 import { 
     Plus, Calendar, Download, Upload, RefreshCw, AlertCircle, 
     Trash2, FolderPlus, X, Search, ChevronRight, Database, Loader2 
 } from 'lucide-react';
+import ConfirmDialog from '../../Components/ui/ConfirmDialog';
 import { apiFetch } from '../../api';
 
 interface CaseItem {
@@ -29,8 +30,22 @@ export default function CasesIndex({ cases: initialCases }: Props) {
     const [newName, setNewName] = useState('');
     const [newDesc, setNewDesc] = useState('');
     const [selectedTemplateId, setSelectedTemplateId] = useState<string>('standard');
+    const [templates, setTemplates] = useState<any[]>([]);
     const [savingCase, setSavingCase] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
+
+    // Load available templates (built-in + custom saved templates)
+    useEffect(() => {
+        apiFetch('/api/templates')
+            .then(r => r.json())
+            .then(data => {
+                if (Array.isArray(data) && data.length > 0) setTemplates(data);
+            })
+            .catch(() => {});
+    }, []);
+
+    // Two-Step Case Deletion Confirmation
+    const [caseToDelete, setCaseToDelete] = useState<{ id: string; name: string } | null>(null);
 
     const handleImportSnapshot = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
@@ -109,17 +124,17 @@ export default function CasesIndex({ cases: initialCases }: Props) {
         }
     };
 
-    const handleDeleteCase = async (caseId: string, caseName: string, e: React.MouseEvent) => {
-        e.preventDefault();
-        e.stopPropagation();
-        if (!confirm(`Möchtest du den Case "${caseName}" und alle enthaltenen Zeilen wirklich löschen?`)) {
-            return;
+    const handleDeleteCase = async (caseId: string, caseName: string, e?: React.MouseEvent) => {
+        if (e) {
+            e.preventDefault();
+            e.stopPropagation();
         }
 
         try {
             const res = await apiFetch(`/api/cases/${caseId}`, { method: 'DELETE' });
             if (res.ok) {
                 setCases(prev => prev.filter(c => c.id !== caseId));
+                setCaseToDelete(null);
             }
         } catch (err) {
             console.error('Delete case failed', err);
@@ -235,7 +250,11 @@ export default function CasesIndex({ cases: initialCases }: Props) {
                                             <Download className="w-3.5 h-3.5" />
                                         </button>
                                         <button 
-                                            onClick={(e) => handleDeleteCase(c.id, c.name, e)} 
+                                            onClick={(e) => {
+                                                e.preventDefault();
+                                                e.stopPropagation();
+                                                setCaseToDelete({ id: c.id, name: c.name });
+                                            }} 
                                             title="Case löschen"
                                             className="p-1 rounded hover:bg-rose-50 cursor-pointer" 
                                             style={{ color: "var(--danger)" }}
@@ -305,29 +324,29 @@ export default function CasesIndex({ cases: initialCases }: Props) {
 
                                 <div>
                                     <label className="text-[11px] font-semibold uppercase tracking-wider block mb-1.5" style={{ color: 'var(--text-3)' }}>
-                                        Projekt-Template / Spalten-Konfiguration
+                                        Projekt-Template / Spalten-Konfiguration ({templates.length > 0 ? templates.length : 3} verfügbar)
                                     </label>
-                                    <div className="grid grid-cols-1 gap-2">
-                                        {[
+                                    <div className="grid grid-cols-1 gap-2 max-h-56 overflow-y-auto pr-1">
+                                        {(templates.length > 0 ? templates : [
                                             {
                                                 id: 'standard',
                                                 name: 'Standard (Empfohlen)',
-                                                desc: '19 Spalten (Firmenname, Domain, Telefon, E-Mail, Adresse, Rating, Ansprechpartner) + 2 KI-Aktionen (🏢 Firmendaten & 👤 Entscheider)',
+                                                description: '19 Spalten (Firmenname, Domain, Telefon, E-Mail, Adresse, Rating, Ansprechpartner) + 2 KI-Aktionen (🏢 Firmendaten & 👤 Entscheider)',
                                                 icon: '⚡',
                                             },
                                             {
-                                                id: 'vilocal',
-                                                name: 'ViLocal Audit (GBP & Google Places)',
-                                                desc: '14 Spalten inkl. Google Maps Rating & Reviews + GBP Audit KI-Spalte',
+                                                id: 'places',
+                                                name: 'Google Maps / Local Places',
+                                                description: '14 Spalten inkl. Google Maps Rating & Reviews + GBP Audit KI-Spalte',
                                                 icon: '📍',
                                             },
                                             {
                                                 id: 'none',
                                                 name: 'Leeres Projekt',
-                                                desc: 'Startet ohne vordefinierte Spalten (für manuelle Konfiguration)',
+                                                description: 'Startet ohne vordefinierte Spalten (für manuelle Konfiguration)',
                                                 icon: '📄',
                                             }
-                                        ].map(t => (
+                                        ]).map(t => (
                                             <div
                                                 key={t.id}
                                                 onClick={() => setSelectedTemplateId(t.id)}
@@ -337,7 +356,7 @@ export default function CasesIndex({ cases: initialCases }: Props) {
                                                     borderColor: selectedTemplateId === t.id ? 'var(--orange)' : 'var(--border)',
                                                 }}
                                             >
-                                                <span className="text-base">{t.icon}</span>
+                                                <span className="text-base">{t.icon || '⭐'}</span>
                                                 <div className="flex-1 min-w-0">
                                                     <div className="flex items-center justify-between">
                                                         <span className="text-xs font-semibold" style={{ color: 'var(--text-1)' }}>{t.name}</span>
@@ -345,7 +364,7 @@ export default function CasesIndex({ cases: initialCases }: Props) {
                                                             <span className="text-[10px] font-bold px-1.5 py-0.2 rounded" style={{ background: 'var(--orange)', color: '#fff' }}>Aktiv</span>
                                                         )}
                                                     </div>
-                                                    <p className="text-[11px] leading-relaxed mt-0.5" style={{ color: 'var(--text-2)' }}>{t.desc}</p>
+                                                    <p className="text-[11px] leading-relaxed mt-0.5" style={{ color: 'var(--text-2)' }}>{t.description || t.desc}</p>
                                                 </div>
                                             </div>
                                         ))}
@@ -373,6 +392,22 @@ export default function CasesIndex({ cases: initialCases }: Props) {
                         </div>
                     </div>
                 )}
+
+                {/* 🛡️ Two-Step Case Deletion Confirmation */}
+                <ConfirmDialog
+                    isOpen={caseToDelete !== null}
+                    title={`Case "${caseToDelete?.name}" unwiderruflich löschen?`}
+                    message={
+                        <span>
+                            Du bist dabei, das gesamte Projekt <strong>"{caseToDelete?.name}"</strong> mit allen gespeicherten Zeilen, angereicherten Kontakten, Scrapes und Logs zu löschen. Diese Aktion kann <strong>nicht</strong> rückgängig gemacht werden.
+                        </span>
+                    }
+                    confirmLabel="Case endgültig löschen"
+                    danger={true}
+                    requireTextConfirmation={caseToDelete?.name}
+                    onConfirm={() => caseToDelete && handleDeleteCase(caseToDelete.id, caseToDelete.name)}
+                    onClose={() => setCaseToDelete(null)}
+                />
             </div>
         </AppLayout>
     );

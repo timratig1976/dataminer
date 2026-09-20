@@ -27,6 +27,9 @@ Route::middleware(['web', 'auth'])->group(function () {
     Route::get('/presets', function () {
         return response()->json(\App\Services\PresetService::getPresets());
     });
+    Route::get('/templates', [\App\Http\Controllers\Api\TemplateController::class, 'index']);
+    Route::post('/templates/from-case', [\App\Http\Controllers\Api\TemplateController::class, 'saveFromCase']);
+    Route::delete('/templates/{id}', [\App\Http\Controllers\Api\TemplateController::class, 'destroy']);
     Route::get('/cases/{id}', [CaseController::class, 'show']);
     Route::post('/cases/{id}/plan', [\App\Http\Controllers\Api\CaseDiscoveryController::class, 'plan']);
     Route::post('/cases/{id}/discover', [\App\Http\Controllers\Api\CaseDiscoveryController::class, 'discover']);

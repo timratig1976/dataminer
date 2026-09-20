@@ -1,3 +1,4 @@
+import { apiFetch } from "@/api";
 "use client";
 
 import React, { useState, useRef, useCallback, useEffect } from "react";
@@ -91,7 +92,7 @@ export default function ImportWizard({ caseId, onImported, onClose }: ImportWiza
     if (!preview) return;
     setLlmLoading(true);
     try {
-      const res = await fetch("/api/import/llm-map", {
+      const res = await apiFetch("/api/import/llm-map", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

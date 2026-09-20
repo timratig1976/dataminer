@@ -2,18 +2,19 @@
 
 namespace App\Services;
 
+use App\Models\GlobalSetting;
 use Illuminate\Support\Str;
 
 class TemplateService
 {
     public static function getTemplates(): array
     {
-        return [
+        $builtIn = [
             [
                 'id' => 'standard',
-                'name' => 'Standard',
-                'description' => 'Firmen- und Kontaktdaten anreichern. Startet mit Firmenname — zwei KI-Aktionen befüllen alle weiteren Felder.',
-                'icon' => '⚡',
+                'name' => 'Standard Firmen-Recherche (Empfohlen)',
+                'description' => 'Firmen- und Kontaktdaten anreichern. Zwei KI-Aktionen befüllen alle weiteren Felder (Firmendaten + Entscheider).',
+                'icon' => '🏢',
                 'recommendedColumns' => ['company_name', 'maps_url'],
                 'baseColumns' => [
                     ['name' => 'Firmenname', 'outputKey' => 'company_name'],
@@ -71,9 +72,9 @@ class TemplateService
                 ],
             ],
             [
-                'id' => 'vilocal',
-                'name' => 'ViLocal Audit',
-                'description' => 'Google Business Profile Analyse für B2B-Kaltakquise. Apify holt Maps-Daten frisch, KI bewertet GBP-Qualität, erkennt Ketten-Standorte und generiert personalisierten Pitch-Hook.',
+                'id' => 'places',
+                'name' => 'Google Maps / Local Places',
+                'description' => 'Google Business Profile Analyse für lokale Akquise. Bewertet GBP-Qualität und extrahiert Maps-Daten.',
                 'icon' => '📍',
                 'recommendedColumns' => ['company_name', 'maps_url'],
                 'baseColumns' => [
@@ -112,12 +113,50 @@ class TemplateService
             [
                 'id' => 'none',
                 'name' => 'Leeres Projekt',
-                'description' => 'Startet ohne vordefinierte Spalten. Du kannst Spalten manuell anlegen oder per CSV-Upload importieren.',
+                'description' => 'Startet ohne vordefinierte Spalten für manuelle Konfiguration oder CSV-Upload.',
                 'icon' => '📄',
                 'recommendedColumns' => [],
                 'baseColumns' => [],
                 'aiColumns' => [],
             ],
         ];
+
+        $settings = GlobalSetting::instance();
+        $custom = $settings->custom_templates ?? [];
+
+        return array_merge($builtIn, $custom);
+    }
+
+    public static function saveCaseAsTemplate(string $caseId, string $name, ?string $description = null): array
+    {
+        $case = \App\Models\DataCase::findOrFail($caseId);
+
+        $baseCols = array_map(function ($c) {
+            return [
+                'name' => $c['label'] ?? $c['name'] ?? $c['key'],
+                'outputKey' => $c['key'] ?? $c['outputKey'],
+            ];
+        }, $case->columns ?? []);
+
+        $template = [
+            'id' => 'custom_' . Str::slug($name) . '_' . Str::random(6),
+            'name' => $name,
+            'description' => $description ?: "Benutzerdefinierte Vorlage basierend auf Projekt {$case->name}",
+            'icon' => '⭐',
+            'recommendedColumns' => ['company_name', 'domain'],
+            'baseColumns' => $baseCols,
+            'aiColumns' => $case->ai_columns ?? [],
+            'colOrder' => $case->col_order ?? [],
+            'isCustom' => true,
+            'createdAt' => now()->toIso8601String(),
+        ];
+
+        $settings = GlobalSetting::instance();
+        $custom = $settings->custom_templates ?? [];
+        $custom[] = $template;
+        $settings->custom_templates = $custom;
+        $settings->save();
+
+        return $template;
     }
 }

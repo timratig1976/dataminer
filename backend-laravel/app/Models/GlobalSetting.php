@@ -22,11 +22,13 @@ class GlobalSetting extends Model
         'apify_api_token',
         'firecrawl_api_key',
         'planner_system_prompt',
+        'custom_templates',
     ];
 
     protected $casts = [
         'model_allowlist' => 'array',
         'catalog_domains' => 'array',
+        'custom_templates' => 'array',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
         // API-Keys werden verschlüsselt gespeichert (APP_KEY wird als Schlüssel verwendet)

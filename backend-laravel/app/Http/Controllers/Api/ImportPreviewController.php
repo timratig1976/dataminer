@@ -99,7 +99,7 @@ class ImportPreviewController extends Controller
                 elseif (str_contains($lh, 'stra') || str_contains($lh, 'adr')) $mapping[$h] = 'address';
                 else $mapping[$h] = strtolower(preg_replace('/[^a-zA-Z0-9_]/', '_', $h));
             }
-            return response()->json($mapping);
+            return response()->json(['mapping' => $mapping, 'used' => false]);
         }
 
         try {
@@ -110,7 +110,7 @@ class ImportPreviewController extends Controller
             $raw = trim(preg_replace('/^```(?:json)?\n?/i', '', preg_replace('/\n?```$/i', '', $res['raw'])));
             $mapping = json_decode($raw, true) ?? [];
 
-            return response()->json($mapping);
+            return response()->json(['mapping' => $mapping, 'used' => true]);
         } catch (\Throwable $e) {
             return response()->json(['error' => $e->getMessage()], 500);
         }
