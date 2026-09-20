@@ -4,6 +4,7 @@ import {
     Key, Globe, CheckCircle2, Trash2, 
     Save, RefreshCw, Sparkles, Sliders, Flame, Search
 } from 'lucide-react';
+import { apiFetch } from '../api';
 
 interface SettingsData {
     eden_region: 'eu' | 'us';
@@ -44,7 +45,6 @@ export default function SettingsPage({ settings: initialSettings }: { settings: 
     const [serpApiKey, setSerpApiKey] = useState('');
     const [braveApiKey, setBraveApiKey] = useState('');
     const [apifyApiToken, setApifyApiToken] = useState('');
-    const [plannerPrompt, setPlannerPrompt] = useState(initialSettings.planner_system_prompt || '');
 
     // ── Async states per key ──
     const [savingKey, setSavingKey] = useState<Record<string, boolean>>({});
@@ -54,41 +54,37 @@ export default function SettingsPage({ settings: initialSettings }: { settings: 
 
     const refreshSettings = async () => {
         try {
-            const res = await fetch('/api/settings');
+            const res = await apiFetch('/api/settings');
             const data = await res.json();
             if (data.settings) {
                 setState(data.settings);
-                setEdenRegion(data.settings.eden_region || 'eu');
-                setPlannerPrompt(data.settings.planner_system_prompt || '');
             }
         } catch (e) {
-            console.error('Failed to load settings', e);
+            console.error('Failed to reload settings', e);
         }
     };
 
-    // Save individual key asynchronously
     const saveIndividualKey = async (keyName: string, payload: Record<string, any>) => {
         setSavingKey(prev => ({ ...prev, [keyName]: true }));
         try {
-            const res = await fetch('/api/settings', {
+            const res = await apiFetch('/api/settings', {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload),
             });
-
             if (res.ok) {
                 setSavedKeyMsg(prev => ({ ...prev, [keyName]: true }));
-                setTimeout(() => setSavedKeyMsg(prev => ({ ...prev, [keyName]: false })), 2000);
+                setTimeout(() => setSavedKeyMsg(prev => ({ ...prev, [keyName]: false })), 3000);
+                refreshSettings();
                 if (keyName === 'eden') setEdenApiKey('');
                 if (keyName === 'firecrawl') setFirecrawlApiKey('');
                 if (keyName === 'serper') setSerperApiKey('');
                 if (keyName === 'serp') setSerpApiKey('');
                 if (keyName === 'brave') setBraveApiKey('');
                 if (keyName === 'apify') setApifyApiToken('');
-                await refreshSettings();
             }
-        } catch (e) {
-            console.error(`Save ${keyName} failed`, e);
+        } catch (e: any) {
+            alert('Speichern fehlgeschlagen: ' + e.message);
         } finally {
             setSavingKey(prev => ({ ...prev, [keyName]: false }));
         }
@@ -98,12 +94,16 @@ export default function SettingsPage({ settings: initialSettings }: { settings: 
         if (!confirm(`Möchtest du den ${keyName} API-Key wirklich löschen?`)) return;
         setSavingKey(prev => ({ ...prev, [keyName]: true }));
         try {
-            const res = await fetch(`/api/settings?key=${keyName}`, { method: 'DELETE' });
+            const res = await apiFetch('/api/settings', {
+                method: 'DELETE',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ key: keyName }),
+            });
             if (res.ok) {
-                await refreshSettings();
+                refreshSettings();
             }
-        } catch (e) {
-            console.error(`Delete ${keyName} failed`, e);
+        } catch (e: any) {
+            alert('Löschen fehlgeschlagen: ' + e.message);
         } finally {
             setSavingKey(prev => ({ ...prev, [keyName]: false }));
         }
@@ -112,10 +112,10 @@ export default function SettingsPage({ settings: initialSettings }: { settings: 
     const testEden = async () => {
         setTestingProvider('eden');
         try {
-            const res = await fetch('/api/settings/test-eden', {
+            const res = await apiFetch('/api/llm/smoke', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ apiKey: edenApiKey.trim() || undefined }),
+                body: JSON.stringify({ apiKey: edenApiKey.trim() || undefined, region: edenRegion }),
             });
             const data = await res.json();
             setTestResults(prev => ({ ...prev, eden: data }));
@@ -129,7 +129,7 @@ export default function SettingsPage({ settings: initialSettings }: { settings: 
     const testSearchProvider = async (provider: string, key?: string) => {
         setTestingProvider(provider);
         try {
-            const res = await fetch('/api/settings/test-search', {
+            const res = await apiFetch('/api/settings/test-search', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ provider, apiKey: key?.trim() || undefined }),
@@ -144,45 +144,54 @@ export default function SettingsPage({ settings: initialSettings }: { settings: 
     };
 
     return (
-        <AppLayout>
-            <div className="max-w-3xl mx-auto space-y-6 pb-16">
-                <div>
-                    <h1 className="text-2xl font-bold text-slate-100 flex items-center gap-2">
-                        <Sliders className="w-6 h-6 text-orange-400" />
-                        Globale Einstellungen
-                    </h1>
-                    <p className="text-slate-400 text-xs mt-1">
-                        Verwaltung aller API-Verbindungen (jeder Key wird asynchron separat gespeichert & verschlüsselt).
-                    </p>
-                </div>
-
+        <AppLayout
+            title="Globale Einstellungen"
+            subtitle="Verwaltung aller API-Verbindungen (jeder Key wird asynchron separat gespeichert & verschlüsselt)"
+        >
+            <div className="max-w-3xl mx-auto space-y-5 pb-16">
                 {/* ── 1. EDEN AI ── */}
-                <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4 shadow-lg">
+                <div 
+                    className="p-5 space-y-4"
+                    style={{
+                        background: "var(--surface)",
+                        border: "1px solid var(--border)",
+                        borderRadius: "var(--r)",
+                        boxShadow: "var(--shadow-sm)",
+                    }}
+                >
                     <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2.5">
-                            <Globe className="w-4 h-4 text-orange-400" />
-                            <h2 className="font-semibold text-sm text-slate-100">Eden AI (LLM Gateway)</h2>
-                            <span className="text-[11px] text-slate-400">Einziger LLM-Provider — ein Key für alle Modelle</span>
+                            <Globe className="w-4 h-4" style={{ color: "var(--orange)" }} />
+                            <h2 className="font-semibold text-sm" style={{ color: "var(--text-1)" }}>Eden AI (LLM Gateway)</h2>
+                            <span className="text-[11px]" style={{ color: "var(--text-3)" }}>Einziger LLM-Provider — ein Key für alle Modelle</span>
                         </div>
                         <div>
                             {state.has_eden_api_key ? (
-                                <span className="text-xs bg-emerald-950 text-emerald-400 border border-emerald-800 px-2.5 py-0.5 rounded-full flex items-center gap-1">
+                                <span className="status-pill status-pill-done">
                                     <CheckCircle2 className="w-3 h-3" /> In DB ({state.edenApiKeyMasked})
                                 </span>
                             ) : (
-                                <span className="text-xs bg-rose-950 text-rose-400 border border-rose-800 px-2.5 py-0.5 rounded-full">
+                                <span className="status-pill status-pill-pending">
                                     Nicht hinterlegt
                                 </span>
                             )}
                         </div>
                     </div>
 
-                    <div className="text-xs p-3 leading-relaxed bg-slate-950/70 border border-slate-800 rounded-lg text-slate-300">
+                    <div 
+                        className="text-xs p-3 leading-relaxed"
+                        style={{
+                            background: "var(--bg)",
+                            border: "1px solid var(--border-xs)",
+                            borderRadius: "var(--rs)",
+                            color: "var(--text-2)",
+                        }}
+                    >
                         DataMiner nutzt ausschließlich <b>Eden AI</b> als LLM-Gateway. Ein einziger API-Key bedient alle Chat- und Reasoning-Modelle (<code>openai/</code>, <code>anthropic/</code>, <code>google/</code>, <code>mistral/</code> …).
                     </div>
 
                     <div>
-                        <label className="text-[11px] font-semibold uppercase tracking-wider block mb-1 text-slate-400">
+                        <label className="text-[11px] font-semibold uppercase tracking-wider block mb-1" style={{ color: "var(--text-3)" }}>
                             Eden AI API Key
                         </label>
                         <input
@@ -190,13 +199,18 @@ export default function SettingsPage({ settings: initialSettings }: { settings: 
                             value={edenApiKey}
                             onChange={e => setEdenApiKey(e.target.value)}
                             placeholder={state.has_eden_api_key ? `Gespeichert: ${state.edenApiKeyMasked}` : 'sk-eden-live-...'}
-                            className="w-full bg-slate-950 border border-slate-800 focus:border-orange-500 rounded-lg px-3 py-1.5 text-xs font-mono text-slate-100 outline-none"
+                            className="w-full border rounded px-3 py-1.5 text-xs font-mono focus:outline-none"
+                            style={{
+                                borderColor: "var(--border)",
+                                background: "var(--bg)",
+                                color: "var(--text-1)",
+                            }}
                         />
-                        <p className="text-[11px] text-slate-500 mt-1">Wird serverseitig AES-256 verschlüsselt gespeichert.</p>
+                        <p className="text-[11px] mt-1" style={{ color: "var(--text-3)" }}>Wird serverseitig AES-256 verschlüsselt gespeichert.</p>
                     </div>
 
                     <div>
-                        <label className="text-[11px] font-semibold uppercase tracking-wider block mb-1 text-slate-400">
+                        <label className="text-[11px] font-semibold uppercase tracking-wider block mb-1" style={{ color: "var(--text-3)" }}>
                             Region / Data Residency
                         </label>
                         <div className="flex gap-2">
@@ -205,11 +219,13 @@ export default function SettingsPage({ settings: initialSettings }: { settings: 
                                     key={r}
                                     type="button"
                                     onClick={() => setEdenRegion(r)}
-                                    className={`px-3 py-1.5 text-xs rounded-lg border font-medium cursor-pointer ${
-                                        edenRegion === r
-                                            ? 'bg-orange-950/60 border-orange-600 text-orange-300'
-                                            : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200'
-                                    }`}
+                                    className="btn-v2"
+                                    style={{
+                                        background: edenRegion === r ? "var(--orange-soft)" : "var(--surface)",
+                                        borderColor: edenRegion === r ? "var(--orange)" : "var(--border)",
+                                        color: edenRegion === r ? "var(--orange)" : "var(--text-2)",
+                                        fontWeight: edenRegion === r ? 600 : 400,
+                                    }}
                                 >
                                     {r === 'eu' ? 'EU (api.eu.edenai.run)' : 'US (api.edenai.run)'}
                                 </button>
@@ -217,12 +233,12 @@ export default function SettingsPage({ settings: initialSettings }: { settings: 
                         </div>
                     </div>
 
-                    <div className="flex items-center gap-2 flex-wrap pt-2 border-t border-slate-800/80">
+                    <div className="flex items-center gap-2 flex-wrap pt-2 border-t" style={{ borderColor: "var(--border-xs)" }}>
                         <button
                             type="button"
                             onClick={() => saveIndividualKey('eden', { eden_api_key: edenApiKey.trim() || undefined, eden_region: edenRegion })}
                             disabled={savingKey.eden || (!edenApiKey.trim() && edenRegion === state.eden_region)}
-                            className="px-3 py-1.5 bg-orange-600 hover:bg-orange-500 disabled:opacity-50 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
+                            className="btn-v2 btn-v2-primary"
                         >
                             {savingKey.eden ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
                             {savedKeyMsg.eden ? 'Gespeichert ✓' : 'Speichern'}
@@ -231,16 +247,17 @@ export default function SettingsPage({ settings: initialSettings }: { settings: 
                             type="button"
                             onClick={testEden}
                             disabled={testingProvider === 'eden'}
-                            className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-medium flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                            className="btn-v2"
                         >
-                            {testingProvider === 'eden' ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5 text-orange-400" />}
+                            {testingProvider === 'eden' ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5 text-orange-500" />}
                             Verbindung testen
                         </button>
                         {state.has_eden_api_key && (
                             <button
                                 type="button"
                                 onClick={() => deleteIndividualKey('eden')}
-                                className="px-3 py-1.5 bg-rose-950/50 hover:bg-rose-900/60 text-rose-300 border border-rose-800/60 rounded-lg text-xs ml-auto flex items-center gap-1 cursor-pointer"
+                                className="btn-v2 ml-auto"
+                                style={{ color: "var(--danger)", background: "var(--danger-soft)", borderColor: "var(--danger-soft)" }}
                             >
                                 <Trash2 className="w-3.5 h-3.5" /> Key löschen
                             </button>
@@ -248,7 +265,14 @@ export default function SettingsPage({ settings: initialSettings }: { settings: 
                     </div>
 
                     {testResults.eden && (
-                        <div className={`p-2.5 rounded-lg border text-xs flex items-center gap-2 ${testResults.eden.ok ? 'bg-emerald-950/50 border-emerald-800 text-emerald-300' : 'bg-rose-950/50 border-rose-800 text-rose-300'}`}>
+                        <div 
+                            className="p-2.5 rounded-md border text-xs flex items-center gap-2"
+                            style={{
+                                background: testResults.eden.ok ? "var(--green-soft)" : "var(--danger-soft)",
+                                borderColor: testResults.eden.ok ? "var(--green-mid)" : "var(--danger)",
+                                color: testResults.eden.ok ? "var(--green)" : "var(--danger)",
+                            }}
+                        >
                             <span>{testResults.eden.ok ? '✓' : '✗'}</span>
                             <span>{testResults.eden.ok ? `Erfolgreich (${testResults.eden.latencyMs}ms): "${testResults.eden.preview}"` : testResults.eden.error}</span>
                         </div>
@@ -256,20 +280,28 @@ export default function SettingsPage({ settings: initialSettings }: { settings: 
                 </div>
 
                 {/* ── 2. FIRECRAWL ── */}
-                <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4 shadow-lg">
+                <div 
+                    className="p-5 space-y-4"
+                    style={{
+                        background: "var(--surface)",
+                        border: "1px solid var(--border)",
+                        borderRadius: "var(--r)",
+                        boxShadow: "var(--shadow-sm)",
+                    }}
+                >
                     <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2.5">
-                            <Flame className="w-4 h-4 text-orange-500" />
-                            <h3 className="font-semibold text-sm text-slate-100">Firecrawl</h3>
-                            <span className="text-[11px] text-slate-400">Web-Scraper & Web-Search API</span>
+                            <Flame className="w-4 h-4" style={{ color: "var(--orange)" }} />
+                            <h2 className="font-semibold text-sm" style={{ color: "var(--text-1)" }}>Firecrawl</h2>
+                            <span className="text-[11px]" style={{ color: "var(--text-3)" }}>Web-Scraper & Web-Search API</span>
                         </div>
                         <div>
                             {state.has_firecrawl_api_key ? (
-                                <span className="text-xs bg-emerald-950 text-emerald-400 border border-emerald-800 px-2.5 py-0.5 rounded-full flex items-center gap-1">
+                                <span className="status-pill status-pill-done">
                                     <CheckCircle2 className="w-3 h-3" /> In DB ({state.firecrawlApiKeyMasked})
                                 </span>
                             ) : (
-                                <span className="text-xs bg-slate-800 text-slate-400 px-2.5 py-0.5 rounded-full">
+                                <span className="status-pill status-pill-pending">
                                     Nicht hinterlegt (Fallback: Eden AI)
                                 </span>
                             )}
@@ -277,7 +309,7 @@ export default function SettingsPage({ settings: initialSettings }: { settings: 
                     </div>
 
                     <div>
-                        <label className="text-[11px] font-semibold uppercase tracking-wider block mb-1 text-slate-400">
+                        <label className="text-[11px] font-semibold uppercase tracking-wider block mb-1" style={{ color: "var(--text-3)" }}>
                             Firecrawl API Key
                         </label>
                         <input
@@ -285,16 +317,21 @@ export default function SettingsPage({ settings: initialSettings }: { settings: 
                             value={firecrawlApiKey}
                             onChange={e => setFirecrawlApiKey(e.target.value)}
                             placeholder={state.has_firecrawl_api_key ? `Gespeichert: ${state.firecrawlApiKeyMasked}` : 'fc-...'}
-                            className="w-full bg-slate-950 border border-slate-800 focus:border-orange-500 rounded-lg px-3 py-1.5 text-xs font-mono text-slate-100 outline-none"
+                            className="w-full border rounded px-3 py-1.5 text-xs font-mono focus:outline-none"
+                            style={{
+                                borderColor: "var(--border)",
+                                background: "var(--bg)",
+                                color: "var(--text-1)",
+                            }}
                         />
                     </div>
 
-                    <div className="pt-2 flex items-center gap-2 border-t border-slate-800/80">
+                    <div className="flex items-center gap-2 flex-wrap pt-2 border-t" style={{ borderColor: "var(--border-xs)" }}>
                         <button
                             type="button"
-                            onClick={() => saveIndividualKey('firecrawl', { firecrawl_api_key: firecrawlApiKey.trim() })}
+                            onClick={() => saveIndividualKey('firecrawl', { firecrawl_api_key: firecrawlApiKey.trim() || undefined })}
                             disabled={savingKey.firecrawl || !firecrawlApiKey.trim()}
-                            className="px-3 py-1.5 bg-orange-600 hover:bg-orange-500 disabled:opacity-50 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
+                            className="btn-v2 btn-v2-primary"
                         >
                             {savingKey.firecrawl ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
                             {savedKeyMsg.firecrawl ? 'Gespeichert ✓' : 'Speichern'}
@@ -302,17 +339,18 @@ export default function SettingsPage({ settings: initialSettings }: { settings: 
                         <button
                             type="button"
                             onClick={() => testSearchProvider('firecrawl', firecrawlApiKey)}
-                            disabled={testingProvider === 'firecrawl'}
-                            className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-medium flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                            disabled={testingProvider === 'firecrawl' || (!firecrawlApiKey.trim() && !state.has_firecrawl_api_key)}
+                            className="btn-v2"
                         >
-                            {testingProvider === 'firecrawl' ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Flame className="w-3.5 h-3.5 text-orange-400" />}
+                            {testingProvider === 'firecrawl' ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Flame className="w-3.5 h-3.5" />}
                             Scraper testen
                         </button>
                         {state.has_firecrawl_api_key && (
                             <button
                                 type="button"
                                 onClick={() => deleteIndividualKey('firecrawl')}
-                                className="px-3 py-1.5 bg-rose-950/50 hover:bg-rose-900/60 text-rose-300 border border-rose-800/60 rounded-lg text-xs ml-auto flex items-center gap-1 cursor-pointer"
+                                className="btn-v2 ml-auto"
+                                style={{ color: "var(--danger)", background: "var(--danger-soft)", borderColor: "var(--danger-soft)" }}
                             >
                                 <Trash2 className="w-3.5 h-3.5" /> Key löschen
                             </button>
@@ -320,34 +358,51 @@ export default function SettingsPage({ settings: initialSettings }: { settings: 
                     </div>
 
                     {testResults.firecrawl && (
-                        <div className={`p-2.5 rounded-lg border text-xs flex items-center gap-2 ${testResults.firecrawl.ok ? 'bg-emerald-950/50 border-emerald-800 text-emerald-300' : 'bg-rose-950/50 border-rose-800 text-rose-300'}`}>
+                        <div 
+                            className="p-2.5 rounded-md border text-xs flex items-center gap-2"
+                            style={{
+                                background: testResults.firecrawl.ok ? "var(--green-soft)" : "var(--danger-soft)",
+                                borderColor: testResults.firecrawl.ok ? "var(--green-mid)" : "var(--danger)",
+                                color: testResults.firecrawl.ok ? "var(--green)" : "var(--danger)",
+                            }}
+                        >
                             <span>{testResults.firecrawl.ok ? '✓' : '✗'}</span>
-                            <span>{testResults.firecrawl.ok ? `Erfolgreich gescrapt: ${testResults.firecrawl.sample}` : testResults.firecrawl.error}</span>
+                            <span>{testResults.firecrawl.ok ? `Erfolgreich: ${testResults.firecrawl.sample}` : testResults.firecrawl.error}</span>
                         </div>
                     )}
                 </div>
 
                 {/* ── 3. SERPER.DEV ── */}
-                <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4 shadow-lg">
+                <div 
+                    className="p-5 space-y-4"
+                    style={{
+                        background: "var(--surface)",
+                        border: "1px solid var(--border)",
+                        borderRadius: "var(--r)",
+                        boxShadow: "var(--shadow-sm)",
+                    }}
+                >
                     <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2.5">
-                            <Search className="w-4 h-4 text-blue-400" />
-                            <h3 className="font-semibold text-sm text-slate-100">Serper.dev</h3>
-                            <span className="text-[11px] text-slate-400">Google Suche + Google Places (2.500 free/Monat)</span>
+                            <Search className="w-4 h-4" style={{ color: "var(--orange)" }} />
+                            <h2 className="font-semibold text-sm" style={{ color: "var(--text-1)" }}>Serper.dev</h2>
+                            <span className="text-[11px]" style={{ color: "var(--text-3)" }}>Google Suche + Google Places (2.500 free/Monat)</span>
                         </div>
                         <div>
                             {state.has_serper_api_key ? (
-                                <span className="text-xs bg-emerald-950 text-emerald-400 border border-emerald-800 px-2.5 py-0.5 rounded-full flex items-center gap-1">
+                                <span className="status-pill status-pill-done">
                                     <CheckCircle2 className="w-3 h-3" /> In DB ({state.serperApiKeyMasked})
                                 </span>
                             ) : (
-                                <span className="text-xs bg-slate-800 text-slate-400 px-2.5 py-0.5 rounded-full">Nicht hinterlegt</span>
+                                <span className="status-pill status-pill-pending">
+                                    Nicht hinterlegt
+                                </span>
                             )}
                         </div>
                     </div>
 
                     <div>
-                        <label className="text-[11px] font-semibold uppercase tracking-wider block mb-1 text-slate-400">
+                        <label className="text-[11px] font-semibold uppercase tracking-wider block mb-1" style={{ color: "var(--text-3)" }}>
                             Serper API Key
                         </label>
                         <input
@@ -355,16 +410,21 @@ export default function SettingsPage({ settings: initialSettings }: { settings: 
                             value={serperApiKey}
                             onChange={e => setSerperApiKey(e.target.value)}
                             placeholder={state.has_serper_api_key ? `Gespeichert: ${state.serperApiKeyMasked}` : 'sk-...'}
-                            className="w-full bg-slate-950 border border-slate-800 focus:border-blue-500 rounded-lg px-3 py-1.5 text-xs font-mono text-slate-100 outline-none"
+                            className="w-full border rounded px-3 py-1.5 text-xs font-mono focus:outline-none"
+                            style={{
+                                borderColor: "var(--border)",
+                                background: "var(--bg)",
+                                color: "var(--text-1)",
+                            }}
                         />
                     </div>
 
-                    <div className="pt-2 flex items-center gap-2 border-t border-slate-800/80 flex-wrap">
+                    <div className="flex items-center gap-2 flex-wrap pt-2 border-t" style={{ borderColor: "var(--border-xs)" }}>
                         <button
                             type="button"
-                            onClick={() => saveIndividualKey('serper', { serper_api_key: serperApiKey.trim() })}
+                            onClick={() => saveIndividualKey('serper', { serper_api_key: serperApiKey.trim() || undefined })}
                             disabled={savingKey.serper || !serperApiKey.trim()}
-                            className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
+                            className="btn-v2 btn-v2-primary"
                         >
                             {savingKey.serper ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
                             {savedKeyMsg.serper ? 'Gespeichert ✓' : 'Speichern'}
@@ -372,145 +432,180 @@ export default function SettingsPage({ settings: initialSettings }: { settings: 
                         <button
                             type="button"
                             onClick={() => testSearchProvider('serper', serperApiKey)}
-                            disabled={testingProvider === 'serper'}
-                            className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-medium cursor-pointer"
+                            disabled={testingProvider === 'serper' || (!serperApiKey.trim() && !state.has_serper_api_key)}
+                            className="btn-v2"
                         >
+                            {testingProvider === 'serper' ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />}
                             Web-Suche testen
                         </button>
                         <button
                             type="button"
                             onClick={() => testSearchProvider('serper-places', serperApiKey)}
-                            disabled={testingProvider === 'serper-places'}
-                            className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-medium cursor-pointer"
+                            disabled={testingProvider === 'serper-places' || (!serperApiKey.trim() && !state.has_serper_api_key)}
+                            className="btn-v2"
                         >
+                            {testingProvider === 'serper-places' ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <span>📍</span>}
                             Places testen
                         </button>
                         {state.has_serper_api_key && (
                             <button
                                 type="button"
                                 onClick={() => deleteIndividualKey('serper')}
-                                className="px-3 py-1.5 bg-rose-950/50 hover:bg-rose-900/60 text-rose-300 border border-rose-800/60 rounded-lg text-xs ml-auto flex items-center gap-1 cursor-pointer"
+                                className="btn-v2 ml-auto"
+                                style={{ color: "var(--danger)", background: "var(--danger-soft)", borderColor: "var(--danger-soft)" }}
                             >
                                 <Trash2 className="w-3.5 h-3.5" /> Key löschen
                             </button>
                         )}
                     </div>
 
-                    {['serper', 'serper-places'].map(tp => testResults[tp] && (
-                        <div key={tp} className={`p-2.5 rounded-lg border text-xs flex items-center gap-2 ${testResults[tp].ok ? 'bg-emerald-950/50 border-emerald-800 text-emerald-300' : 'bg-rose-950/50 border-rose-800 text-rose-300'}`}>
-                            <span>{testResults[tp].ok ? '✓' : '✗'}</span>
-                            <span>{testResults[tp].ok ? `${testResults[tp].hits} Treffer · "${testResults[tp].sample}"` : testResults[tp].error}</span>
+                    {testResults.serper && (
+                        <div 
+                            className="p-2.5 rounded-md border text-xs flex items-center gap-2"
+                            style={{
+                                background: testResults.serper.ok ? "var(--green-soft)" : "var(--danger-soft)",
+                                borderColor: testResults.serper.ok ? "var(--green-mid)" : "var(--danger)",
+                                color: testResults.serper.ok ? "var(--green)" : "var(--danger)",
+                            }}
+                        >
+                            <span>{testResults.serper.ok ? '✓' : '✗'}</span>
+                            <span>{testResults.serper.ok ? `Erfolgreich: ${testResults.serper.sample}` : testResults.serper.error}</span>
                         </div>
-                    ))}
+                    )}
                 </div>
 
                 {/* ── 4. SERPAPI ── */}
-                <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4 shadow-lg">
+                <div 
+                    className="p-5 space-y-4"
+                    style={{
+                        background: "var(--surface)",
+                        border: "1px solid var(--border)",
+                        borderRadius: "var(--r)",
+                        boxShadow: "var(--shadow-sm)",
+                    }}
+                >
                     <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2.5">
-                            <Globe className="w-4 h-4 text-emerald-400" />
-                            <h3 className="font-semibold text-sm text-slate-100">SerpApi</h3>
-                            <span className="text-[11px] text-slate-400">Google Maps structured (100 free/Monat)</span>
+                            <Globe className="w-4 h-4" style={{ color: "var(--orange)" }} />
+                            <h2 className="font-semibold text-sm" style={{ color: "var(--text-1)" }}>SerpApi</h2>
+                            <span className="text-[11px]" style={{ color: "var(--text-3)" }}>Google Maps structured (100 free/Monat)</span>
                         </div>
                         <div>
                             {state.has_serp_api_key ? (
-                                <span className="text-xs bg-emerald-950 text-emerald-400 border border-emerald-800 px-2.5 py-0.5 rounded-full flex items-center gap-1">
+                                <span className="status-pill status-pill-done">
                                     <CheckCircle2 className="w-3 h-3" /> In DB ({state.serpApiKeyMasked})
                                 </span>
                             ) : (
-                                <span className="text-xs bg-slate-800 text-slate-400 px-2.5 py-0.5 rounded-full">Nicht hinterlegt</span>
+                                <span className="status-pill status-pill-pending">
+                                    Nicht hinterlegt
+                                </span>
                             )}
                         </div>
                     </div>
 
                     <div>
-                        <label className="text-[11px] font-semibold uppercase tracking-wider block mb-1 text-slate-400">
+                        <label className="text-[11px] font-semibold uppercase tracking-wider block mb-1" style={{ color: "var(--text-3)" }}>
                             SerpApi Key
                         </label>
                         <input
                             type="password"
                             value={serpApiKey}
                             onChange={e => setSerpApiKey(e.target.value)}
-                            placeholder={state.has_serp_api_key ? `Gespeichert: ${state.serpApiKeyMasked}` : '...'}
-                            className="w-full bg-slate-950 border border-slate-800 focus:border-emerald-500 rounded-lg px-3 py-1.5 text-xs font-mono text-slate-100 outline-none"
+                            placeholder={state.has_serp_api_key ? `Gespeichert: ${state.serpApiKeyMasked}` : 'secret...'}
+                            className="w-full border rounded px-3 py-1.5 text-xs font-mono focus:outline-none"
+                            style={{
+                                borderColor: "var(--border)",
+                                background: "var(--bg)",
+                                color: "var(--text-1)",
+                            }}
                         />
                     </div>
 
-                    <div className="pt-2 flex items-center gap-2 border-t border-slate-800/80">
+                    <div className="flex items-center gap-2 flex-wrap pt-2 border-t" style={{ borderColor: "var(--border-xs)" }}>
                         <button
                             type="button"
-                            onClick={() => saveIndividualKey('serp', { serp_api_key: serpApiKey.trim() })}
+                            onClick={() => saveIndividualKey('serp', { serp_api_key: serpApiKey.trim() || undefined })}
                             disabled={savingKey.serp || !serpApiKey.trim()}
-                            className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
+                            className="btn-v2 btn-v2-primary"
                         >
                             {savingKey.serp ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
                             {savedKeyMsg.serp ? 'Gespeichert ✓' : 'Speichern'}
                         </button>
                         <button
                             type="button"
-                            onClick={() => testSearchProvider('serp', serpApiKey)}
-                            disabled={testingProvider === 'serp'}
-                            className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-medium cursor-pointer"
+                            onClick={() => testSearchProvider('serpapi', serpApiKey)}
+                            disabled={testingProvider === 'serpapi' || (!serpApiKey.trim() && !state.has_serp_api_key)}
+                            className="btn-v2"
                         >
+                            {testingProvider === 'serpapi' ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />}
                             Testen
                         </button>
                         {state.has_serp_api_key && (
                             <button
                                 type="button"
                                 onClick={() => deleteIndividualKey('serp')}
-                                className="px-3 py-1.5 bg-rose-950/50 hover:bg-rose-900/60 text-rose-300 border border-rose-800/60 rounded-lg text-xs ml-auto flex items-center gap-1 cursor-pointer"
+                                className="btn-v2 ml-auto"
+                                style={{ color: "var(--danger)", background: "var(--danger-soft)", borderColor: "var(--danger-soft)" }}
                             >
                                 <Trash2 className="w-3.5 h-3.5" /> Key löschen
                             </button>
                         )}
                     </div>
-
-                    {testResults.serp && (
-                        <div className={`p-2.5 rounded-lg border text-xs flex items-center gap-2 ${testResults.serp.ok ? 'bg-emerald-950/50 border-emerald-800 text-emerald-300' : 'bg-rose-950/50 border-rose-800 text-rose-300'}`}>
-                            <span>{testResults.serp.ok ? '✓' : '✗'}</span>
-                            <span>{testResults.serp.ok ? `${testResults.serp.hits} Treffer · "${testResults.serp.sample}"` : testResults.serp.error}</span>
-                        </div>
-                    )}
                 </div>
 
                 {/* ── 5. BRAVE SEARCH ── */}
-                <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4 shadow-lg">
+                <div 
+                    className="p-5 space-y-4"
+                    style={{
+                        background: "var(--surface)",
+                        border: "1px solid var(--border)",
+                        borderRadius: "var(--r)",
+                        boxShadow: "var(--shadow-sm)",
+                    }}
+                >
                     <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2.5">
-                            <Search className="w-4 h-4 text-orange-400" />
-                            <h3 className="font-semibold text-sm text-slate-100">Brave Search</h3>
-                            <span className="text-[11px] text-slate-400">Unabhängiger Web-Search Layer (2.000 free/Monat)</span>
+                            <Search className="w-4 h-4" style={{ color: "var(--orange)" }} />
+                            <h2 className="font-semibold text-sm" style={{ color: "var(--text-1)" }}>Brave Search</h2>
+                            <span className="text-[11px]" style={{ color: "var(--text-3)" }}>Unabhängiger Web-Search Layer (2.000 free/Monat)</span>
                         </div>
                         <div>
                             {state.has_brave_api_key ? (
-                                <span className="text-xs bg-emerald-950 text-emerald-400 border border-emerald-800 px-2.5 py-0.5 rounded-full flex items-center gap-1">
+                                <span className="status-pill status-pill-done">
                                     <CheckCircle2 className="w-3 h-3" /> In DB ({state.braveApiKeyMasked})
                                 </span>
                             ) : (
-                                <span className="text-xs bg-slate-800 text-slate-400 px-2.5 py-0.5 rounded-full">Nicht hinterlegt</span>
+                                <span className="status-pill status-pill-pending">
+                                    Nicht hinterlegt
+                                </span>
                             )}
                         </div>
                     </div>
 
                     <div>
-                        <label className="text-[11px] font-semibold uppercase tracking-wider block mb-1 text-slate-400">
-                            Brave Search Key
+                        <label className="text-[11px] font-semibold uppercase tracking-wider block mb-1" style={{ color: "var(--text-3)" }}>
+                            Brave API Key
                         </label>
                         <input
                             type="password"
                             value={braveApiKey}
                             onChange={e => setBraveApiKey(e.target.value)}
                             placeholder={state.has_brave_api_key ? `Gespeichert: ${state.braveApiKeyMasked}` : 'BSA...'}
-                            className="w-full bg-slate-950 border border-slate-800 focus:border-orange-500 rounded-lg px-3 py-1.5 text-xs font-mono text-slate-100 outline-none"
+                            className="w-full border rounded px-3 py-1.5 text-xs font-mono focus:outline-none"
+                            style={{
+                                borderColor: "var(--border)",
+                                background: "var(--bg)",
+                                color: "var(--text-1)",
+                            }}
                         />
                     </div>
 
-                    <div className="pt-2 flex items-center gap-2 border-t border-slate-800/80">
+                    <div className="flex items-center gap-2 flex-wrap pt-2 border-t" style={{ borderColor: "var(--border-xs)" }}>
                         <button
                             type="button"
-                            onClick={() => saveIndividualKey('brave', { brave_api_key: braveApiKey.trim() })}
+                            onClick={() => saveIndividualKey('brave', { brave_api_key: braveApiKey.trim() || undefined })}
                             disabled={savingKey.brave || !braveApiKey.trim()}
-                            className="px-3 py-1.5 bg-orange-600 hover:bg-orange-500 disabled:opacity-50 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
+                            className="btn-v2 btn-v2-primary"
                         >
                             {savingKey.brave ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
                             {savedKeyMsg.brave ? 'Gespeichert ✓' : 'Speichern'}
@@ -518,51 +613,56 @@ export default function SettingsPage({ settings: initialSettings }: { settings: 
                         <button
                             type="button"
                             onClick={() => testSearchProvider('brave', braveApiKey)}
-                            disabled={testingProvider === 'brave'}
-                            className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-medium cursor-pointer"
+                            disabled={testingProvider === 'brave' || (!braveApiKey.trim() && !state.has_brave_api_key)}
+                            className="btn-v2"
                         >
+                            {testingProvider === 'brave' ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />}
                             Testen
                         </button>
                         {state.has_brave_api_key && (
                             <button
                                 type="button"
                                 onClick={() => deleteIndividualKey('brave')}
-                                className="px-3 py-1.5 bg-rose-950/50 hover:bg-rose-900/60 text-rose-300 border border-rose-800/60 rounded-lg text-xs ml-auto flex items-center gap-1 cursor-pointer"
+                                className="btn-v2 ml-auto"
+                                style={{ color: "var(--danger)", background: "var(--danger-soft)", borderColor: "var(--danger-soft)" }}
                             >
                                 <Trash2 className="w-3.5 h-3.5" /> Key löschen
                             </button>
                         )}
                     </div>
-
-                    {testResults.brave && (
-                        <div className={`p-2.5 rounded-lg border text-xs flex items-center gap-2 ${testResults.brave.ok ? 'bg-emerald-950/50 border-emerald-800 text-emerald-300' : 'bg-rose-950/50 border-rose-800 text-rose-300'}`}>
-                            <span>{testResults.brave.ok ? '✓' : '✗'}</span>
-                            <span>{testResults.brave.ok ? `${testResults.brave.hits} Treffer · "${testResults.brave.sample}"` : testResults.brave.error}</span>
-                        </div>
-                    )}
                 </div>
 
                 {/* ── 6. APIFY ── */}
-                <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4 shadow-lg">
+                <div 
+                    className="p-5 space-y-4"
+                    style={{
+                        background: "var(--surface)",
+                        border: "1px solid var(--border)",
+                        borderRadius: "var(--r)",
+                        boxShadow: "var(--shadow-sm)",
+                    }}
+                >
                     <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2.5">
-                            <Globe className="w-4 h-4 text-violet-400" />
-                            <h3 className="font-semibold text-sm text-slate-100">Apify</h3>
-                            <span className="text-[11px] text-slate-400">Google Maps Scraper Actor (&gt;120 Treffer pro Lauf)</span>
+                            <Globe className="w-4 h-4" style={{ color: "var(--orange)" }} />
+                            <h2 className="font-semibold text-sm" style={{ color: "var(--text-1)" }}>Apify</h2>
+                            <span className="text-[11px]" style={{ color: "var(--text-3)" }}>Maps Scraper & GBP Profile Enricher ($5 free/Monat)</span>
                         </div>
                         <div>
                             {state.has_apify_api_token ? (
-                                <span className="text-xs bg-emerald-950 text-emerald-400 border border-emerald-800 px-2.5 py-0.5 rounded-full flex items-center gap-1">
+                                <span className="status-pill status-pill-done">
                                     <CheckCircle2 className="w-3 h-3" /> In DB ({state.apifyApiTokenMasked})
                                 </span>
                             ) : (
-                                <span className="text-xs bg-slate-800 text-slate-400 px-2.5 py-0.5 rounded-full">Nicht hinterlegt</span>
+                                <span className="status-pill status-pill-pending">
+                                    Nicht hinterlegt
+                                </span>
                             )}
                         </div>
                     </div>
 
                     <div>
-                        <label className="text-[11px] font-semibold uppercase tracking-wider block mb-1 text-slate-400">
+                        <label className="text-[11px] font-semibold uppercase tracking-wider block mb-1" style={{ color: "var(--text-3)" }}>
                             Apify API Token
                         </label>
                         <input
@@ -570,16 +670,21 @@ export default function SettingsPage({ settings: initialSettings }: { settings: 
                             value={apifyApiToken}
                             onChange={e => setApifyApiToken(e.target.value)}
                             placeholder={state.has_apify_api_token ? `Gespeichert: ${state.apifyApiTokenMasked}` : 'apify_api_...'}
-                            className="w-full bg-slate-950 border border-slate-800 focus:border-violet-500 rounded-lg px-3 py-1.5 text-xs font-mono text-slate-100 outline-none"
+                            className="w-full border rounded px-3 py-1.5 text-xs font-mono focus:outline-none"
+                            style={{
+                                borderColor: "var(--border)",
+                                background: "var(--bg)",
+                                color: "var(--text-1)",
+                            }}
                         />
                     </div>
 
-                    <div className="pt-2 flex items-center gap-2 border-t border-slate-800/80">
+                    <div className="flex items-center gap-2 flex-wrap pt-2 border-t" style={{ borderColor: "var(--border-xs)" }}>
                         <button
                             type="button"
-                            onClick={() => saveIndividualKey('apify', { apify_api_token: apifyApiToken.trim() })}
+                            onClick={() => saveIndividualKey('apify', { apify_api_token: apifyApiToken.trim() || undefined })}
                             disabled={savingKey.apify || !apifyApiToken.trim()}
-                            className="px-3 py-1.5 bg-violet-600 hover:bg-violet-500 disabled:opacity-50 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
+                            className="btn-v2 btn-v2-primary"
                         >
                             {savingKey.apify ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
                             {savedKeyMsg.apify ? 'Gespeichert ✓' : 'Speichern'}
@@ -587,57 +692,23 @@ export default function SettingsPage({ settings: initialSettings }: { settings: 
                         <button
                             type="button"
                             onClick={() => testSearchProvider('apify', apifyApiToken)}
-                            disabled={testingProvider === 'apify'}
-                            className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-medium cursor-pointer"
+                            disabled={testingProvider === 'apify' || (!apifyApiToken.trim() && !state.has_apify_api_token)}
+                            className="btn-v2"
                         >
+                            {testingProvider === 'apify' ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Globe className="w-3.5 h-3.5" />}
                             Testen
                         </button>
                         {state.has_apify_api_token && (
                             <button
                                 type="button"
                                 onClick={() => deleteIndividualKey('apify')}
-                                className="px-3 py-1.5 bg-rose-950/50 hover:bg-rose-900/60 text-rose-300 border border-rose-800/60 rounded-lg text-xs ml-auto flex items-center gap-1 cursor-pointer"
+                                className="btn-v2 ml-auto"
+                                style={{ color: "var(--danger)", background: "var(--danger-soft)", borderColor: "var(--danger-soft)" }}
                             >
-                                <Trash2 className="w-3.5 h-3.5" /> Token löschen
+                                <Trash2 className="w-3.5 h-3.5" /> Key löschen
                             </button>
                         )}
                     </div>
-
-                    {testResults.apify && (
-                        <div className={`p-2.5 rounded-lg border text-xs flex items-center gap-2 ${testResults.apify.ok ? 'bg-emerald-950/50 border-emerald-800 text-emerald-300' : 'bg-rose-950/50 border-rose-800 text-rose-300'}`}>
-                            <span>{testResults.apify.ok ? '✓' : '✗'}</span>
-                            <span>{testResults.apify.ok ? `${testResults.apify.sample} · ${testResults.apify.note}` : testResults.apify.error}</span>
-                        </div>
-                    )}
-                </div>
-
-                {/* ── 7. PLANNER SYSTEM-PROMPT ── */}
-                <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4 shadow-lg">
-                    <div className="flex items-center justify-between">
-                        <div>
-                            <h3 className="font-semibold text-sm text-slate-100">Planner System-Prompt</h3>
-                            <p className="text-xs text-slate-400 mt-0.5">
-                                Definiert, wie der KI-Discovery-Agent Freitext-Ziele in strukturierte Suchschritte zerlegt.
-                            </p>
-                        </div>
-                        <button
-                            type="button"
-                            onClick={() => saveIndividualKey('planner', { planner_system_prompt: plannerPrompt })}
-                            disabled={savingKey.planner}
-                            className="px-3 py-1.5 bg-purple-600 hover:bg-purple-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
-                        >
-                            {savingKey.planner ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
-                            {savedKeyMsg.planner ? 'Gespeichert ✓' : 'Prompt speichern'}
-                        </button>
-                    </div>
-
-                    <textarea
-                        value={plannerPrompt}
-                        onChange={e => setPlannerPrompt(e.target.value)}
-                        rows={5}
-                        placeholder="Leer lassen für integrierten Standard-Prompt..."
-                        className="w-full bg-slate-950 border border-slate-800 focus:border-purple-500 rounded-lg p-3 text-xs font-mono text-slate-200 outline-none leading-relaxed"
-                    />
                 </div>
             </div>
         </AppLayout>
