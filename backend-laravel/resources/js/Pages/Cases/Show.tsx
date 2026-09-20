@@ -662,6 +662,12 @@ export default function CaseShow({ case: c }: Props) {
                                         <input type="checkbox" style={{ accentColor: "var(--orange)" }} />
                                     </th>
                                     <th className="p-2.5 w-10 border-r text-center" style={{ borderColor: "var(--border)" }}>#</th>
+                                    <th 
+                                        className="p-2.5 border-r text-left font-semibold uppercase tracking-wider text-[10.5px] whitespace-nowrap"
+                                        style={{ borderColor: "var(--border)", width: 140, minWidth: 140 }}
+                                    >
+                                        Status
+                                    </th>
                                     {visibleColumns.map(col => {
                                         const isDragOver = dragOverCol === col.key;
                                         const colWidth = colWidths[col.key] ?? (col.key === 'company_name' ? 200 : col.isAi ? 180 : 140);
@@ -706,12 +712,9 @@ export default function CaseShow({ case: c }: Props) {
                                                     }}
                                                 />
 
-                                                <div className="flex items-center gap-1.5 justify-between">
-                                                    <div className="flex items-center gap-1 min-w-0">
-                                                        <GripVertical className="w-3 h-3 text-slate-400 shrink-0 opacity-40 hover:opacity-100" />
-                                                        <span className="truncate font-semibold">{col.label}</span>
-                                                    </div>
-                                                    {col.isAi && (
+                                                <div className="flex items-center gap-1.5 justify-between w-full">
+                                                    <GripVertical className="w-3 h-3 text-slate-400 shrink-0 opacity-40 hover:opacity-100 cursor-grab" />
+                                                    {col.isAi ? (
                                                         <ColumnHeaderMenu
                                                             column={col.colDef}
                                                             onRunAll={() => runColumn(col.colDef, "all_force")}
@@ -719,6 +722,8 @@ export default function CaseShow({ case: c }: Props) {
                                                             onDelete={() => deleteColumn(col.colDef.id)}
                                                             onEdit={() => setEditingCol(col.colDef)}
                                                         />
+                                                    ) : (
+                                                        <span className="truncate font-semibold flex-1">{col.label}</span>
                                                     )}
                                                 </div>
                                             </th>
@@ -732,25 +737,104 @@ export default function CaseShow({ case: c }: Props) {
                             <tbody className="divide-y" style={{ borderColor: "var(--border-xs)" }}>
                                 {loading ? (
                                     <tr>
-                                        <td colSpan={visibleColumns.length + 3} className="p-12 text-center text-slate-400">
+                                        <td colSpan={visibleColumns.length + 4} className="p-12 text-center text-slate-400">
                                             <RefreshCw className="w-5 h-5 animate-spin mx-auto mb-2 text-orange-500" />
                                             Lade Tabellendaten...
                                         </td>
                                     </tr>
                                 ) : rows.length === 0 ? (
                                     <tr>
-                                        <td colSpan={visibleColumns.length + 3} className="p-16 text-center text-slate-400 text-xs">
+                                        <td colSpan={visibleColumns.length + 4} className="p-16 text-center text-slate-400 text-xs">
                                             Keine Zeilen. CSV importieren um zu starten.
                                         </td>
                                     </tr>
                                 ) : (
-                                    rows.map((r, idx) => (
-                                        <tr key={r.id} className="hover:bg-[#faf9f7] transition-colors">
+                                    rows.map((r, idx) => {
+                                        const statuses = aiColumns.map(c => r.cell_statuses?.[c.outputKey] ?? "idle");
+                                        const errorCount = statuses.filter(s => s === "error").length;
+                                        const runningCount = statuses.filter(s => s === "running" || runningCells.has(`${r.id}:${s}`)).length;
+                                        const doneCount = statuses.filter(s => s === "done" || s === "skipped").length;
+                                        const totalCols = aiColumns.length;
+
+                                        const rowState: "error" | "running" | "completed" | "partial" | "pending" =
+                                            errorCount > 0 ? "error"
+                                            : runningCount > 0 ? "running"
+                                            : totalCols > 0 && doneCount === totalCols ? "completed"
+                                            : doneCount > 0 ? "partial"
+                                            : "pending";
+
+                                        const src = r.data["search_source"] ?? "";
+                                        const query = r.data["search_query"] ?? "";
+                                        const icon = src.includes("maps") ? "🗺️" : src === "firecrawl" ? "🔥" : src === "linkup" ? "🔗" : src === "serpapi" ? "🔍" : "🌐";
+                                        const label = src.includes("maps") ? "Maps" : src === "firecrawl" ? "Firecrawl" : src === "linkup" ? "Linkup" : src === "serpapi" ? "SerpApi" : src;
+
+                                        return (
+                                        <tr 
+                                            key={r.id} 
+                                            className="hover:bg-[#faf9f7] transition-colors"
+                                            style={{
+                                                background: rowState === "running" ? "#fefce8" : rowState === "error" ? "var(--danger-soft)" : undefined,
+                                            }}
+                                        >
                                             <td className="p-2.5 border-r text-center" style={{ borderColor: "var(--border-xs)" }}>
                                                 <input type="checkbox" style={{ accentColor: "var(--orange)" }} />
                                             </td>
                                             <td className="p-2.5 border-r text-center font-mono text-[10.5px] text-slate-400" style={{ borderColor: "var(--border-xs)" }}>
                                                 {(page - 1) * PAGE_SIZE + idx + 1}
+                                            </td>
+                                            {/* Status Badge & Search Source Pill */}
+                                            <td className="p-2.5 border-r whitespace-nowrap" style={{ borderColor: "var(--border-xs)" }}>
+                                                <div className="flex items-center gap-1.5 flex-wrap">
+                                                    {rowState === "error" && (
+                                                        <span className="status-pill status-pill-error" title={`${errorCount} von ${totalCols} Spalten fehlgeschlagen`}>
+                                                            Fehler
+                                                        </span>
+                                                    )}
+                                                    {rowState === "running" && (
+                                                        <span className="status-pill status-pill-pending">
+                                                            <RefreshCw className="w-2.5 h-2.5 animate-spin" /> Läuft
+                                                        </span>
+                                                    )}
+                                                    {rowState === "completed" && (
+                                                        <span className="status-pill status-pill-done">
+                                                            Fertig
+                                                        </span>
+                                                    )}
+                                                    {rowState === "partial" && (
+                                                        <span className="status-pill status-pill-done" style={{ background: "var(--orange-soft)", color: "var(--orange)" }}>
+                                                            ◐ {doneCount}/{totalCols}
+                                                        </span>
+                                                    )}
+                                                    {rowState === "pending" && (
+                                                        <span className="status-pill status-pill-pending">
+                                                            Ausstehend
+                                                        </span>
+                                                    )}
+
+                                                    {src && (
+                                                        <span 
+                                                            title={`Quelle: ${src}${query ? `\nQuery: ${query}` : ''}`}
+                                                            style={{
+                                                                display: "inline-flex",
+                                                                alignItems: "center",
+                                                                gap: 3,
+                                                                fontSize: 10,
+                                                                color: "var(--text-2)",
+                                                                background: "var(--bg)",
+                                                                border: "1px solid var(--border)",
+                                                                padding: "1px 5px",
+                                                                borderRadius: 4,
+                                                                cursor: "help",
+                                                                maxWidth: 85,
+                                                                overflow: "hidden",
+                                                                textOverflow: "ellipsis",
+                                                                whiteSpace: "nowrap"
+                                                            }}
+                                                        >
+                                                            {icon} {label}
+                                                        </span>
+                                                    )}
+                                                </div>
                                             </td>
                                             {visibleColumns.map(col => {
                                                 const val = r.data[col.key];
@@ -835,7 +919,8 @@ export default function CaseShow({ case: c }: Props) {
                                             })}
                                             <td className="p-2.5 border-r" style={{ borderColor: "var(--border-xs)" }} />
                                         </tr>
-                                    ))
+                                        );
+                                    })
                                 )}
                             </tbody>
                         </table>
