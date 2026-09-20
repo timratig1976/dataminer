@@ -93,14 +93,28 @@ input, select, textarea, button {
   cursor: not-allowed;
 }
 
+.btn-v2.btn-v2-primary,
 .btn-v2-primary {
-  background: var(--orange);
-  color: #fff;
-  border-color: var(--orange);
+  background: var(--orange) !important;
+  color: #fff !important;
+  border-color: var(--orange) !important;
 }
+.btn-v2.btn-v2-primary:hover:not(:disabled),
 .btn-v2-primary:hover:not(:disabled) {
-  background: #d46c2e;
-  border-color: #d46c2e;
+  background: #c96222 !important;
+  border-color: #c96222 !important;
+  color: #fff !important;
+}
+
+.btn-v2-orange-soft {
+  background: var(--orange-soft) !important;
+  color: var(--orange) !important;
+  border-color: var(--orange-mid) !important;
+}
+.btn-v2-orange-soft:hover:not(:disabled) {
+  background: var(--orange-mid) !important;
+  color: #c96222 !important;
+  border-color: var(--orange) !important;
 }
 
 .btn-v2-ai {

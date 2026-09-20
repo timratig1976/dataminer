@@ -447,7 +447,7 @@ export default function CaseShow({ case: c }: Props) {
             }
             actions={
                 <div className="flex items-center gap-2">
-                    <button onClick={() => setShowAgentModal(true)} className="btn-v2" style={{ background: "var(--orange-soft)", color: "var(--orange)", borderColor: "var(--orange-mid)", fontWeight: 500 }}>
+                    <button onClick={() => setShowAgentModal(true)} className="btn-v2 btn-v2-orange-soft" style={{ fontWeight: 500 }}>
                         <Target style={{ width: 12, height: 12 }} /> Leads finden & erweitern
                     </button>
                     <button onClick={() => setShowImportModal(true)} className="btn-v2">
