@@ -3,13 +3,14 @@ import AppLayout from '../../Layouts/AppLayout';
 import { 
     ArrowLeft, Play, Download, Sparkles, RefreshCw, ChevronLeft, 
     ChevronRight, AlertCircle, Plus, Target, Upload, Database, Sliders, 
-    Building2, UserCheck, Users, Globe, ExternalLink, Flame, RotateCcw
+    Building2, UserCheck, Users, Globe, ExternalLink, Flame, RotateCcw, GripVertical, Search
 } from 'lucide-react';
 import { Link } from '@inertiajs/react';
 import { AgentGoalModal } from '../../Components/AgentGoalModal';
 import { AddColumnModal } from '../../Components/AddColumnModal';
-import ImportModal from '@/Components/ImportModal';
+import ImportModal from '../../Components/ImportModal';
 import EditPromptModal from '../../Components/case/EditPromptModal';
+import { ColumnHeaderMenu } from '../../Components/ColumnHeaderMenu';
 import GroupedTableView from '../../Components/GroupedTableView';
 import { apiFetch } from '../../api';
 
@@ -48,6 +49,32 @@ const PAGE_SIZE = 100;
 const TABS = ["Firmen", "Kontakte", "Suchen", "Quellen", "Log", "Export"] as const;
 type TabType = typeof TABS[number];
 
+const COL_LABELS: Record<string, string> = {
+    company_name: "Firma",
+    contacts: "Kontakt",
+    domain: "Domain",
+    phone: "Telefon",
+    email: "E-Mail",
+    company_email: "E-Mail (Firma)",
+    contact_email: "E-Mail (Kontakt)",
+    address: "Adresse",
+    city: "Stadt",
+    zip: "PLZ",
+    industry: "Branche",
+    description: "Beschreibung",
+    employees: "Mitarbeiter",
+    founded: "Gründungsjahr",
+    first_name: "Vorname",
+    last_name: "Nachname",
+    position: "Position",
+    linkedin: "LinkedIn",
+    maps_url: "🗺 Maps-Link",
+    maps_rating: "★ Rating",
+    maps_reviews: "Bewertungen",
+    category: "Kategorie",
+    _scrape_cached_ts: "⚡ Cache-Status",
+};
+
 export default function CaseShow({ case: c }: Props) {
     const [caseData, setCaseData] = useState<CaseDetail>(c);
     const [rows, setRows] = useState<RowItem[]>([]);
@@ -56,7 +83,7 @@ export default function CaseShow({ case: c }: Props) {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
-    // Active Tab (Exact match to Next.js tabs)
+    // Active Tab
     const [activeTab, setActiveTab] = useState<TabType>("Firmen");
     const [viewMode, setViewMode] = useState<'flat' | 'grouped'>('flat');
 
@@ -65,8 +92,13 @@ export default function CaseShow({ case: c }: Props) {
     const [showAddColModal, setShowAddColModal] = useState(false);
     const [showImportModal, setShowImportModal] = useState(false);
     const [editingCol, setEditingCol] = useState<any | null>(null);
+
+    // Column Management & Visibility
     const [showColVisibility, setShowColVisibility] = useState(false);
     const [manuallyHiddenCols, setManuallyHiddenCols] = useState<Set<string>>(new Set());
+    const [colOrder, setColOrder] = useState<string[]>(c.col_order || []);
+    const [dragCol, setDragCol] = useState<string | null>(null);
+    const [dragOverCol, setDragOverCol] = useState<string | null>(null);
 
     // Execution states
     const [runningCells, setRunningCells] = useState<Set<string>>(new Set());
@@ -99,12 +131,38 @@ export default function CaseShow({ case: c }: Props) {
             const res = await apiFetch(`/api/cases/${caseData.id}`);
             const data = await res.json();
             setCaseData(data);
+            if (data.col_order && data.col_order.length > 0) {
+                setColOrder(data.col_order);
+            }
         } catch (e) {
             console.error('Failed to reload case', e);
         }
     };
 
     useEffect(() => { loadPage(page); }, [page, loadPage]);
+
+    // Handle Drag & Drop Column Reordering
+    const handleColDrop = async (targetKey: string) => {
+        if (!dragCol || dragCol === targetKey) return;
+        const currentOrder = visibleColumns.map(c => c.key);
+        const from = currentOrder.indexOf(dragCol);
+        const to = currentOrder.indexOf(targetKey);
+        if (from === -1 || to === -1) return;
+
+        const next = [...currentOrder];
+        next.splice(from, 1);
+        next.splice(to, 0, dragCol);
+
+        setColOrder(next);
+        setDragCol(null);
+        setDragOverCol(null);
+
+        await apiFetch(`/api/cases/${caseData.id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ col_order: next }),
+        });
+    };
 
     // Run single AI cell
     const runCell = async (rowId: string, col: any) => {
@@ -145,6 +203,43 @@ export default function CaseShow({ case: c }: Props) {
                 next.delete(key);
                 return next;
             });
+        }
+    };
+
+    // Run entire column
+    const runColumn = async (col: any, mode: 'all_force' | 'empty_only' = 'empty_only') => {
+        try {
+            setStatusMsg(`Spalte "${col.name}" wird an die Worker-Queue übergeben...`);
+            const res = await apiFetch('/api/run/column', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    caseId: caseData.id,
+                    columnId: col.id,
+                    runMode: mode,
+                }),
+            });
+            const data = await res.json();
+            setStatusMsg(data.message || 'Ausführung gestartet');
+            setTimeout(() => setStatusMsg(null), 5000);
+            loadPage(page);
+        } catch (e: any) {
+            alert('Fehler: ' + e.message);
+        }
+    };
+
+    // Delete column
+    const deleteColumn = async (colId: string) => {
+        if (!confirm('Diese KI-Spalte wirklich löschen?')) return;
+        try {
+            await apiFetch(`/api/cases/${caseData.id}/delete-column`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ columnId: colId }),
+            });
+            refreshCase();
+        } catch (e: any) {
+            alert('Löschen fehlgeschlagen: ' + e.message);
         }
     };
 
@@ -192,11 +287,11 @@ export default function CaseShow({ case: c }: Props) {
         }
     };
 
-    // Determine columns to display
+    // Columns calculation
     const aiColumns = caseData.ai_columns || [];
     const baseCols = caseData.columns && caseData.columns.length > 0 
         ? caseData.columns.map(c => ({ key: c.key, label: c.label, isAi: false }))
-        : (rows[0] ? Object.keys(rows[0].data).filter(k => !k.startsWith('_')).map(k => ({ key: k, label: k, isAi: false })) : []);
+        : (rows[0] ? Object.keys(rows[0].data).filter(k => !k.startsWith('_')).map(k => ({ key: k, label: COL_LABELS[k] ?? k, isAi: false })) : []);
 
     const aiColHeaders = aiColumns.map(c => ({
         key: c.outputKey,
@@ -206,13 +301,30 @@ export default function CaseShow({ case: c }: Props) {
     }));
 
     const visibleColumns = useMemo(() => {
-        const map = new Map<string, any>();
-        aiColHeaders.forEach(c => map.set(c.key, c));
+        const colMap = new Map<string, any>();
+        aiColHeaders.forEach(c => colMap.set(c.key, c));
         baseCols.forEach(c => {
-            if (!map.has(c.key) && !manuallyHiddenCols.has(c.key)) map.set(c.key, c);
+            if (!colMap.has(c.key)) colMap.set(c.key, c);
         });
-        return Array.from(map.values());
-    }, [aiColHeaders, baseCols, manuallyHiddenCols]);
+
+        // Apply custom col_order if present
+        if (colOrder.length > 0) {
+            const ordered: any[] = [];
+            colOrder.forEach(k => {
+                if (colMap.has(k) && !manuallyHiddenCols.has(k)) {
+                    ordered.push(colMap.get(k));
+                    colMap.delete(k);
+                }
+            });
+            // append remaining
+            colMap.forEach((col, k) => {
+                if (!manuallyHiddenCols.has(k)) ordered.push(col);
+            });
+            return ordered;
+        }
+
+        return Array.from(colMap.values()).filter(c => !manuallyHiddenCols.has(c.key));
+    }, [aiColHeaders, baseCols, colOrder, manuallyHiddenCols]);
 
     return (
         <AppLayout
@@ -345,14 +457,123 @@ export default function CaseShow({ case: c }: Props) {
                                     Reset
                                 </button>
 
-                                <button
-                                    title="Spalten ein-/ausblenden"
-                                    onClick={() => setShowColVisibility(v => !v)}
-                                    className="btn-v2 btn-v2-ghost" 
-                                    style={{ padding: "3px 7px", fontSize: 11.5, color: showColVisibility ? "var(--orange)" : "var(--text-2)" }}
-                                >
-                                    <Sliders style={{ width: 11, height: 11 }} /> Spalten
-                                </button>
+                                {/* Spalten Dropdown Toggle */}
+                                <div style={{ position: "relative" }}>
+                                    <button
+                                        title="Spalten ein-/ausblenden"
+                                        onClick={() => setShowColVisibility(v => !v)}
+                                        className="btn-v2 btn-v2-ghost" 
+                                        style={{ 
+                                            padding: "3px 7px", 
+                                            fontSize: 11.5, 
+                                            borderColor: showColVisibility ? "var(--orange)" : "var(--border)",
+                                            color: showColVisibility ? "var(--orange)" : "var(--text-2)",
+                                            background: showColVisibility ? "var(--orange-soft)" : "transparent"
+                                        }}
+                                    >
+                                        <Sliders style={{ width: 11, height: 11 }} /> Spalten
+                                        {manuallyHiddenCols.size > 0 && (
+                                            <span className="badge-v2 badge-v2-orange" style={{ marginLeft: 3 }}>
+                                                {manuallyHiddenCols.size}
+                                            </span>
+                                        )}
+                                    </button>
+
+                                    {/* Spalten Visibility Dropdown Panel (Identisch zu Next.js) */}
+                                    {showColVisibility && (
+                                        <div 
+                                            style={{
+                                                position: "absolute",
+                                                top: "calc(100% + 4px)",
+                                                right: 0,
+                                                background: "var(--surface)",
+                                                border: "1px solid var(--border)",
+                                                borderRadius: "var(--r)",
+                                                boxShadow: "var(--shadow)",
+                                                zIndex: 500,
+                                                minWidth: 260,
+                                                maxHeight: 460,
+                                                overflowY: "auto",
+                                                padding: 10,
+                                            }}
+                                            onMouseLeave={() => setShowColVisibility(false)}
+                                        >
+                                            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "2px 2px 8px", borderBottom: "1px solid var(--border-xs)", marginBottom: 6 }}>
+                                                <span style={{ fontSize: 10.5, fontWeight: 600, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                                                    Spalten verwalten
+                                                </span>
+                                                <div style={{ display: "flex", gap: 6 }}>
+                                                    {manuallyHiddenCols.size > 0 && (
+                                                        <button 
+                                                            onClick={() => setManuallyHiddenCols(new Set())} 
+                                                            style={{ border: "none", background: "none", fontSize: 11, color: "var(--orange)", cursor: "pointer", fontWeight: 500 }}
+                                                        >
+                                                            Alle zeigen
+                                                        </button>
+                                                    )}
+                                                    <button 
+                                                        onClick={() => { setColOrder([]); setManuallyHiddenCols(new Set()); setShowColVisibility(false); }} 
+                                                        style={{ border: "none", background: "none", fontSize: 11, color: "var(--text-3)", cursor: "pointer" }}
+                                                    >
+                                                        ↺ Reset
+                                                    </button>
+                                                </div>
+                                            </div>
+
+                                            {/* Source Columns */}
+                                            {baseCols.length > 0 && (
+                                                <div style={{ fontSize: 10, fontWeight: 600, color: "var(--text-3)", textTransform: "uppercase", padding: "4px 2px", marginBottom: 2 }}>
+                                                    Quelldaten
+                                                </div>
+                                            )}
+                                            {baseCols.map(c => (
+                                                <label key={c.key} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 6px", borderRadius: "var(--rs)", cursor: "pointer", fontSize: 12, color: "var(--text-1)" }}>
+                                                    <input 
+                                                        type="checkbox" 
+                                                        checked={!manuallyHiddenCols.has(c.key)} 
+                                                        onChange={() => {
+                                                            setManuallyHiddenCols(prev => {
+                                                                const next = new Set(prev);
+                                                                next.has(c.key) ? next.delete(c.key) : next.add(c.key);
+                                                                return next;
+                                                            });
+                                                        }} 
+                                                        style={{ accentColor: "var(--orange)" }}
+                                                    />
+                                                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                                        {c.label}
+                                                    </span>
+                                                </label>
+                                            ))}
+
+                                            {/* AI Columns */}
+                                            {aiColumns.length > 0 && (
+                                                <div style={{ fontSize: 10, fontWeight: 600, color: "var(--green)", textTransform: "uppercase", padding: "8px 2px 2px", marginBottom: 2, borderTop: "1px solid var(--border-xs)", marginTop: 6 }}>
+                                                    KI-Spalten
+                                                </div>
+                                            )}
+                                            {aiColumns.map(c => (
+                                                <label key={c.outputKey} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 6px", borderRadius: "var(--rs)", cursor: "pointer", fontSize: 12, color: "var(--green)" }}>
+                                                    <input 
+                                                        type="checkbox" 
+                                                        checked={!manuallyHiddenCols.has(c.outputKey)} 
+                                                        onChange={() => {
+                                                            setManuallyHiddenCols(prev => {
+                                                                const next = new Set(prev);
+                                                                next.has(c.outputKey) ? next.delete(c.outputKey) : next.add(c.outputKey);
+                                                                return next;
+                                                            });
+                                                        }} 
+                                                        style={{ accentColor: "var(--green)" }}
+                                                    />
+                                                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontWeight: 500 }}>
+                                                        {c.name}
+                                                    </span>
+                                                </label>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
 
                                 <button 
                                     onClick={() => setShowAddColModal(true)} 
@@ -376,7 +597,7 @@ export default function CaseShow({ case: c }: Props) {
                     </div>
                 )}
 
-                {/* Tab: Firmen (Main Table or GroupedTableView) */}
+                {/* Tab: Firmen (Main Table with Drag&Drop Reordering) */}
                 {activeTab === "Firmen" && viewMode === "grouped" && (
                     <GroupedTableView caseId={caseData.id} />
                 )}
@@ -393,30 +614,42 @@ export default function CaseShow({ case: c }: Props) {
                                         <input type="checkbox" style={{ accentColor: "var(--orange)" }} />
                                     </th>
                                     <th className="p-2.5 w-10 border-r text-center" style={{ borderColor: "var(--border)" }}>#</th>
-                                    {visibleColumns.map(col => (
-                                        <th 
-                                            key={col.key} 
-                                            className="p-2.5 border-r min-w-[150px]"
-                                            style={{ 
-                                                borderColor: "var(--border)",
-                                                background: col.isAi ? "var(--orange-soft)" : "inherit",
-                                                color: col.isAi ? "var(--orange)" : "inherit",
-                                            }}
-                                        >
-                                            <div className="flex items-center justify-between">
-                                                <span>{col.label}</span>
-                                                {col.isAi && (
-                                                    <button 
-                                                        onClick={() => setEditingCol(col.colDef)}
-                                                        title="KI-Prompt & Modell bearbeiten"
-                                                        className="hover:opacity-75 p-0.5 cursor-pointer"
-                                                    >
-                                                        <Sliders className="w-3 h-3 text-orange-500" />
-                                                    </button>
-                                                )}
-                                            </div>
-                                        </th>
-                                    ))}
+                                    {visibleColumns.map(col => {
+                                        const isDragOver = dragOverCol === col.key;
+                                        return (
+                                            <th 
+                                                key={col.key} 
+                                                draggable
+                                                onDragStart={() => setDragCol(col.key)}
+                                                onDragOver={e => { e.preventDefault(); setDragOverCol(col.key); }}
+                                                onDragLeave={() => setDragOverCol(null)}
+                                                onDrop={() => handleColDrop(col.key)}
+                                                className="p-2 border-r min-w-[150px] transition-all cursor-grab active:cursor-grabbing select-none"
+                                                style={{ 
+                                                    borderColor: "var(--border)",
+                                                    background: isDragOver ? "var(--orange-mid)" : col.isAi ? "var(--orange-soft)" : "inherit",
+                                                    color: col.isAi ? "var(--orange)" : "inherit",
+                                                    borderLeft: isDragOver ? "2px solid var(--orange)" : undefined,
+                                                }}
+                                            >
+                                                <div className="flex items-center gap-1.5 justify-between">
+                                                    <div className="flex items-center gap-1 min-w-0">
+                                                        <GripVertical className="w-3 h-3 text-slate-400 shrink-0 opacity-40 hover:opacity-100" />
+                                                        <span className="truncate font-semibold">{col.label}</span>
+                                                    </div>
+                                                    {col.isAi && (
+                                                        <ColumnHeaderMenu
+                                                            column={col.colDef}
+                                                            onRunAll={() => runColumn(col.colDef, "all_force")}
+                                                            onRunEmptyOnly={() => runColumn(col.colDef, "empty_only")}
+                                                            onDelete={() => deleteColumn(col.colDef.id)}
+                                                            onEdit={() => setEditingCol(col.colDef)}
+                                                        />
+                                                    )}
+                                                </div>
+                                            </th>
+                                        );
+                                    })}
                                     <th className="p-2.5 w-24 text-slate-400 font-normal text-center cursor-pointer hover:bg-slate-100" onClick={() => setShowAddColModal(true)}>
                                         + Spalte
                                     </th>
@@ -542,7 +775,7 @@ export default function CaseShow({ case: c }: Props) {
                 <ImportModal
                     caseId={caseData.id}
                     onClose={() => setShowImportModal(false)}
-                    onImported={(count) => { refreshCase(); loadPage(1); }}
+                    onImported={() => { refreshCase(); loadPage(1); }}
                 />
             )}
 
