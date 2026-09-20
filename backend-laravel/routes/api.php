@@ -34,9 +34,12 @@ Route::middleware(['web', 'auth'])->group(function () {
     Route::post('/cases/{id}/add-column', [\App\Http\Controllers\Api\CaseDiscoveryController::class, 'addColumn']);
     Route::post('/cases/{id}/delete-column', [\App\Http\Controllers\Api\CaseDiscoveryController::class, 'deleteColumn']);
     Route::get('/cases/{id}/agent', [AgentRunController::class, 'indexForCase']);
+    Route::get('/cases/{id}/agent/check-keys', [\App\Http\Controllers\Api\DiscoverySearchController::class, 'checkKeys']);
     Route::get('/rows', [RowController::class, 'index']);
     Route::get('/rows/grouped', [\App\Http\Controllers\Api\GroupedRowsController::class, 'index']);
     Route::get('/contact-rows', [\App\Http\Controllers\Api\ContactRowController::class, 'index']);
+    Route::get('/cache', [\App\Http\Controllers\Api\CacheController::class, 'index']);
+    Route::match(['get', 'post'], '/discovery/search', [\App\Http\Controllers\Api\DiscoverySearchController::class, 'search']);
     Route::get('/logs', [\App\Http\Controllers\Api\LogController::class, 'index']);
     Route::delete('/logs', [\App\Http\Controllers\Api\LogController::class, 'destroy']);
     Route::get('/export', [ExportController::class, 'exportCsv']);
