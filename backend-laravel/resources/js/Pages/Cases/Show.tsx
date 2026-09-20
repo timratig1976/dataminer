@@ -1,9 +1,9 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import AppLayout from '../../Layouts/AppLayout';
 import { 
     ArrowLeft, Play, Download, Sparkles, RefreshCw, ChevronLeft, 
     ChevronRight, AlertCircle, Plus, Target, Upload, Database, Sliders, 
-    Building2, UserCheck, Users, Globe, ExternalLink, Flame, RotateCcw, GripVertical, Search
+    Building2, UserCheck, Users, Globe, ExternalLink, Flame, RotateCcw, GripVertical, Search, FileText, CheckCircle2, Clock
 } from 'lucide-react';
 import { Link } from '@inertiajs/react';
 import { AgentGoalModal } from '../../Components/AgentGoalModal';
@@ -84,9 +84,17 @@ export default function CaseShow({ case: c }: Props) {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
-    // Active Tab
+    // Active Tab & View Mode
     const [activeTab, setActiveTab] = useState<TabType>("Firmen");
     const [viewMode, setViewMode] = useState<'flat' | 'grouped'>('flat');
+
+    // Tab-Specific Data
+    const [contactRows, setContactRows] = useState<any[]>([]);
+    const [contactRowsLoading, setContactRowsLoading] = useState(false);
+    const [agentRuns, setAgentRuns] = useState<any[]>([]);
+    const [agentRunsLoading, setAgentRunsLoading] = useState(false);
+    const [logs, setLogs] = useState<any[]>([]);
+    const [logsLoading, setLogsLoading] = useState(false);
 
     // Modals
     const [showAgentModal, setShowAgentModal] = useState(false);
@@ -146,6 +154,32 @@ export default function CaseShow({ case: c }: Props) {
     };
 
     useEffect(() => { loadPage(page); }, [page, loadPage]);
+
+    // Tab Data Fetching
+    useEffect(() => {
+        if (activeTab === "Kontakte") {
+            setContactRowsLoading(true);
+            apiFetch(`/api/contact-rows?caseId=${caseData.id}`)
+                .then(r => r.json())
+                .then(d => setContactRows(d.contacts || []))
+                .catch(() => setContactRows([]))
+                .finally(() => setContactRowsLoading(false));
+        } else if (activeTab === "Suchen") {
+            setAgentRunsLoading(true);
+            apiFetch(`/api/cases/${caseData.id}/agent`)
+                .then(r => r.json())
+                .then(d => setAgentRuns(Array.isArray(d) ? d : []))
+                .catch(() => setAgentRuns([]))
+                .finally(() => setAgentRunsLoading(false));
+        } else if (activeTab === "Log") {
+            setLogsLoading(true);
+            apiFetch(`/api/logs?caseId=${caseData.id}&limit=200`)
+                .then(r => r.json())
+                .then(d => setLogs(Array.isArray(d) ? d : []))
+                .catch(() => setLogs([]))
+                .finally(() => setLogsLoading(false));
+        }
+    }, [activeTab, caseData.id]);
 
     // Handle Drag & Drop Column Reordering
     const handleColDrop = async (targetKey: string) => {
@@ -293,6 +327,11 @@ export default function CaseShow({ case: c }: Props) {
         }
     };
 
+    // Catalog Rows filter for Quellen Tab
+    const catalogRows = useMemo(() => {
+        return rows.filter(r => r.data['is_catalog'] === 'true' || r.data['is_catalog'] === true);
+    }, [rows]);
+
     // Columns calculation
     const aiColumns = caseData.ai_columns || [];
     const baseCols = caseData.columns && caseData.columns.length > 0 
@@ -313,7 +352,6 @@ export default function CaseShow({ case: c }: Props) {
             if (!colMap.has(c.key)) colMap.set(c.key, c);
         });
 
-        // Apply custom col_order if present
         if (colOrder.length > 0) {
             const ordered: any[] = [];
             colOrder.forEach(k => {
@@ -322,7 +360,6 @@ export default function CaseShow({ case: c }: Props) {
                     colMap.delete(k);
                 }
             });
-            // append remaining
             colMap.forEach((col, k) => {
                 if (!manuallyHiddenCols.has(k)) ordered.push(col);
             });
@@ -383,7 +420,7 @@ export default function CaseShow({ case: c }: Props) {
                     <div style={{ display: "flex", alignItems: "flex-end", height: "100%", gap: 2 }}>
                         {TABS.map(t => {
                             const isActive = activeTab === t;
-                            const count = t === "Firmen" ? total : undefined;
+                            const count = t === "Firmen" ? total : t === "Kontakte" ? (contactRows.length || undefined) : t === "Quellen" ? (catalogRows.length || undefined) : undefined;
                             return (
                                 <button 
                                     key={t} 
@@ -603,7 +640,7 @@ export default function CaseShow({ case: c }: Props) {
                     </div>
                 )}
 
-                {/* Tab: Firmen (Main Table with Drag&Drop Reordering & Resizing) */}
+                {/* ══ TAB 1: FIRMEN ══ */}
                 {activeTab === "Firmen" && viewMode === "grouped" && (
                     <GroupedTableView caseId={caseData.id} />
                 )}
@@ -642,7 +679,7 @@ export default function CaseShow({ case: c }: Props) {
                                                     minWidth: 80,
                                                 }}
                                             >
-                                                {/* ↔ Column Resize Handle (Identisch zu Next.js) */}
+                                                {/* ↔ Column Resize Handle */}
                                                 <div
                                                     style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 6, cursor: "col-resize", zIndex: 10 }}
                                                     onMouseDown={e => {
@@ -746,7 +783,6 @@ export default function CaseShow({ case: c }: Props) {
                                                                 className="flex items-center justify-between gap-1.5 cursor-pointer group/cell"
                                                                 onClick={(e) => {
                                                                     e.stopPropagation();
-                                                                    // Klick auf Zelle öffnet RunDetailModal mit Prompt, Token, Raw Daten & Rerun
                                                                     setRunDetailCell({ col: col.colDef, row: r });
                                                                 }}
                                                                 title="Klicken für Prompt, Token, Rohdaten & Rerun"
@@ -789,14 +825,248 @@ export default function CaseShow({ case: c }: Props) {
                     </div>
                 )}
 
-                {/* Other Tabs Placeholder */}
-                {activeTab !== "Firmen" && (
-                    <div className="p-16 text-center text-slate-400 text-xs">
-                        Ansicht für Tab <strong>{activeTab}</strong> wird geladen...
+                {/* ══ TAB 2: KONTAKTE ══ */}
+                {activeTab === "Kontakte" && (
+                    <div className="flex-1 overflow-auto p-4">
+                        <div className="flex items-center justify-between mb-3">
+                            <span className="text-xs font-semibold text-slate-700">
+                                {contactRows.length} gefundene Ansprechpartner
+                            </span>
+                            <button
+                                onClick={async () => {
+                                    const res = await apiFetch('/api/contact-rows/cleanup', {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({ caseId: caseData.id }),
+                                    });
+                                    const data = await res.json();
+                                    alert(data.message || 'Kontakte extrahiert');
+                                    // Refresh contacts
+                                    apiFetch(`/api/contact-rows?caseId=${caseData.id}`).then(r => r.json()).then(d => setContactRows(d.contacts || []));
+                                }}
+                                className="btn-v2 btn-v2-ai"
+                            >
+                                ⚡ Aus Firmendaten extrahieren
+                            </button>
+                        </div>
+
+                        {contactRowsLoading ? (
+                            <div className="p-12 text-center text-xs text-slate-400">Lade Kontakte...</div>
+                        ) : contactRows.length === 0 ? (
+                            <div className="p-12 text-center text-xs text-slate-400">
+                                Noch keine Kontakte vorhanden. Führe die Phase "👤 Kontakte" aus oder klicke auf "Aus Firmendaten extrahieren".
+                            </div>
+                        ) : (
+                            <div className="border rounded-lg overflow-hidden shadow-xs" style={{ borderColor: 'var(--border)' }}>
+                                <table className="w-full text-left border-collapse text-xs">
+                                    <thead className="bg-[#fbfaf8] border-b text-[10.5px] uppercase font-semibold text-slate-600" style={{ borderColor: 'var(--border)' }}>
+                                        <tr>
+                                            <th className="p-2.5 w-10 border-r">#</th>
+                                            <th className="p-2.5 border-r">Name / Ansprechpartner</th>
+                                            <th className="p-2.5 border-r">Position</th>
+                                            <th className="p-2.5 border-r">E-Mail</th>
+                                            <th className="p-2.5 border-r">Telefon</th>
+                                            <th className="p-2.5 border-r">LinkedIn</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y" style={{ borderColor: 'var(--border-xs)' }}>
+                                        {contactRows.map((c, i) => (
+                                            <tr key={c.id || i} className="hover:bg-[#faf9f7]">
+                                                <td className="p-2.5 border-r font-mono text-slate-400">{i + 1}</td>
+                                                <td className="p-2.5 border-r font-semibold text-slate-900">{c.name || `${c.first_name || ''} ${c.last_name || ''}`.trim() || '—'}</td>
+                                                <td className="p-2.5 border-r text-slate-600">{c.position || '—'}</td>
+                                                <td className="p-2.5 border-r font-mono text-orange-600">{c.email ? <a href={`mailto:${c.email}`}>{c.email}</a> : '—'}</td>
+                                                <td className="p-2.5 border-r font-mono text-slate-600">{c.phone || '—'}</td>
+                                                <td className="p-2.5 border-r text-blue-600">
+                                                    {c.linkedin ? <a href={c.linkedin.startsWith('http') ? c.linkedin : `https://${c.linkedin}`} target="_blank" rel="noreferrer">🔗 LinkedIn</a> : '—'}
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        )}
                     </div>
                 )}
 
-                {/* Pagination */}
+                {/* ══ TAB 3: SUCHEN (Agent Discovery Runs) ══ */}
+                {activeTab === "Suchen" && (
+                    <div className="flex-1 overflow-y-auto p-5 space-y-4">
+                        <div className="flex items-center justify-between">
+                            <div>
+                                <h3 className="font-semibold text-sm text-slate-900">Autonome Discovery-Läufe</h3>
+                                <p className="text-xs text-slate-500">Historie aller KI-Recherchen via Google Search & Maps</p>
+                            </div>
+                            <button onClick={() => setShowAgentModal(true)} className="btn-v2 btn-v2-primary">
+                                + Neue Suche starten
+                            </button>
+                        </div>
+
+                        {agentRunsLoading ? (
+                            <div className="p-12 text-center text-xs text-slate-400">Lade Suchen...</div>
+                        ) : agentRuns.length === 0 ? (
+                            <div className="p-12 text-center text-xs text-slate-400 border rounded-lg bg-slate-50">
+                                Bislang keine Discovery-Läufe in diesem Case. Klicke auf "+ Neue Suche starten", um Leads zu finden.
+                            </div>
+                        ) : (
+                            agentRuns.map((run) => (
+                                <div key={run.id} className="p-4 rounded-xl border bg-white shadow-xs space-y-2" style={{ borderColor: 'var(--border)' }}>
+                                    <div className="flex items-center justify-between">
+                                        <div className="font-semibold text-xs text-slate-900 flex items-center gap-2">
+                                            <span>🎯 {run.goal}</span>
+                                            <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${run.status === 'completed' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-orange-50 text-orange-700 border border-orange-200'}`}>
+                                                {run.status}
+                                            </span>
+                                        </div>
+                                        <span className="text-[11px] text-slate-400 font-mono">
+                                            {new Date(run.created_at).toLocaleString('de-DE')}
+                                        </span>
+                                    </div>
+                                    <div className="text-xs text-slate-500 flex items-center gap-4">
+                                        <span>Schritte: {run.state?.current_step_index || 0} / {run.state?.total_steps || 0}</span>
+                                        <span>•</span>
+                                        <span>Gefundene Leads: <strong className="text-emerald-600">{run.state?.rows_added || 0}</strong></span>
+                                    </div>
+                                </div>
+                            ))
+                        )}
+                    </div>
+                )}
+
+                {/* ══ TAB 4: QUELLEN (Katalogseiten & Deep Crawl) ══ */}
+                {activeTab === "Quellen" && (
+                    <div className="flex-1 overflow-y-auto p-5 space-y-4">
+                        <div className="flex items-center justify-between">
+                            <div>
+                                <h3 className="font-semibold text-sm text-slate-900">📚 Gefundene Kataloge & Verzeichnisse ({catalogRows.length})</h3>
+                                <p className="text-xs text-slate-500">Katalog-URLs können für Deep-Crawling genutzt werden, um alle Sub-Firmen einzulesen.</p>
+                            </div>
+                            <button
+                                onClick={async () => {
+                                    const res = await apiFetch(`/api/cases/${caseData.id}/deep-crawl-catalogs`, {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({ maxCatalogs: 10 }),
+                                    });
+                                    const data = await res.json();
+                                    alert(data.message || 'Deep Crawl abgeschlossen');
+                                    loadPage(page);
+                                }}
+                                disabled={catalogRows.length === 0}
+                                className="btn-v2 btn-v2-primary"
+                            >
+                                ⚡ Alle Kataloge tiefen-scrapen
+                            </button>
+                        </div>
+
+                        {catalogRows.length === 0 ? (
+                            <div className="p-12 text-center text-xs text-slate-400 border rounded-lg bg-slate-50">
+                                Keine Verzeichnis- oder Katalog-URLs in diesem Case vorhanden.
+                            </div>
+                        ) : (
+                            <div className="space-y-2">
+                                {catalogRows.map((r) => (
+                                    <div key={r.id} className="p-3 rounded-lg border bg-white flex items-center justify-between text-xs" style={{ borderColor: 'var(--border)' }}>
+                                        <div>
+                                            <div className="font-semibold">{r.data['company_name'] || r.data['domain']}</div>
+                                            <div className="text-[11px] text-slate-500 font-mono mt-0.5">{r.data['source_url'] || r.data['domain']}</div>
+                                        </div>
+                                        <button
+                                            onClick={async () => {
+                                                const res = await apiFetch(`/api/cases/${caseData.id}/scrape-catalog`, {
+                                                    method: 'POST',
+                                                    headers: { 'Content-Type': 'application/json' },
+                                                    body: JSON.stringify({ url: r.data['source_url'] || r.data['domain'] }),
+                                                });
+                                                const data = await res.json();
+                                                alert(data.message || 'Scrape fertig');
+                                                loadPage(page);
+                                            }}
+                                            className="btn-v2"
+                                        >
+                                            Scrapen
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                )}
+
+                {/* ══ TAB 5: LOG ══ */}
+                {activeTab === "Log" && (
+                    <div className="flex-1 overflow-y-auto p-5 space-y-3 font-mono text-xs">
+                        <div className="flex items-center justify-between pb-2 border-b" style={{ borderColor: 'var(--border-xs)' }}>
+                            <span className="font-semibold text-slate-700">📜 Case Ausführungsprotokoll</span>
+                            <button
+                                onClick={async () => {
+                                    await apiFetch(`/api/logs?caseId=${caseData.id}`, { method: 'DELETE' });
+                                    setLogs([]);
+                                }}
+                                className="text-[11px] text-rose-600 hover:underline cursor-pointer"
+                            >
+                                Logs leeren
+                            </button>
+                        </div>
+
+                        {logsLoading ? (
+                            <div className="p-8 text-center text-slate-400">Lade Protokolle...</div>
+                        ) : logs.length === 0 ? (
+                            <div className="p-8 text-center text-slate-400">Keine Protokolleinträge vorhanden.</div>
+                        ) : (
+                            <div className="space-y-1.5 bg-slate-950 text-slate-200 p-4 rounded-xl max-h-[65vh] overflow-y-auto">
+                                {logs.map((l, i) => (
+                                    <div key={l.id || i} className="flex items-start gap-3 text-[11.5px] leading-relaxed">
+                                        <span className="text-slate-500 shrink-0">{new Date(l.createdAt).toLocaleTimeString('de-DE')}</span>
+                                        <span className="text-emerald-400">▶</span>
+                                        <span className="text-slate-300 break-all">{l.message}</span>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                )}
+
+                {/* ══ TAB 6: EXPORT ══ */}
+                {activeTab === "Export" && (
+                    <div className="flex-1 overflow-y-auto p-6 space-y-5">
+                        <div className="max-w-md p-5 rounded-xl border bg-white shadow-xs space-y-3" style={{ borderColor: 'var(--border)' }}>
+                            <h3 className="font-semibold text-sm text-slate-900 flex items-center gap-2">
+                                <Download className="w-4 h-4 text-orange-500" />
+                                CSV-Tabelle exportieren
+                            </h3>
+                            <p className="text-xs text-slate-500 leading-relaxed">
+                                Lädt alle aktuellen Firmendaten und angereicherten Spalten als kommagetrennte CSV-Datei herunter.
+                            </p>
+                            <a
+                                href={`/api/export?caseId=${caseData.id}`}
+                                className="btn-v2 btn-v2-primary inline-flex"
+                            >
+                                <Download className="w-3.5 h-3.5" />
+                                CSV herunterladen ({total} Zeilen)
+                            </a>
+                        </div>
+
+                        <div className="max-w-md p-5 rounded-xl border bg-white shadow-xs space-y-3" style={{ borderColor: 'var(--border)' }}>
+                            <h3 className="font-semibold text-sm text-slate-900 flex items-center gap-2">
+                                <Database className="w-4 h-4 text-emerald-600" />
+                                Vollständiger JSON-Snapshot
+                            </h3>
+                            <p className="text-xs text-slate-500 leading-relaxed">
+                                Sichert den kompletten Case inklusive aller Zeilen, KI-Spalten, Zellstatus und Metadaten in einer portablen JSON-Datei.
+                            </p>
+                            <a
+                                href={`/api/export/snapshot?caseId=${caseData.id}`}
+                                className="btn-v2 inline-flex"
+                            >
+                                <Download className="w-3.5 h-3.5" />
+                                Snapshot herunterladen (.json)
+                            </a>
+                        </div>
+                    </div>
+                )}
+
+                {/* Pagination (Only on Firmen Tab) */}
                 {!loading && totalPages > 1 && activeTab === "Firmen" && (
                     <div className="flex items-center justify-between px-4 py-2.5 bg-[#fbfaf8] border-t text-xs text-slate-500" style={{ borderColor: "var(--border)" }}>
                         <span>
@@ -861,7 +1131,7 @@ export default function CaseShow({ case: c }: Props) {
                 />
             )}
 
-            {/* 🔍 RunDetailModal (Klick auf KI-Zelle öffnet Prompt, Tokens, Rohdaten & Rerun) */}
+            {/* 🔍 RunDetailModal */}
             {runDetailCell && (
                 <RunDetailModal
                     col={runDetailCell.col}
