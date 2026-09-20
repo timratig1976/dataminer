@@ -120,16 +120,23 @@ Regeln:
 
   async function save() {
     setSaving(true);
-    const res = await apiFetch(`/api/cases/${caseId}`);
-    const c: Case = await res.json();
-    const updated = c.aiColumns.map(a => a.id === draft.id ? draft : a);
-    const r2 = await apiFetch(`/api/cases/${caseId}`, {
-      method: "PATCH", headers: {"Content-Type":"application/json"},
-      body: JSON.stringify({ aiColumns: updated }),
-    });
-    const saved = await r2.json();
-    onSave(saved.aiColumns.find((a: AiColumn) => a.id === draft.id) ?? draft);
-    setSaving(false);
+    try {
+      const res = await apiFetch(`/api/cases/${caseId}`);
+      const c = await res.json();
+      const existingCols = (c.aiColumns || c.ai_columns || []) as AiColumn[];
+      const updated = existingCols.map(a => a.id === draft.id ? draft : a);
+      const r2 = await apiFetch(`/api/cases/${caseId}`, {
+        method: "PATCH", headers: {"Content-Type":"application/json"},
+        body: JSON.stringify({ ai_columns: updated, aiColumns: updated }),
+      });
+      const saved = await r2.json();
+      const savedCols = (saved.aiColumns || saved.ai_columns || []) as AiColumn[];
+      onSave(savedCols.find((a: AiColumn) => a.id === draft.id) ?? draft);
+    } catch (err: any) {
+      alert("Fehler beim Speichern: " + err.message);
+    } finally {
+      setSaving(false);
+    }
   }
 
   function toggleCompareModel(model: string) {

@@ -110,16 +110,30 @@ class CaseController extends Controller
             return response()->json(['error' => 'Not found'], 404);
         }
 
-        $case->update($request->only([
+        $payload = $request->only([
             'name',
             'ai_columns',
             'col_order',
             'eden_api_key',
             'eden_region',
             'model_allowlist',
-        ]));
+        ]);
 
-        return response()->json($case);
+        // Support camelCase from frontend (aiColumns, colOrder, etc.)
+        if ($request->has('aiColumns') && !isset($payload['ai_columns'])) {
+            $payload['ai_columns'] = $request->input('aiColumns');
+        }
+        if ($request->has('colOrder') && !isset($payload['col_order'])) {
+            $payload['col_order'] = $request->input('colOrder');
+        }
+
+        $case->update($payload);
+
+        $response = $case->toArray();
+        $response['aiColumns'] = $case->ai_columns;
+        $response['colOrder'] = $case->col_order;
+
+        return response()->json($response);
     }
 
     public function destroy(string $id)

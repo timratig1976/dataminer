@@ -1232,15 +1232,15 @@ export default function CaseShow({ case: c }: Props) {
                     col={editingCol}
                     caseId={caseData.id}
                     onSave={(updated) => {
-                        const nextCols = (caseData.ai_columns || []).map(c => c.id === updated.id ? updated : c);
-                        apiFetch(`/api/cases/${caseData.id}`, {
-                            method: "PATCH",
-                            headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({ ai_columns: nextCols }),
-                        }).then(() => {
-                            refreshCase();
-                            setEditingCol(null);
-                        });
+                        const existing = caseData.ai_columns || (caseData as any).aiColumns || [];
+                        const nextCols = existing.map((c: any) => c.id === updated.id ? updated : c);
+                        setCaseData(prev => ({
+                            ...prev,
+                            ai_columns: nextCols,
+                            aiColumns: nextCols
+                        }));
+                        setEditingCol(null);
+                        refreshCase();
                     }}
                     onClose={() => setEditingCol(null)}
                 />
