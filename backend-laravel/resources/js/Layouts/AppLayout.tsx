@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link, usePage } from '@inertiajs/react';
 import { 
-    LayoutDashboard, Database, Settings, Sliders, Zap, Sparkles, Users 
+    LayoutDashboard, Database, Settings, Sliders, Zap, Sparkles, Users, User 
 } from 'lucide-react';
 
 interface SidebarCase {
@@ -193,6 +193,15 @@ export default function Layout({
 
                     <div className="flex items-center gap-3">
                         {actions}
+                        <div className="h-4 w-px bg-slate-200" />
+                        <Link
+                            href="/settings/account"
+                            className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium text-slate-700 hover:bg-slate-100 transition-colors border border-slate-200"
+                            title="Mein Benutzerkonto & Passwort"
+                        >
+                            <User className="w-3.5 h-3.5 text-orange-500" />
+                            <span>Konto</span>
+                        </Link>
                     </div>
                 </header>
 

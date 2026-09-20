@@ -99,4 +99,9 @@ class WebController extends Controller
     {
         return Inertia::render('Settings/Users');
     }
+
+    public function accountSettings(): Response
+    {
+        return Inertia::render('Settings/Account');
+    }
 }

@@ -94,6 +94,12 @@ Route::middleware(['web', 'auth'])->group(function () {
         Route::post('/cases/{id}/agent/{runId}/extend', [\App\Http\Controllers\Api\AgentExtendController::class, 'extend']);
         Route::post('/import/preview', [\App\Http\Controllers\Api\ImportPreviewController::class, 'preview']);
         Route::post('/import/llm-map', [\App\Http\Controllers\Api\ImportPreviewController::class, 'llmMap']);
+
+        // ── Self-Service User Account APIs (Jeder eingeloggte Benutzer) ──
+        Route::get('/user/profile', [\App\Http\Controllers\Api\ProfileController::class, 'show']);
+        Route::patch('/user/profile', [\App\Http\Controllers\Api\ProfileController::class, 'update']);
+        Route::post('/user/change-password', [\App\Http\Controllers\Api\ProfileController::class, 'changePassword']);
+        Route::post('/user/magic-link', [\App\Http\Controllers\Api\ProfileController::class, 'generateMagicLink']);
     });
 
     // Destructive / Settings access: Super-Admin only
