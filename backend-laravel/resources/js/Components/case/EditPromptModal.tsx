@@ -1,3 +1,4 @@
+import { apiFetch } from "@/api";
 "use client";
 
 import { useState, useEffect, useRef } from "react";
@@ -40,7 +41,10 @@ export default function EditPromptModal({ col, caseId, onSave, onClose, cellCont
   onOpenRunDetail?: () => void;
   availableFields?: string[];
 }) {
-  const [draft, setDraft] = useState<AiColumn>({...col});
+  const [draft, setDraft] = useState<AiColumn>({
+    ...col,
+    prompt: col.prompt ?? "",
+  });
   const [saving, setSaving] = useState(false);
   const [compareModels, setCompareModels] = useState<string[]>([col.model || "openai/gpt-4o-mini"]);
   const [compareLoading, setCompareLoading] = useState(false);
@@ -78,7 +82,7 @@ Regeln:
   }
 
   useEffect(() => {
-    fetch(`/api/llm/models?caseId=${caseId}`)
+    apiFetch(`/api/llm/models?caseId=${caseId}`)
       .then((r) => r.json())
       .then((data) => {
         const next = Array.isArray(data?.models) ? data.models : [];
@@ -116,10 +120,10 @@ Regeln:
 
   async function save() {
     setSaving(true);
-    const res = await fetch(`/api/cases/${caseId}`);
+    const res = await apiFetch(`/api/cases/${caseId}`);
     const c: Case = await res.json();
     const updated = c.aiColumns.map(a => a.id === draft.id ? draft : a);
-    const r2 = await fetch(`/api/cases/${caseId}`, {
+    const r2 = await apiFetch(`/api/cases/${caseId}`, {
       method: "PATCH", headers: {"Content-Type":"application/json"},
       body: JSON.stringify({ aiColumns: updated }),
     });
@@ -143,7 +147,7 @@ Regeln:
     setCompareResults([]);
     setRecommendedModel(null);
     try {
-      const res = await fetch("/api/llm/compare", {
+      const res = await apiFetch("/api/llm/compare", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

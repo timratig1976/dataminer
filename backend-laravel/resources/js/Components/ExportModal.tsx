@@ -1,3 +1,4 @@
+import { apiFetch } from "@/api";
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -33,15 +34,19 @@ export function ExportModal({ caseId, caseData, sourceColumns, colOrder, onClose
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
 
+  const aiCols = useMemo(() => {
+    return (caseData.aiColumns || (caseData as any).ai_columns || []) as any[];
+  }, [caseData]);
+
   const companiesColumns = useMemo(() => {
-    const allKeys = new Set([...sourceColumns, ...caseData.aiColumns.map((c) => c.outputKey)]);
+    const allKeys = new Set([...sourceColumns, ...aiCols.map((c) => c.outputKey)]);
     const base = colOrder.length > 0 ? colOrder : [...allKeys];
-    const visible = buildVisibleColOrder(caseData, base as string[]);
+    const visible = buildVisibleColOrder({ ...caseData, aiColumns: aiCols }, base as string[]);
     // append any visible keys not in order
     const visibleSet = new Set(visible);
-    const rest = [...allKeys].filter((k) => !isHiddenColumn(k, caseData.aiColumns) && !visibleSet.has(k));
+    const rest = [...allKeys].filter((k) => !isHiddenColumn(k, aiCols) && !visibleSet.has(k));
     return [...visible, ...rest];
-  }, [caseData, sourceColumns, colOrder]);
+  }, [caseData, aiCols, sourceColumns, colOrder]);
 
   useEffect(() => {
     if (type === "companies") {
@@ -75,7 +80,7 @@ export function ExportModal({ caseId, caseData, sourceColumns, colOrder, onClose
     const cols = [...selected].join(",");
     const url = `/api/export?caseId=${caseId}&type=${type}&cols=${encodeURIComponent(cols)}`;
     try {
-      const res = await fetch(url);
+      const res = await apiFetch(url);
       const blob = await res.blob();
       const filename =
         type === "contacts"
@@ -182,7 +187,7 @@ export function ExportModal({ caseId, caseData, sourceColumns, colOrder, onClose
           }}
         >
           {currentAvailable.map((key) => {
-            const isAi = caseData.aiColumns.some((c) => c.outputKey === key);
+            const isAi = aiCols.some((c) => c.outputKey === key);
             return (
               <label
                 key={key}

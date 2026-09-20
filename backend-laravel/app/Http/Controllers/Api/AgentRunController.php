@@ -109,4 +109,69 @@ class AgentRunController extends Controller
             'X-Accel-Buffering' => 'no',
         ]);
     }
+
+    /**
+     * Get single agent run state.
+     * GET /api/cases/{id}/agent/{runId}
+     */
+    public function show(string $caseId, string $runId): JsonResponse
+    {
+        $run = AgentRun::where('case_id', $caseId)->where('id', $runId)->first();
+        if (!$run) {
+            $run = AgentRun::find($runId);
+        }
+        if (!$run) {
+            return response()->json(['error' => 'Run not found'], 404);
+        }
+        return response()->json($run);
+    }
+
+    /**
+     * Cancel an agent run.
+     * POST /api/cases/{id}/agent/{runId}/cancel OR PUT /api/cases/{id}/agent/{runId}
+     */
+    public function cancel(string $caseId, string $runId): JsonResponse
+    {
+        $run = AgentRun::where('case_id', $caseId)->where('id', $runId)->first();
+        if (!$run) {
+            $run = AgentRun::find($runId);
+        }
+        if (!$run) {
+            return response()->json(['error' => 'Run not found'], 404);
+        }
+
+        $run->update(['status' => 'cancelled']);
+        return response()->json($run);
+    }
+
+    /**
+     * Resume an agent run.
+     * PATCH /api/cases/{id}/agent/{runId}
+     */
+    public function resume(Request $request, string $caseId, string $runId): JsonResponse
+    {
+        $run = AgentRun::where('case_id', $caseId)->where('id', $runId)->first();
+        if (!$run) {
+            $run = AgentRun::find($runId);
+        }
+        if (!$run) {
+            return response()->json(['error' => 'Run not found'], 404);
+        }
+
+        $extraSteps = $request->input('extraSteps');
+        $state = $run->state ?? [];
+        if (!empty($extraSteps)) {
+            $plan = $state['plan'] ?? [];
+            $steps = $plan['steps'] ?? [];
+            $plan['steps'] = array_merge($steps, $extraSteps);
+            $state['plan'] = $plan;
+        }
+
+        $run->update([
+            'status' => 'pending',
+            'state' => $state,
+        ]);
+
+        return response()->json($run);
+    }
 }

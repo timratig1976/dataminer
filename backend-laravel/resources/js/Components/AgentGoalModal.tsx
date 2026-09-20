@@ -1,3 +1,4 @@
+import { apiFetch } from "@/api";
 "use client";
 
 import { useState, useCallback, useEffect, useRef } from "react";
@@ -110,7 +111,7 @@ export function AgentGoalModal({ caseId, rowsCount, onClose, onImported, externa
     const parentQuery = targetNode.mapQuery;
 
     try {
-      const res = await fetch(`/api/cases/${caseId}/sub-industries`, {
+      const res = await apiFetch(`/api/cases/${caseId}/sub-industries`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ prompt: `Sub-Branchen von: ${parentQuery} (Oberbegriff: ${parentLabel})${subGeography ? ` in ${subGeography}` : ""}` }),
@@ -193,7 +194,7 @@ export function AgentGoalModal({ caseId, rowsCount, onClose, onImported, externa
 
   useEffect(() => {
     if (caseId === "__disabled__") return;
-    fetch(`/api/cases/${caseId}/agent/check-keys`)
+    apiFetch(`/api/cases/${caseId}/agent/check-keys`)
       .then(r => r.ok ? r.json() : null)
       .then(data => data ? setKeyStatus(data) : null)
       .catch(() => {});
@@ -206,7 +207,7 @@ export function AgentGoalModal({ caseId, rowsCount, onClose, onImported, externa
   useEffect(() => {
     // Skip internal prefill when page manages the run state
     if (hasExternal) return;
-    fetch(`/api/cases/${caseId}/agent`)
+    apiFetch(`/api/cases/${caseId}/agent`)
       .then((r) => r.ok ? r.json() : [])
       .then((runs: Array<{ id: string; status: string; goal?: { description?: string; targetCount?: number } }>) => {
         if (!Array.isArray(runs) || runs.length === 0) return;
@@ -272,7 +273,7 @@ export function AgentGoalModal({ caseId, rowsCount, onClose, onImported, externa
     // Check if the prompt needs sub-industry analysis first
     setSubIndustryLoading(true);
     try {
-      const res = await fetch(`/api/cases/${caseId}/sub-industries`, {
+      const res = await apiFetch(`/api/cases/${caseId}/sub-industries`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ prompt: description.trim() }),
@@ -1040,7 +1041,7 @@ export function AgentGoalModal({ caseId, rowsCount, onClose, onImported, externa
                   <button
                     onClick={async () => {
                       try {
-                        const res = await fetch(`/api/cases/${caseId}/agent/${run.id}`, { method: "PATCH" });
+                        const res = await apiFetch(`/api/cases/${caseId}/agent/${run.id}`, { method: "PATCH" });
                         if (res.ok) {
                           setPaused(false);
                         }

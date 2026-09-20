@@ -27,39 +27,73 @@ class ExportController extends Controller
             return response()->json(['error' => 'Case not found'], 404);
         }
 
+        $safeName = preg_replace('/[^a-z0-9]/i', '_', $case->name);
+        $filename = $type === 'contacts' ? "{$safeName}_contacts.csv" : "{$safeName}.csv";
+
         $headers = [
             'Content-Type' => 'text/csv; charset=utf-8',
-            'Content-Disposition' => "attachment; filename=\"{$case->name}.csv\"",
+            'Content-Disposition' => "attachment; filename=\"{$filename}\"",
         ];
 
-        return new StreamedResponse(function () use ($caseId, $requestedCols, $case) {
+        return new StreamedResponse(function () use ($caseId, $type, $requestedCols) {
             $handle = fopen('php://output', 'w');
 
-            $rows = Row::where('case_id', $caseId)->orderBy('row_index', 'asc')->get();
-            if ($rows->isEmpty()) {
-                fclose($handle);
-                return;
-            }
+            if ($type === 'contacts') {
+                $contacts = ContactRow::where('case_id', $caseId)->get();
+                if ($contacts->isEmpty()) {
+                    fclose($handle);
+                    return;
+                }
 
-            // Determine headers
-            $allKeys = [];
-            foreach ($rows as $r) {
-                foreach (array_keys($r->data ?? []) as $k) {
-                    if (!str_starts_with($k, '_') && !in_array($k, $allKeys)) {
-                        $allKeys[] = $k;
+                $contactCore = ['company_name','first_name','last_name','position','email','email_extrapolated','phone','linkedin','domain','city','source'];
+                $allDataKeys = [];
+                foreach ($contacts as $c) {
+                    foreach (array_keys($c->data ?? []) as $k) {
+                        if (!in_array($k, $allDataKeys)) $allDataKeys[] = $k;
                     }
                 }
-            }
+                $availableCols = array_merge(
+                    $contactCore,
+                    array_values(array_filter($allDataKeys, fn($k) => !str_starts_with($k, '_') && !in_array($k, $contactCore)))
+                );
 
-            $exportHeaders = $requestedCols ?: $allKeys;
-            fputcsv($handle, $exportHeaders);
+                $exportHeaders = $requestedCols ?: $availableCols;
+                fputcsv($handle, $exportHeaders);
 
-            foreach ($rows as $row) {
-                $line = [];
-                foreach ($exportHeaders as $h) {
-                    $line[] = $row->data[$h] ?? '';
+                foreach ($contacts as $contact) {
+                    $line = [];
+                    foreach ($exportHeaders as $h) {
+                        $line[] = $contact->data[$h] ?? '';
+                    }
+                    fputcsv($handle, $line);
                 }
-                fputcsv($handle, $line);
+            } else {
+                $rows = Row::where('case_id', $caseId)->orderBy('row_index', 'asc')->get();
+                if ($rows->isEmpty()) {
+                    fclose($handle);
+                    return;
+                }
+
+                // Determine headers
+                $allKeys = [];
+                foreach ($rows as $r) {
+                    foreach (array_keys($r->data ?? []) as $k) {
+                        if (!str_starts_with($k, '_') && !in_array($k, $allKeys)) {
+                            $allKeys[] = $k;
+                        }
+                    }
+                }
+
+                $exportHeaders = $requestedCols ?: $allKeys;
+                fputcsv($handle, $exportHeaders);
+
+                foreach ($rows as $row) {
+                    $line = [];
+                    foreach ($exportHeaders as $h) {
+                        $line[] = $row->data[$h] ?? '';
+                    }
+                    fputcsv($handle, $line);
+                }
             }
 
             fclose($handle);

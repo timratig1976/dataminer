@@ -1,3 +1,4 @@
+import { apiFetch } from "@/api";
 "use client";
 
 import { useState, useEffect } from "react";
@@ -26,7 +27,7 @@ export default function RunDetailModal({ col, row: initialRow, caseId, onClose, 
   async function verifyEmail(email: string) {
     setVerifyResults(prev => ({...prev, [email]: {...(prev[email]??{}), loading: true}}));
     try {
-      const res = await fetch("/api/verify-email", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({email}) });
+      const res = await apiFetch("/api/verify-email", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({email}) });
       const data = await res.json();
       setVerifyResults(prev => ({...prev, [email]: {...data, loading: false}}));
     } catch (e) {
@@ -37,7 +38,7 @@ export default function RunDetailModal({ col, row: initialRow, caseId, onClose, 
   async function verifyAllEmails(key: string, firstName: string, lastName: string, domain: string, rowId: string, fieldPrefix: string) {
     setVerifyAllResults(prev => ({...prev, [key]: {loading: true}}));
     try {
-      const res = await fetch("/api/verify-email-all", { method:"POST", headers:{"Content-Type":"application/json"},
+      const res = await apiFetch("/api/verify-email-all", { method:"POST", headers:{"Content-Type":"application/json"},
         body: JSON.stringify({firstName, lastName, domain, rowId, fieldPrefix}) });
       const data = await res.json();
       setVerifyAllResults(prev => ({...prev, [key]: {...data, loading: false}}));
@@ -113,7 +114,7 @@ export default function RunDetailModal({ col, row: initialRow, caseId, onClose, 
     if (running) return;
     setRunning(true); setRunError(null);
     try {
-      const res = await fetch("/api/run/cell", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({caseId, rowId:row.id, columnId:col.id}) });
+      const res = await apiFetch("/api/run/cell", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({caseId, rowId:row.id, columnId:col.id}) });
       const result = await res.json();
       if (result.error || !res.ok) { setRunError(result.error ?? "Fehler"); return; }
       const extraData = result.multiValues ?? {};

@@ -1,3 +1,4 @@
+import { apiFetch } from "@/api";
 "use client";
 
 import { useEffect, useId, useState } from "react";
@@ -59,11 +60,11 @@ export function AddColumnModal({ caseId, onClose, onAdded, availableFields = [] 
   const promptTextareaId = useId();
 
   useEffect(() => {
-    fetch("/api/presets").then((r) => r.json()).then(setPresets);
+    apiFetch("/api/presets").then((r) => r.json()).then(setPresets);
   }, []);
 
   useEffect(() => {
-    fetch(`/api/llm/models?caseId=${caseId}`)
+    apiFetch(`/api/llm/models?caseId=${caseId}`)
       .then((r) => r.json())
       .then((data) => {
         const next = Array.isArray(data?.models) ? data.models : [];
@@ -164,13 +165,13 @@ Regeln:
     setSaving(true);
     try {
       if (colType === "text" || colType === "number") {
-        const r = await fetch(`/api/cases/${caseId}/add-column`, {
+        const r = await apiFetch(`/api/cases/${caseId}/add-column`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ key: outputKey.trim() }),
         });
         if (!r.ok) throw new Error(`add-column failed: ${r.status} ${await r.text()}`);
-        const updated = await fetch(`/api/cases/${caseId}`).then(r => r.json());
+        const updated = await apiFetch(`/api/cases/${caseId}`).then(r => r.json());
         onAdded(updated);
         return;
       }
@@ -212,8 +213,8 @@ Regeln:
           } : {}),
         } : {}),
       };
-      const caseRes = await fetch(`/api/cases/${caseId}`).then((r) => r.json());
-      const res = await fetch(`/api/cases/${caseId}`, {
+      const caseRes = await apiFetch(`/api/cases/${caseId}`).then((r) => r.json());
+      const res = await apiFetch(`/api/cases/${caseId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ aiColumns: [...(caseRes.aiColumns || []), newCol] }),

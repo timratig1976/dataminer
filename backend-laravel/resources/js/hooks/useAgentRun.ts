@@ -1,3 +1,4 @@
+import { apiFetch } from "@/api";
 "use client";
 
 import { useState, useCallback, useRef } from "react";
@@ -39,7 +40,7 @@ export function useAgentRun(caseId: string): UseAgentRunReturn {
     abortRef.current = false;
 
     try {
-      const res = await fetch(`/api/cases/${caseId}/agent`, {
+      const res = await apiFetch(`/api/cases/${caseId}/agent`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ goal }),
@@ -68,7 +69,7 @@ export function useAgentRun(caseId: string): UseAgentRunReturn {
     }
 
     try {
-      const res = await fetch(`/api/cases/${caseId}/agent/${rid}/step`, {
+      const res = await apiFetch(`/api/cases/${caseId}/agent/${rid}/step`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
       });
@@ -110,7 +111,7 @@ export function useAgentRun(caseId: string): UseAgentRunReturn {
     if (!rid) return;
 
     try {
-      const res = await fetch(`/api/cases/${caseId}/agent/${rid}`, {
+      const res = await apiFetch(`/api/cases/${caseId}/agent/${rid}`, {
         method: "PUT", // PUT on [runId] = cancel (see route.ts: CANCEL as PUT)
       });
       const data = await res.json();
@@ -131,7 +132,7 @@ export function useAgentRun(caseId: string): UseAgentRunReturn {
 
   const reload = useCallback(async (runId: string) => {
     try {
-      const res = await fetch(`/api/cases/${caseId}/agent/${runId}`);
+      const res = await apiFetch(`/api/cases/${caseId}/agent/${runId}`);
       const data = await res.json();
       if (res.ok) {
         setRun(data);

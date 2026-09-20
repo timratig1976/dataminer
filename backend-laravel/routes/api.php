@@ -86,6 +86,10 @@ Route::middleware(['web', 'auth'])->group(function () {
         Route::post('/agent/runs', [AgentRunController::class, 'store']);
         Route::post('/agent/runs/{id}/step', [AgentRunController::class, 'executeStep']);
         Route::post('/cases/{id}/agent', [AgentRunController::class, 'store']);
+        Route::get('/cases/{id}/agent/{runId}', [AgentRunController::class, 'show']);
+        Route::patch('/cases/{id}/agent/{runId}', [AgentRunController::class, 'resume']);
+        Route::put('/cases/{id}/agent/{runId}', [AgentRunController::class, 'cancel']);
+        Route::post('/cases/{id}/agent/{runId}/cancel', [AgentRunController::class, 'cancel']);
         Route::post('/cases/{id}/agent/{runId}/step', [AgentRunController::class, 'executeStep']);
         Route::post('/cases/{id}/agent/{runId}/extend', [\App\Http\Controllers\Api\AgentExtendController::class, 'extend']);
         Route::post('/import/preview', [\App\Http\Controllers\Api\ImportPreviewController::class, 'preview']);

@@ -9,6 +9,7 @@ import { Link } from '@inertiajs/react';
 import { AgentGoalModal } from '../../Components/AgentGoalModal';
 import { AddColumnModal } from '../../Components/AddColumnModal';
 import ImportModal from '../../Components/ImportModal';
+import { ExportModal } from '../../Components/ExportModal';
 import EditPromptModal from '../../Components/case/EditPromptModal';
 import RunDetailModal from '../../Components/case/RunDetailModal';
 import { ColumnHeaderMenu } from '../../Components/ColumnHeaderMenu';
@@ -100,6 +101,7 @@ export default function CaseShow({ case: c }: Props) {
     const [showAgentModal, setShowAgentModal] = useState(false);
     const [showAddColModal, setShowAddColModal] = useState(false);
     const [showImportModal, setShowImportModal] = useState(false);
+    const [showExportModal, setShowExportModal] = useState(false);
     const [editingCol, setEditingCol] = useState<any | null>(null);
     const [runDetailCell, setRunDetailCell] = useState<{ col: any; row: any } | null>(null);
     const [cacheModalRow, setCacheModalRow] = useState<RowItem | null>(null);
@@ -386,9 +388,9 @@ export default function CaseShow({ case: c }: Props) {
                     <button onClick={() => setShowImportModal(true)} className="btn-v2">
                         <Upload style={{ width: 12, height: 12 }} /> Import
                     </button>
-                    <a href={`/api/export?caseId=${caseData.id}`} className="btn-v2">
+                    <button onClick={() => setShowExportModal(true)} className="btn-v2">
                         <Download style={{ width: 12, height: 12 }} /> Export
-                    </a>
+                    </button>
 
                     <div className="tsep-v2" />
 
@@ -1124,6 +1126,19 @@ export default function CaseShow({ case: c }: Props) {
                     caseId={caseData.id}
                     onClose={() => setShowImportModal(false)}
                     onImported={(count) => { refreshCase(); loadPage(1); }}
+                />
+            )}
+
+            {showExportModal && (
+                <ExportModal
+                    caseId={caseData.id}
+                    caseData={{
+                        ...caseData,
+                        aiColumns: (caseData.ai_columns || (caseData as any).aiColumns || [])
+                    } as any}
+                    sourceColumns={baseCols.map(c => c.key)}
+                    colOrder={colOrder}
+                    onClose={() => setShowExportModal(false)}
                 />
             )}
 
