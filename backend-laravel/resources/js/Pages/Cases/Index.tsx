@@ -1,13 +1,17 @@
 import React, { useState, useRef } from 'react';
 import AppLayout from '../../Layouts/AppLayout';
-import { Link, router } from '@inertiajs/react';
-import { Plus, Calendar, Download, Upload, RefreshCw, AlertCircle, Trash2, FolderPlus, X } from 'lucide-react';
+import { router } from '@inertiajs/react';
+import { 
+    Plus, Calendar, Download, Upload, RefreshCw, AlertCircle, 
+    Trash2, FolderPlus, X, Search, ChevronRight, Database, Loader2 
+} from 'lucide-react';
 import { apiFetch } from '../../api';
 
 interface CaseItem {
     id: string;
     name: string;
     description?: string;
+    ai_columns?: any[];
     rows_count: number;
     updated_at: string;
 }
@@ -18,12 +22,13 @@ interface Props {
 
 export default function CasesIndex({ cases: initialCases }: Props) {
     const [cases, setCases] = useState<CaseItem[]>(initialCases);
+    const [search, setSearch] = useState('');
     const [importing, setImporting] = useState(false);
     const [importError, setImportError] = useState<string | null>(null);
     const [creating, setCreating] = useState(false);
-    const [selectedTemplateId, setSelectedTemplateId] = useState<string>('standard');
     const [newName, setNewName] = useState('');
     const [newDesc, setNewDesc] = useState('');
+    const [selectedTemplateId, setSelectedTemplateId] = useState<string>('standard');
     const [savingCase, setSavingCase] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -45,7 +50,6 @@ export default function CasesIndex({ cases: initialCases }: Props) {
             });
 
             if (res.status === 401) {
-                // Session abgelaufen oder nicht eingeloggt -> auf Login leiten
                 window.location.href = '/login';
                 return;
             }
@@ -53,7 +57,6 @@ export default function CasesIndex({ cases: initialCases }: Props) {
             const data = await res.json();
             if (!res.ok) throw new Error(data.message || data.error || 'Import fehlgeschlagen');
 
-            // Zum neu importierten Case navigieren
             const newCaseId = data.case?.id || snap.case?.id;
             if (newCaseId) {
                 router.visit(`/cases/${newCaseId}`);
@@ -85,7 +88,7 @@ export default function CasesIndex({ cases: initialCases }: Props) {
 
         setSavingCase(true);
         try {
-            const res = await fetch('/api/cases', {
+            const res = await apiFetch('/api/cases', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -114,7 +117,7 @@ export default function CasesIndex({ cases: initialCases }: Props) {
         }
 
         try {
-            const res = await fetch(`/api/cases/${caseId}`, { method: 'DELETE' });
+            const res = await apiFetch(`/api/cases/${caseId}`, { method: 'DELETE' });
             if (res.ok) {
                 setCases(prev => prev.filter(c => c.id !== caseId));
             }
@@ -123,108 +126,144 @@ export default function CasesIndex({ cases: initialCases }: Props) {
         }
     };
 
+    const filtered = cases.filter(c => c.name.toLowerCase().includes(search.toLowerCase()));
+
     return (
-        <AppLayout>
-            <div className="max-w-6xl mx-auto space-y-6 pb-16">
-                {/* Hidden File Input for Snapshot Upload */}
-                <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept=".json"
-                    onChange={handleImportSnapshot}
-                    className="hidden"
-                />
-
-                {/* Header */}
-                <div className="flex items-center justify-between">
-                    <div>
-                        <h1 className="text-2xl font-bold text-slate-100 flex items-center gap-2">
-                            Cases
-                        </h1>
-                        <p className="text-slate-400 text-xs mt-1">
-                            Verwalte deine Lead-Recherche-Projekte, Tabellen und JSON-Snapshots.
-                        </p>
+        <AppLayout
+            title="Alle Cases"
+            actions={
+                <div className="flex items-center gap-2.5">
+                    {/* Search Input */}
+                    <div className="relative">
+                        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5" style={{ color: "var(--text-3)" }} />
+                        <input
+                            value={search}
+                            onChange={(e) => setSearch(e.target.value)}
+                            placeholder="Cases suchen…"
+                            className="w-48 pl-8 pr-2.5 py-1 text-xs border rounded focus:outline-none transition-colors"
+                            style={{
+                                background: "var(--surface)",
+                                borderColor: "var(--border)",
+                                color: "var(--text-1)",
+                            }}
+                        />
                     </div>
 
-                    <div className="flex items-center gap-2.5">
-                        <button
-                            onClick={() => fileInputRef.current?.click()}
-                            disabled={importing}
-                            className="flex items-center gap-1.5 px-3 py-2 bg-slate-900 border border-slate-800 hover:border-blue-600/50 text-slate-200 rounded-xl text-xs font-medium cursor-pointer transition-all disabled:opacity-50"
-                        >
-                            {importing ? <RefreshCw className="w-3.5 h-3.5 animate-spin text-blue-400" /> : <Upload className="w-3.5 h-3.5 text-blue-400" />}
-                            Snapshot importieren
-                        </button>
+                    <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept=".json"
+                        onChange={handleImportSnapshot}
+                        className="hidden"
+                    />
 
-                        <button
-                            onClick={() => setCreating(true)}
-                            className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-semibold shadow-lg shadow-emerald-950/50 cursor-pointer transition-all"
-                        >
-                            <Plus className="w-3.5 h-3.5" />
-                            Neuer Case
-                        </button>
-                    </div>
+                    <button
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={importing}
+                        title="Case aus Snapshot-JSON importieren"
+                        className="btn-v2"
+                    >
+                        {importing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
+                        {importing ? "Importiert…" : "Snapshot"}
+                    </button>
+
+                    <button
+                        onClick={() => setCreating(true)}
+                        className="btn-v2 btn-v2-primary"
+                    >
+                        <Plus className="w-3.5 h-3.5" />
+                        Neuer Case
+                    </button>
                 </div>
-
+            }
+        >
+            <div className="max-w-6xl mx-auto space-y-6 pb-16">
                 {importError && (
-                    <div className="p-3 bg-rose-950/60 border border-rose-800 rounded-xl text-xs text-rose-300 flex items-center gap-2">
-                        <AlertCircle className="w-4 h-4 shrink-0" />
-                        <span>{importError}</span>
+                    <div className="p-3 rounded text-xs flex items-center justify-between" style={{ background: "var(--danger-soft)", border: "1px solid var(--danger)", color: "var(--danger)" }}>
+                        <span>❌ Import-Fehler: {importError}</span>
+                        <button onClick={() => setImportError(null)} className="cursor-pointer ml-3">×</button>
                     </div>
                 )}
 
-                {/* Cases Grid */}
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-                    {cases.map((c) => (
-                        <div
-                            key={c.id}
-                            onClick={() => router.visit(`/cases/${c.id}`)}
-                            className="bg-slate-900 border border-slate-800 hover:border-slate-700 p-5 rounded-2xl transition-all block group relative cursor-pointer shadow-md hover:shadow-xl"
+                {/* Cases Grid (1:1 V2 Design) */}
+                {filtered.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center h-64" style={{ color: "var(--text-3)" }}>
+                        <div className="text-3xl mb-2">📂</div>
+                        <p className="text-xs">Keine Cases gefunden.</p>
+                        <button
+                            onClick={() => setCreating(true)}
+                            className="mt-3 btn-v2 btn-v2-primary"
                         >
-                            <div className="flex items-start justify-between mb-2">
-                                <h3 className="font-semibold text-base text-slate-100 group-hover:text-emerald-400 transition-colors line-clamp-1 pr-2">
+                            Case erstellen
+                        </button>
+                    </div>
+                ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {filtered.map((c) => (
+                            <div
+                                key={c.id}
+                                onClick={() => router.visit(`/cases/${c.id}`)}
+                                className="p-4 cursor-pointer transition-all group rounded-lg"
+                                style={{
+                                    background: "var(--surface)",
+                                    border: "1px solid var(--border)",
+                                    boxShadow: "var(--shadow-sm)",
+                                }}
+                                onMouseEnter={e => {
+                                    e.currentTarget.style.borderColor = "var(--orange-mid)";
+                                    e.currentTarget.style.boxShadow = "var(--shadow)";
+                                }}
+                                onMouseLeave={e => {
+                                    e.currentTarget.style.borderColor = "var(--border)";
+                                    e.currentTarget.style.boxShadow = "var(--shadow-sm)";
+                                }}
+                            >
+                                <div className="flex items-start justify-between mb-2.5">
+                                    <div
+                                        className="w-7 h-7 rounded flex items-center justify-center text-xs font-bold"
+                                        style={{ background: "var(--orange-soft)", color: "var(--orange)" }}
+                                    >
+                                        {c.name.charAt(0).toUpperCase()}
+                                    </div>
+                                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                        <button
+                                            onClick={(e) => handleExportSnapshot(c.id, c.name, e)}
+                                            title="Als Snapshot exportieren (JSON)"
+                                            className="p-1 rounded hover:bg-slate-100 cursor-pointer"
+                                            style={{ color: "var(--text-3)" }}
+                                        >
+                                            <Download className="w-3.5 h-3.5" />
+                                        </button>
+                                        <button 
+                                            onClick={(e) => handleDeleteCase(c.id, c.name, e)} 
+                                            title="Case löschen"
+                                            className="p-1 rounded hover:bg-rose-50 cursor-pointer" 
+                                            style={{ color: "var(--danger)" }}
+                                        >
+                                            <Trash2 className="w-3.5 h-3.5" />
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div className="font-semibold text-[13px] mb-1 truncate" style={{ color: "var(--text-1)" }}>
                                     {c.name}
-                                </h3>
-                                <span className="text-[11px] bg-emerald-950/80 text-emerald-400 border border-emerald-800/60 px-2 py-0.5 rounded-full font-mono font-medium shrink-0">
-                                    {(c.rows_count || 0).toLocaleString('de-DE')} Zeilen
-                                </span>
-                            </div>
+                                </div>
 
-                            <p className="text-xs text-slate-400 mb-5 line-clamp-2 h-8 leading-relaxed">
-                                {c.description || 'Keine Beschreibung vorhanden.'}
-                            </p>
+                                <div className="text-[11px] mb-3" style={{ color: "var(--text-3)" }}>
+                                    {(c.ai_columns || []).length} KI-Spalten · {new Date(c.updated_at).toLocaleDateString("de-DE")} · {(c.rows_count || 0).toLocaleString("de-DE")} Zeilen
+                                </div>
 
-                            <div className="flex items-center justify-between pt-3 border-t border-slate-800/80 text-[11px] text-slate-500">
-                                <span className="flex items-center gap-1.5 font-mono">
-                                    <Calendar className="w-3.5 h-3.5" />
-                                    {new Date(c.updated_at).toLocaleDateString('de-DE')}
-                                </span>
-
-                                <div className="flex items-center gap-1">
-                                    <button
-                                        onClick={(e) => handleExportSnapshot(c.id, c.name, e)}
-                                        title="JSON-Snapshot exportieren (Vollständige Sicherung inkl. aller Zeilen & Spalten)"
-                                        className="p-1.5 hover:bg-slate-800 hover:text-blue-400 rounded-lg text-slate-400 transition-colors cursor-pointer"
-                                    >
-                                        <Download className="w-3.5 h-3.5" />
-                                    </button>
-
-                                    <button
-                                        onClick={(e) => handleDeleteCase(c.id, c.name, e)}
-                                        title="Case löschen"
-                                        className="p-1.5 hover:bg-rose-950/50 hover:text-rose-400 rounded-lg text-slate-500 transition-colors cursor-pointer"
-                                    >
-                                        <Trash2 className="w-3.5 h-3.5" />
-                                    </button>
+                                <div className="flex items-center text-xs font-medium" style={{ color: "var(--orange)" }}>
+                                    Öffnen <ChevronRight className="w-3.5 h-3.5 ml-1" />
                                 </div>
                             </div>
-                        </div>
-                    ))}
-                </div>
+                        ))}
+                    </div>
+                )}
 
                 {/* Create Case Modal (mit Original Template-Auswahl) */}
                 {creating && (
-                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4">
+                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 backdrop-blur-xs p-4">
                         <div 
                             className="w-full max-w-lg rounded-xl shadow-2xl p-6 space-y-4 animate-in zoom-in-95"
                             style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}
