@@ -217,12 +217,46 @@ class ImportService
                 $cellStatuses = $r['cell_statuses'] ?? $r['cellStatuses'] ?? [];
                 $cellErrors = $r['cell_errors'] ?? $r['cellErrors'] ?? [];
                 $rowIndex = $r['row_index'] ?? $r['rowIndex'] ?? $index;
+                $rowData = $r['data'] ?? [];
+
+                // Smart status inference if snapshot had empty cellStatuses but enriched fields are present
+                if (empty($cellStatuses) && is_array($rowData) && !empty($aiColumns)) {
+                    foreach ($aiColumns as $ac) {
+                        $tool = $ac['tool'] ?? '';
+                        $outKey = $ac['outputKey'] ?? ($ac['key'] ?? '');
+                        if (!$outKey) continue;
+
+                        if ($tool === 'batch_company') {
+                            $fields = $ac['batchOutputFields'] ?? ['company_name','domain','phone','company_email','city','industry','description'];
+                            $hasAny = false;
+                            foreach ($fields as $f) {
+                                if (!empty($rowData[$f])) { $hasAny = true; break; }
+                            }
+                            if ($hasAny) {
+                                $cellStatuses[$outKey] = 'done';
+                            }
+                        } elseif ($tool === 'batch_contact') {
+                            $prefix = $ac['batchContactsPrefix'] ?? 'contact_';
+                            $hasContact = !empty($rowData["_contacts_json_{$outKey}"]) 
+                                || !empty($rowData["{$prefix}1_first_name"]) 
+                                || !empty($rowData['contact_email'])
+                                || !empty($rowData['first_name']);
+                            if ($hasContact) {
+                                $cellStatuses[$outKey] = 'done';
+                            }
+                        } else {
+                            if (isset($rowData[$outKey]) && $rowData[$outKey] !== '' && $rowData[$outKey] !== null) {
+                                $cellStatuses[$outKey] = 'done';
+                            }
+                        }
+                    }
+                }
 
                 $batch[] = [
                     'id' => $r['id'] ?? (string) Str::uuid(),
                     'case_id' => $case->id,
                     'row_index' => $rowIndex,
-                    'data' => json_encode($r['data'] ?? []),
+                    'data' => json_encode($rowData),
                     'cell_statuses' => json_encode($cellStatuses),
                     'cell_errors' => json_encode($cellErrors),
                     'created_at' => now(),

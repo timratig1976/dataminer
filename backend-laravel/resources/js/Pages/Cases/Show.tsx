@@ -3,7 +3,8 @@ import AppLayout from '../../Layouts/AppLayout';
 import { 
     ArrowLeft, Play, Download, Sparkles, RefreshCw, ChevronLeft, 
     ChevronRight, AlertCircle, Plus, Target, Upload, Database, Sliders, 
-    Building2, UserCheck, Users, Globe, ExternalLink, Flame, RotateCcw, GripVertical, Search, FileText, CheckCircle2, Clock
+    Building2, UserCheck, Users, Globe, ExternalLink, Flame, RotateCcw, GripVertical, 
+    Search, FileText, CheckCircle2, Clock, Trash2
 } from 'lucide-react';
 import { Link } from '@inertiajs/react';
 import { AgentGoalModal } from '../../Components/AgentGoalModal';
@@ -120,6 +121,9 @@ export default function CaseShow({ case: c }: Props) {
     const [runningCells, setRunningCells] = useState<Set<string>>(new Set());
     const [runningPhase, setRunningPhase] = useState<string | null>(null);
     const [statusMsg, setStatusMsg] = useState<string | null>(null);
+
+    // Row selection for bulk actions
+    const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
 
     const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
@@ -270,6 +274,57 @@ export default function CaseShow({ case: c }: Props) {
         }
     };
 
+    // Bulk actions on selected rows
+    const deleteSelectedRows = async () => {
+        if (selectedRows.size === 0) return;
+        if (!confirm(`${selectedRows.size} ausgewählte Zeile(n) wirklich löschen?`)) return;
+        try {
+            const res = await apiFetch('/api/rows', {
+                method: 'DELETE',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ids: [...selectedRows] }),
+            });
+            if (res.ok) {
+                setRows(prev => prev.filter(r => !selectedRows.has(r.id)));
+                setSelectedRows(new Set());
+                setTotal(prev => Math.max(0, prev - selectedRows.size));
+                refreshCase();
+            }
+        } catch (err: any) {
+            alert('Fehler beim Löschen: ' + err.message);
+        }
+    };
+
+    const runSelectedRows = async () => {
+        if (selectedRows.size === 0) return;
+        const targetCols = caseData.ai_columns || [];
+        if (targetCols.length === 0) {
+            alert('Keine KI-Spalten vorhanden.');
+            return;
+        }
+        for (const rId of selectedRows) {
+            for (const col of targetCols) {
+                runCell(rId, col);
+            }
+        }
+    };
+
+    const dedupeRows = async () => {
+        try {
+            const res = await apiFetch(`/api/cases/${caseData.id}/dedupe`, { method: 'POST' });
+            const d = await res.json();
+            if (d.removed > 0) {
+                alert(`${d.removed} Duplikate erfolgreich entfernt.`);
+                loadPage(1);
+                refreshCase();
+            } else {
+                alert('Keine Duplikate gefunden.');
+            }
+        } catch (err: any) {
+            alert('Fehler beim Deduplizieren: ' + err.message);
+        }
+    };
+
     // Delete column
     const deleteColumn = async (colId: string) => {
         if (!confirm('Diese KI-Spalte wirklich löschen?')) return;
@@ -374,10 +429,16 @@ export default function CaseShow({ case: c }: Props) {
     return (
         <AppLayout
             title={
-                <div className="flex items-center gap-3">
-                    <span className="text-xs text-slate-500 font-mono">
-                        {total} Zeilen · {baseCols.length} Quellspalten · <span style={{ color: "var(--green)", fontWeight: 500 }}>{aiColumns.length} KI-Spalten</span>
-                    </span>
+                <div className="flex flex-col gap-0.5">
+                    <div className="text-base font-bold text-slate-900 tracking-tight">
+                        {caseData.name}
+                    </div>
+                    <div className="flex items-center gap-3 text-xs text-slate-500 font-mono">
+                        <span>{total} Zeilen</span>
+                        {catalogRows.length > 0 && <span>{catalogRows.length} Kataloge</span>}
+                        <span>{baseCols.length} Quellspalten</span>
+                        <span style={{ color: "var(--green)", fontWeight: 500 }}>{aiColumns.length} KI-Spalten</span>
+                    </div>
                 </div>
             }
             actions={
@@ -500,6 +561,15 @@ export default function CaseShow({ case: c }: Props) {
                                     style={{ padding: "3px 7px", fontSize: 11.5 }}
                                 >
                                     Reset
+                                </button>
+
+                                <button 
+                                    onClick={dedupeRows}
+                                    title="Doppelte Zeilen (gleiche Domain) entfernen"
+                                    className="btn-v2 btn-v2-ghost" 
+                                    style={{ padding: "3px 7px", fontSize: 11.5 }}
+                                >
+                                    Dedupe
                                 </button>
 
                                 {/* Spalten Dropdown Toggle */}
@@ -632,6 +702,54 @@ export default function CaseShow({ case: c }: Props) {
                     </div>
                 </div>
 
+                {/* Contextual Selection Bar (Strict Match to Next.js UI) */}
+                {activeTab === "Firmen" && selectedRows.size > 0 && (
+                    <div 
+                        style={{
+                            background: "var(--orange-soft)",
+                            borderBottom: "1px solid var(--orange-mid)",
+                            padding: "6px 16px",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 10,
+                            fontSize: 12,
+                            color: "var(--orange)",
+                            flexShrink: 0
+                        }}
+                    >
+                        <span style={{ fontWeight: 600 }}>
+                            {selectedRows.size} Zeilen ausgewählt
+                        </span>
+                        <button
+                            onClick={runSelectedRows}
+                            className="btn-v2"
+                            style={{ padding: "2px 8px", fontSize: 11, background: "#fff", borderColor: "var(--orange-mid)", color: "var(--orange)", fontWeight: 500 }}
+                        >
+                            ▶ Nur diese ausführen
+                        </button>
+                        <button
+                            onClick={dedupeRows}
+                            className="btn-v2"
+                            style={{ padding: "2px 8px", fontSize: 11, background: "#fff", borderColor: "var(--orange-mid)", color: "var(--orange)", fontWeight: 500 }}
+                        >
+                            ⊘ Dedupe
+                        </button>
+                        <button
+                            onClick={deleteSelectedRows}
+                            className="btn-v2"
+                            style={{ padding: "2px 8px", fontSize: 11, background: "#fff", borderColor: "var(--danger)", color: "var(--danger)", fontWeight: 500 }}
+                        >
+                            <Trash2 style={{ width: 10, height: 10 }} /> Löschen
+                        </button>
+                        <button
+                            onClick={() => setSelectedRows(new Set())}
+                            style={{ marginLeft: "auto", border: "none", background: "none", cursor: "pointer", fontSize: 11, color: "var(--orange)" }}
+                        >
+                            ✕ Auswahl aufheben
+                        </button>
+                    </div>
+                )}
+
                 {/* Banner when 0 AI Columns (Strict Match to Next.js UI) */}
                 {aiColumns.length === 0 && activeTab === "Firmen" && (
                     <div style={{ background: "#fef9c3", borderBottom: "1px solid #fde68a", padding: "7px 16px", fontSize: 12, color: "#854d0e", display: "flex", alignItems: "center", gap: 8 }}>
@@ -659,7 +777,15 @@ export default function CaseShow({ case: c }: Props) {
                             >
                                 <tr>
                                     <th className="p-2.5 w-10 border-r text-center" style={{ borderColor: "var(--border)" }}>
-                                        <input type="checkbox" style={{ accentColor: "var(--orange)" }} />
+                                        <input 
+                                            type="checkbox" 
+                                            checked={rows.length > 0 && selectedRows.size === rows.length}
+                                            onChange={() => {
+                                                if (selectedRows.size > 0) setSelectedRows(new Set());
+                                                else setSelectedRows(new Set(rows.map(r => r.id)));
+                                            }}
+                                            style={{ accentColor: "var(--orange)" }} 
+                                        />
                                     </th>
                                     <th className="p-2.5 w-10 border-r text-center" style={{ borderColor: "var(--border)" }}>#</th>
                                     <th 
@@ -768,16 +894,30 @@ export default function CaseShow({ case: c }: Props) {
                                         const icon = src.includes("maps") ? "🗺️" : src === "firecrawl" ? "🔥" : src === "linkup" ? "🔗" : src === "serpapi" ? "🔍" : "🌐";
                                         const label = src.includes("maps") ? "Maps" : src === "firecrawl" ? "Firecrawl" : src === "linkup" ? "Linkup" : src === "serpapi" ? "SerpApi" : src;
 
+                                        const isSelected = selectedRows.has(r.id);
+
                                         return (
                                         <tr 
                                             key={r.id} 
                                             className="hover:bg-[#faf9f7] transition-colors"
                                             style={{
-                                                background: rowState === "running" ? "#fefce8" : rowState === "error" ? "var(--danger-soft)" : undefined,
+                                                background: isSelected ? "var(--orange-soft)" : rowState === "running" ? "#fefce8" : rowState === "error" ? "var(--danger-soft)" : undefined,
                                             }}
                                         >
                                             <td className="p-2.5 border-r text-center" style={{ borderColor: "var(--border-xs)" }}>
-                                                <input type="checkbox" style={{ accentColor: "var(--orange)" }} />
+                                                <input 
+                                                    type="checkbox" 
+                                                    checked={isSelected}
+                                                    onChange={(e) => {
+                                                        e.stopPropagation();
+                                                        setSelectedRows(prev => {
+                                                            const next = new Set(prev);
+                                                            next.has(r.id) ? next.delete(r.id) : next.add(r.id);
+                                                            return next;
+                                                        });
+                                                    }}
+                                                    style={{ accentColor: "var(--orange)" }} 
+                                                />
                                             </td>
                                             <td className="p-2.5 border-r text-center font-mono text-[10.5px] text-slate-400" style={{ borderColor: "var(--border-xs)" }}>
                                                 {(page - 1) * PAGE_SIZE + idx + 1}
@@ -883,33 +1023,169 @@ export default function CaseShow({ case: c }: Props) {
                                                             ) : (
                                                                 <span className="text-slate-400 italic text-[11px]">—</span>
                                                             )
-                                                        ) : col.isAi ? (
-                                                            <div 
-                                                                className="flex items-center justify-between gap-1.5 group/cell"
-                                                                title="Klicken für Prompt, Token, Rohdaten & Rerun"
-                                                            >
-                                                                <span className="truncate">
-                                                                    {isRunning ? (
-                                                                        <span className="text-orange-600 font-medium flex items-center gap-1">
-                                                                            <RefreshCw className="w-3 h-3 animate-spin" /> läuft...
-                                                                        </span>
-                                                                    ) : val ? (
-                                                                        <span className="ai-chip-v2 font-mono text-[11px] hover:underline">{String(val)}</span>
-                                                                    ) : (
-                                                                        <span className="text-slate-400 italic text-[11px] hover:text-slate-600">— leer (Klick für Details) —</span>
-                                                                    )}
-                                                                </span>
-                                                                <button
-                                                                    onClick={(e) => {
-                                                                        e.stopPropagation();
-                                                                        runCell(r.id, col.colDef);
-                                                                    }}
-                                                                    disabled={isRunning}
-                                                                    title={`Zelle für ${col.label} einzeln berechnen`}
-                                                                    className="btn-v2 p-1 hover:bg-orange-50 border-orange-200 text-orange-600 rounded cursor-pointer shrink-0"
-                                                                >
-                                                                    <Play className="w-2.5 h-2.5 fill-current" />
-                                                                </button>
+                                                        ) : col.isAi ? (() => {
+                                                            const isBatchCompany = col.colDef.tool === "batch_company";
+                                                            const isBatchContact = col.colDef.tool === "batch_contact";
+                                                            const hasDomain = !!r.data["domain"];
+                                                            const isDone = status === "done";
+
+                                                            if (isRunning) {
+                                                                return (
+                                                                    <div className="flex items-center gap-1 text-orange-600 font-medium">
+                                                                        <RefreshCw className="w-3 h-3 animate-spin" /> läuft...
+                                                                    </div>
+                                                                );
+                                                            }
+
+                                                            // ── batch_company Rendering ──
+                                                            if (isBatchCompany) {
+                                                                const fields = col.colDef.batchOutputFields ?? [
+                                                                    "company_name","domain","phone","company_email","address","city","zip","industry","description","employees","founded"
+                                                                ];
+                                                                const filled = fields.filter(f => r.data[f] && String(r.data[f]).trim() !== "");
+                                                                
+                                                                if (isDone || filled.length > 0) {
+                                                                    return (
+                                                                        <div className="flex items-center gap-1.5 min-w-0" title="Klicken für Prompt, Token, Rohdaten & Rerun">
+                                                                            <span style={{ fontSize: 10.5, fontWeight: 600, color: "#7c3aed", background: "#ede9fe", padding: "1.5px 7px", borderRadius: 4 }}>
+                                                                                {filled.length} Felder ✓
+                                                                            </span>
+                                                                        </div>
+                                                                    );
+                                                                }
+
+                                                                return (
+                                                                    <button
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            if (hasDomain) runCell(r.id, col.colDef);
+                                                                        }}
+                                                                        style={{
+                                                                            fontSize: 10.5,
+                                                                            fontWeight: 600,
+                                                                            padding: "2px 7px",
+                                                                            borderRadius: 4,
+                                                                            background: hasDomain ? "#ede9fe" : "#fef3c7",
+                                                                            color: hasDomain ? "#7c3aed" : "#b45309",
+                                                                            border: "none",
+                                                                            cursor: hasDomain ? "pointer" : "default",
+                                                                            display: "inline-flex",
+                                                                            alignItems: "center",
+                                                                            gap: 3
+                                                                        }}
+                                                                    >
+                                                                        {hasDomain ? "▶ Anreichern" : "⚠ Domain fehlt"}
+                                                                    </button>
+                                                                );
+                                                            }
+
+                                                            // ── batch_contact Rendering ──
+                                                            if (isBatchContact) {
+                                                                const jsonKey = `_contacts_json_${col.key}`;
+                                                                let contactCount = 0;
+                                                                if (r.data[jsonKey]) {
+                                                                    try { contactCount = JSON.parse(r.data[jsonKey]).length; } catch {}
+                                                                }
+                                                                if (contactCount === 0 && (r.data["first_name"] || r.data["contact_email"])) contactCount = 1;
+
+                                                                if (isDone || contactCount > 0) {
+                                                                    return (
+                                                                        <div className="flex items-center gap-1.5 min-w-0" title="Klicken für Kontakte & Details">
+                                                                            <span style={{ fontSize: 10.5, fontWeight: 700, color: "#7c3aed", background: "#ede9fe", padding: "1.5px 6px", borderRadius: 10 }}>
+                                                                                {contactCount}
+                                                                            </span>
+                                                                            <span className="text-[11px] font-semibold text-slate-800 truncate">
+                                                                                {r.data["first_name"] ? `${r.data["first_name"]} ${r.data["last_name"] || ''}` : `${contactCount} Kontakte`}
+                                                                            </span>
+                                                                        </div>
+                                                                    );
+                                                                }
+
+                                                                return (
+                                                                    <button
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            runCell(r.id, col.colDef);
+                                                                        }}
+                                                                        style={{
+                                                                            fontSize: 10.5,
+                                                                            fontWeight: 600,
+                                                                            padding: "2px 7px",
+                                                                            borderRadius: 4,
+                                                                            background: "#ede9fe",
+                                                                            color: "#7c3aed",
+                                                                            border: "none",
+                                                                            cursor: "pointer",
+                                                                            display: "inline-flex",
+                                                                            alignItems: "center",
+                                                                            gap: 3
+                                                                        }}
+                                                                    >
+                                                                        ▶ Kontakte suchen
+                                                                    </button>
+                                                                );
+                                                            }
+
+                                                            // ── Generic AI Column ──
+                                                            return (
+                                                                <div className="flex items-center justify-between gap-1.5 group/cell">
+                                                                    <span className="truncate">
+                                                                        {val ? (
+                                                                            <span className="ai-chip-v2 font-mono text-[11px]">{String(val)}</span>
+                                                                        ) : (
+                                                                            <span className="text-slate-400 italic text-[11px]">— leer —</span>
+                                                                        )}
+                                                                    </span>
+                                                                    <button
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            runCell(r.id, col.colDef);
+                                                                        }}
+                                                                        className="btn-v2 p-1 hover:bg-orange-50 border-orange-200 text-orange-600 rounded cursor-pointer shrink-0"
+                                                                    >
+                                                                        <Play className="w-2.5 h-2.5 fill-current" />
+                                                                    </button>
+                                                                </div>
+                                                            );
+                                                        })() : col.key === "domain" ? (
+                                                            <div className="flex items-center gap-1.5 min-w-0">
+                                                                {val ? (
+                                                                    <>
+                                                                        <img 
+                                                                            src={`https://www.google.com/s2/favicons?domain=${encodeURIComponent(String(val))}&sz=32`} 
+                                                                            alt="" 
+                                                                            className="w-3.5 h-3.5 rounded-xs shrink-0"
+                                                                            onError={(e) => { (e.currentTarget as HTMLElement).style.display = 'none'; }}
+                                                                        />
+                                                                        <a 
+                                                                            href={String(val).startsWith("http") ? String(val) : `https://${val}`} 
+                                                                            target="_blank" 
+                                                                            rel="noreferrer"
+                                                                            className="text-blue-600 hover:underline truncate"
+                                                                            onClick={e => e.stopPropagation()}
+                                                                        >
+                                                                            {String(val)}
+                                                                        </a>
+                                                                        <button
+                                                                            onClick={async (e) => {
+                                                                                e.stopPropagation();
+                                                                                const nextData = { ...r.data, domain: null, _scrape_cached: null, _scrape_cached_ts: null };
+                                                                                await apiFetch(`/api/rows/${r.id}`, {
+                                                                                    method: "PATCH",
+                                                                                    headers: { "Content-Type": "application/json" },
+                                                                                    body: JSON.stringify({ data: nextData }),
+                                                                                });
+                                                                                setRows(prev => prev.map(row => row.id === r.id ? { ...row, data: nextData } : row));
+                                                                            }}
+                                                                            title="Domain leeren"
+                                                                            className="text-slate-300 hover:text-red-500 font-bold px-1 ml-auto text-[11px]"
+                                                                        >
+                                                                            ✕
+                                                                        </button>
+                                                                    </>
+                                                                ) : (
+                                                                    <span className="text-slate-300 italic text-[11px]">— keine Domain —</span>
+                                                                )}
                                                             </div>
                                                         ) : (
                                                             <span>{val !== null && val !== undefined && String(val).trim() !== "" ? String(val) : "—"}</span>

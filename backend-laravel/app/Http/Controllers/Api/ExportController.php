@@ -134,15 +134,20 @@ class ExportController extends Controller
             'rows' => $rows->map(fn($r) => [
                 'id' => $r->id,
                 'row_index' => $r->row_index,
+                'rowIndex' => $r->row_index,
                 'data' => $r->data,
-                'cell_statuses' => $r->cell_statuses,
-                'cell_errors' => $r->cell_errors,
+                'cell_statuses' => $r->cell_statuses ?? [],
+                'cellStatuses' => $r->cell_statuses ?? [],
+                'cell_errors' => $r->cell_errors ?? [],
+                'cellErrors' => $r->cell_errors ?? [],
             ]),
             'contacts' => $contacts->map(fn($c) => [
                 'id' => $c->id,
                 'data' => $c->data,
-                'cell_statuses' => $c->cell_statuses,
-                'cell_errors' => $c->cell_errors,
+                'cell_statuses' => $c->cell_statuses ?? [],
+                'cellStatuses' => $c->cell_statuses ?? [],
+                'cell_errors' => $c->cell_errors ?? [],
+                'cellErrors' => $c->cell_errors ?? [],
             ]),
         ];
 
