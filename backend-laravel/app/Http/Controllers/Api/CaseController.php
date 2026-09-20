@@ -44,9 +44,9 @@ class CaseController extends Controller
         $aiColumns = $validated['ai_columns'] ?? [];
         $colOrder = $validated['col_order'] ?? [];
 
-        // Apply template if chosen
+        // Apply template if chosen (default to "standard" like Next.js)
         $templateId = $validated['template'] ?? 'standard';
-        if ($templateId && empty($columns) && empty($aiColumns)) {
+        if ($templateId && $templateId !== 'none' && empty($columns) && empty($aiColumns)) {
             $allTemplates = TemplateService::getTemplates();
             $tpl = collect($allTemplates)->firstWhere('id', $templateId);
             if ($tpl) {
@@ -58,7 +58,35 @@ class CaseController extends Controller
                 ], $tpl['baseColumns'] ?? []);
 
                 $aiColumns = $tpl['aiColumns'] ?? [];
-                $colOrder = array_map(fn($c) => $c['key'], $columns);
+
+                // Optimal proven column order from Next.js production:
+                // domain → Firmendaten-KI → company_name → industry → address → zip → city
+                // → description → phone → email → employees → founded
+                // → maps_rating → category → maps_reviews → maps_url → Entscheider-KI
+                $batchCompany = collect($aiColumns)->firstWhere('tool', 'batch_company');
+                $batchContacts = collect($aiColumns)->firstWhere('tool', 'batch_contact');
+                $vilocalAudit = collect($aiColumns)->firstWhere('outputKey', 'vilocal_audit');
+
+                $colOrder = array_values(array_filter([
+                    'domain',
+                    $batchCompany ? $batchCompany['outputKey'] : null,
+                    'company_name',
+                    'industry',
+                    'address',
+                    'zip',
+                    'city',
+                    'description',
+                    'phone',
+                    'email',
+                    'employees',
+                    'founded',
+                    'maps_rating',
+                    'category',
+                    'maps_reviews',
+                    'maps_url',
+                    $vilocalAudit ? $vilocalAudit['outputKey'] : null,
+                    $batchContacts ? $batchContacts['outputKey'] : null,
+                ]));
             }
         }
 
