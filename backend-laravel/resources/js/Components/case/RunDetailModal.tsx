@@ -53,8 +53,8 @@ export default function RunDetailModal({ col, row: initialRow, caseId, onClose, 
     : multiKeys.map(mk => mk.outputKey);
   const allOutputKeys = extraOutputKeys.length > 0 ? extraOutputKeys : [col.outputKey];
 
-  const savedStatus = row.cellStatuses[col.outputKey] ?? "idle";
-  const err = row.cellErrors[col.outputKey];
+  const savedStatus = (row.cell_statuses?.[col.outputKey] ?? row.cellStatuses?.[col.outputKey]) ?? "idle";
+  const err = (row.cell_errors?.[col.outputKey] ?? row.cellErrors?.[col.outputKey]);
 
   // LLM metadata
   const exactPrompt  = row.data[`_llm_prompt_${col.outputKey}`] ?? "";
@@ -86,10 +86,11 @@ export default function RunDetailModal({ col, row: initialRow, caseId, onClose, 
   const companyName = row.data["company_name"] ?? row.data["Unternehmensname"] ?? "";
   const inputMappings = col.inputMappings ?? {};
   const requiredFields = col.requiredFields ?? [];
+  const promptText = col.prompt || "";
   const placeholderKeys = Array.from(new Set(
-    (col.prompt.match(/\{([a-zA-Z_][a-zA-Z0-9_]*)\}/g) ?? []).map(m => m.slice(1,-1).trim())
+    (promptText.match(/\{([a-zA-Z_][a-zA-Z0-9_]*)\}/g) ?? []).map(m => m.slice(1,-1).trim())
   ));
-  const previewPrompt = col.prompt.replace(/\{([a-zA-Z_][a-zA-Z0-9_]*)\}/g, (_, k) => {
+  const previewPrompt = promptText.replace(/\{([a-zA-Z_][a-zA-Z0-9_]*)\}/g, (_, k) => {
     const src = inputMappings[k.trim()] || k.trim();
     const v = row.data[src];
     return (v != null && String(v).trim()) ? String(v) : `{${k}}`;
@@ -122,7 +123,7 @@ export default function RunDetailModal({ col, row: initialRow, caseId, onClose, 
       if (result.tokens)         metaData[`_llm_tokens_${col.outputKey}`] = JSON.stringify(result.tokens);
       if (result.costUsd != null) metaData[`_llm_cost_${col.outputKey}`]  = String(result.costUsd);
       const newData = { ...row.data, [col.outputKey]: result.value ?? "", ...extraData, ...metaData };
-      const newStatuses = { ...row.cellStatuses, [col.outputKey]: "done" as CellStatus };
+      const newStatuses = { ...row.cell_statuses, [col.outputKey]: "done" as CellStatus };
       for (const k of Object.keys(extraData)) newStatuses[k] = "done";
       const updated = { ...row, data: newData, cellStatuses: newStatuses };
       setRow(updated);

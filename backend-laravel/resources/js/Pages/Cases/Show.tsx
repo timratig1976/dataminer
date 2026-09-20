@@ -647,7 +647,10 @@ export default function CaseShow({ case: c }: Props) {
 
                 {activeTab === "Firmen" && viewMode === "flat" && (
                     <div className="overflow-x-auto max-h-[72vh]">
-                        <table className="w-full text-left border-collapse text-xs">
+                        <table 
+                            className="text-left border-collapse text-xs"
+                            style={{ tableLayout: "fixed", width: "max-content", minWidth: "100%" }}
+                        >
                             <thead 
                                 className="sticky top-0 z-10 uppercase tracking-wider font-semibold text-[10.5px]"
                                 style={{ background: "var(--bg)", borderBottom: "1px solid var(--border)", color: "var(--text-2)" }}
@@ -676,18 +679,20 @@ export default function CaseShow({ case: c }: Props) {
                                                     color: col.isAi ? "var(--orange)" : "inherit",
                                                     borderLeft: isDragOver ? "2px solid var(--orange)" : undefined,
                                                     width: colWidth,
-                                                    minWidth: 80,
+                                                    minWidth: colWidth,
+                                                    maxWidth: colWidth,
                                                 }}
                                             >
                                                 {/* ↔ Column Resize Handle */}
                                                 <div
-                                                    style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 6, cursor: "col-resize", zIndex: 10 }}
+                                                    className="hover:bg-orange-400 active:bg-orange-600 transition-colors"
+                                                    style={{ position: "absolute", right: -3, top: 0, bottom: 0, width: 8, cursor: "col-resize", zIndex: 30 }}
                                                     onMouseDown={e => {
                                                         e.stopPropagation(); e.preventDefault();
                                                         const startX = e.clientX;
                                                         const startW = colWidth;
                                                         const onMove = (ev: MouseEvent) => {
-                                                            const w = Math.max(80, startW + ev.clientX - startX);
+                                                            const w = Math.max(60, startW + ev.clientX - startX);
                                                             setColWidths(prev => ({ ...prev, [col.key]: w }));
                                                         };
                                                         const onUp = () => {
@@ -753,8 +758,22 @@ export default function CaseShow({ case: c }: Props) {
                                                 return (
                                                     <td 
                                                         key={col.key} 
-                                                        className="p-2.5 border-r truncate max-w-[280px]"
-                                                        style={{ borderColor: "var(--border-xs)" }}
+                                                        className={`p-2.5 border-r truncate ${col.isAi ? 'cursor-pointer hover:bg-orange-50/40' : ''}`}
+                                                        style={{ 
+                                                            borderColor: "var(--border-xs)",
+                                                            width: colWidths[col.key] ? `${colWidths[col.key]}px` : undefined,
+                                                            maxWidth: colWidths[col.key] ? `${colWidths[col.key]}px` : undefined
+                                                        }}
+                                                        onClick={() => {
+                                                            if (col.isAi) {
+                                                                const normalizedRow = {
+                                                                    ...r,
+                                                                    cellStatuses: r.cell_statuses || (r as any).cellStatuses || {},
+                                                                    cellErrors: r.cell_errors || (r as any).cellErrors || {}
+                                                                };
+                                                                setRunDetailCell({ col: col.colDef, row: normalizedRow as any });
+                                                            }
+                                                        }}
                                                     >
                                                         {col.key === "_scrape_cached_ts" ? (
                                                             val ? (
@@ -780,11 +799,7 @@ export default function CaseShow({ case: c }: Props) {
                                                             )
                                                         ) : col.isAi ? (
                                                             <div 
-                                                                className="flex items-center justify-between gap-1.5 cursor-pointer group/cell"
-                                                                onClick={(e) => {
-                                                                    e.stopPropagation();
-                                                                    setRunDetailCell({ col: col.colDef, row: r });
-                                                                }}
+                                                                className="flex items-center justify-between gap-1.5 group/cell"
                                                                 title="Klicken für Prompt, Token, Rohdaten & Rerun"
                                                             >
                                                                 <span className="truncate">
