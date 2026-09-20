@@ -23,6 +23,7 @@ class Phase3ServicesTest extends TestCase
         );
         $admin->assignRole('Super-Admin');
 
+        $this->actingAs($admin);
         Sanctum::actingAs($admin, ['*']);
     }
 
