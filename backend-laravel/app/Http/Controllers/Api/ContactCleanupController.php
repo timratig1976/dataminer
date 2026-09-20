@@ -57,22 +57,20 @@ class ContactCleanupController extends Controller
 
             // Upsert into contact_rows
             foreach ($contacts as $c) {
-                if (empty($c['first_name']) && empty($c['last_name']) && empty($c['name'])) continue;
+                if (empty($c['first_name']) && empty($c['last_name']) && empty($c['name']) && empty($c['position']) && empty($c['email'])) continue;
+                $cData = array_merge($c, [
+                    'company_name' => $data['company_name'] ?? $data['name'] ?? null,
+                    'domain' => $data['domain'] ?? null,
+                    'city' => $data['city'] ?? null,
+                ]);
                 ContactRow::updateOrCreate(
                     [
                         'case_id' => $case->id,
                         'company_row_id' => $row->id,
-                        'email' => $c['email'] ?? null,
                     ],
                     [
                         'id' => (string) Str::uuid(),
-                        'name' => $c['name'] ?? trim(($c['first_name'] ?? '') . ' ' . ($c['last_name'] ?? '')),
-                        'first_name' => $c['first_name'] ?? null,
-                        'last_name' => $c['last_name'] ?? null,
-                        'position' => $c['position'] ?? null,
-                        'phone' => $c['phone'] ?? null,
-                        'linkedin' => $c['linkedin'] ?? null,
-                        'data' => $c,
+                        'data' => $cData,
                     ]
                 );
                 $totalInserted++;

@@ -13,6 +13,9 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/settings/llm-test', [WebController::class, 'llmTestSettings'])->name('settings.llm-test');
     Route::get('/settings/users', [WebController::class, 'usersSettings'])->name('settings.users');
     Route::get('/settings/account', [WebController::class, 'accountSettings'])->name('settings.account');
+    Route::get('/settings/prompts', [WebController::class, 'promptsSettings'])->name('settings.prompts');
+    Route::get('/raw-imports', [WebController::class, 'rawImportsIndex'])->name('raw-imports.index');
+    Route::get('/raw-imports/{batchId}', [WebController::class, 'rawImportsShow'])->name('raw-imports.show');
     Route::get('/scrapling-test', [WebController::class, 'scraplingTest'])->name('scrapling.test');
 });
 

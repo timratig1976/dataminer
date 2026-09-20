@@ -3,9 +3,9 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\CaseLog;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 
 class LogController extends Controller
 {
@@ -22,10 +22,22 @@ class LogController extends Controller
 
         $limit = min(500, max(10, (int) $request->query('limit', 200)));
 
-        // Retrieve agent run logs or system logs
-        $runs = \App\Models\AgentRun::where('case_id', $caseId)->orderByDesc('created_at')->limit(5)->get();
-        $logs = [];
+        $dbLogs = CaseLog::where('case_id', $caseId)
+            ->orderBy('id', 'desc')
+            ->limit($limit)
+            ->get();
 
+        $logs = [];
+        foreach ($dbLogs as $l) {
+            $logs[] = [
+                'id' => (string) $l->id,
+                'message' => $l->message,
+                'createdAt' => $l->created_at ? $l->created_at->toIso8601String() : now()->toIso8601String(),
+            ];
+        }
+
+        // Also merge agent run logs if present
+        $runs = \App\Models\AgentRun::where('case_id', $caseId)->orderByDesc('created_at')->limit(3)->get();
         foreach ($runs as $r) {
             $state = $r->state ?? [];
             $runLogs = $state['logs'] ?? [];
@@ -48,14 +60,19 @@ class LogController extends Controller
     public function destroy(Request $request): JsonResponse
     {
         $caseId = $request->query('caseId');
-        if ($caseId) {
-            $runs = \App\Models\AgentRun::where('case_id', $caseId)->get();
-            foreach ($runs as $r) {
-                $state = $r->state ?? [];
-                $state['logs'] = [];
-                $r->update(['state' => $state]);
-            }
+        if (!$caseId) {
+            return response()->json(['error' => 'caseId required'], 400);
         }
-        return response()->json(['ok' => true]);
+
+        CaseLog::where('case_id', $caseId)->delete();
+
+        $runs = \App\Models\AgentRun::where('case_id', $caseId)->get();
+        foreach ($runs as $r) {
+            $state = $r->state ?? [];
+            $state['logs'] = [];
+            $r->update(['state' => $state]);
+        }
+
+        return response()->json(['success' => true]);
     }
 }

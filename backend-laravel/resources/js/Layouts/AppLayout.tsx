@@ -1,13 +1,21 @@
 import React, { useState, useEffect } from 'react';
 import { Link, usePage } from '@inertiajs/react';
 import { 
-    LayoutDashboard, Database, Settings, Sliders, Zap, Sparkles, Users, User 
+    LayoutDashboard, Database, Settings, Sliders, Zap, Sparkles, Users, User, DatabaseZap, BrainCircuit,
+    AlertTriangle, CheckCircle2, RefreshCw
 } from 'lucide-react';
+import { apiFetch } from '../api';
 
 interface SidebarCase {
     id: string;
     name: string;
     rows_count?: number;
+}
+
+interface ApiHealthData {
+    statuses: Record<string, { configured: boolean; status: string; message: string; limit?: number }>;
+    flaws: Array<{ provider: string; status: string; message: string }>;
+    has_flaw: boolean;
 }
 
 export default function Layout({ 
@@ -21,6 +29,8 @@ export default function Layout({
 }) {
     const { url } = usePage();
     const [recentCases, setRecentCases] = useState<SidebarCase[]>([]);
+    const [healthData, setHealthData] = useState<ApiHealthData | null>(null);
+    const [showHealthPopover, setShowHealthPopover] = useState(false);
 
     useEffect(() => {
         fetch('/api/cases')
@@ -31,11 +41,18 @@ export default function Layout({
                 }
             })
             .catch(() => {});
+
+        // Fetch API quota health
+        apiFetch('/api/settings/health')
+            .then(r => r.ok ? r.json() : null)
+            .then(d => { if (d) setHealthData(d); })
+            .catch(() => {});
     }, [url]);
 
     const bottomNav = [
         { href: '/settings', title: 'API & Keys', label: 'Keys', icon: <Settings className="w-3.5 h-3.5" /> },
         { href: '/settings/models', title: 'Modell-Auswahl', label: 'Models', icon: <Sliders className="w-3.5 h-3.5" /> },
+        { href: '/settings/prompts', title: 'Normalisierungs-Prompts', label: 'Prompts', icon: <BrainCircuit className="w-3.5 h-3.5" /> },
         { href: '/settings/planner', title: 'Planner Prompt', label: 'Planner', icon: <Sparkles className="w-3.5 h-3.5" /> },
         { href: '/settings/llm-test', title: 'LLM-Testing', label: 'LLM', icon: <Zap className="w-3.5 h-3.5" /> },
         { href: '/settings/users', title: 'Benutzer & Rollen', label: 'Users', icon: <Users className="w-3.5 h-3.5" /> },
@@ -99,6 +116,19 @@ export default function Layout({
                         >
                             <Database className="w-3.5 h-3.5" />
                             <span>Alle Cases</span>
+                        </Link>
+
+                        <Link
+                            href="/raw-imports"
+                            className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded text-[12.5px] text-left transition-colors cursor-pointer"
+                            style={{
+                                background: url.startsWith('/raw-imports') ? 'var(--orange-soft)' : 'transparent',
+                                color: url.startsWith('/raw-imports') ? 'var(--orange)' : 'var(--text-2)',
+                                fontWeight: url.startsWith('/raw-imports') ? 600 : 400,
+                            }}
+                        >
+                            <DatabaseZap className="w-3.5 h-3.5" />
+                            <span>Raw Data Manager</span>
                         </Link>
                     </div>
 
@@ -193,6 +223,91 @@ export default function Layout({
 
                     <div className="flex items-center gap-3">
                         {actions}
+
+                        {/* API Health & Quota Badge */}
+                        {healthData && (
+                            <div className="relative">
+                                <button
+                                    type="button"
+                                    onClick={() => setShowHealthPopover(p => !p)}
+                                    className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium cursor-pointer border transition-colors ${
+                                        healthData.has_flaw
+                                            ? 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100'
+                                            : 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
+                                    }`}
+                                    title="Status der angebundenen APIs und Restguthaben"
+                                >
+                                    {healthData.has_flaw ? (
+                                        <>
+                                            <AlertTriangle className="w-3.5 h-3.5 text-rose-600 animate-pulse" />
+                                            <span>{healthData.flaws.length} API-Problem{healthData.flaws.length > 1 ? 'e' : ''}</span>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                                            <span>APIs bereit</span>
+                                        </>
+                                    )}
+                                </button>
+
+                                {showHealthPopover && (
+                                    <>
+                                        <div 
+                                            className="fixed inset-0 z-40" 
+                                            onClick={() => setShowHealthPopover(false)} 
+                                        />
+                                        <div className="absolute right-0 mt-2 w-80 bg-white rounded-xl shadow-xl border border-slate-200 z-50 p-3.5 text-xs space-y-2.5">
+                                            <div className="flex items-center justify-between border-b pb-2">
+                                                <span className="font-semibold text-slate-800">API Status & Quotas</span>
+                                                <Link 
+                                                    href="/settings" 
+                                                    onClick={() => setShowHealthPopover(false)}
+                                                    className="text-[11px] text-orange-600 hover:underline font-medium"
+                                                >
+                                                    Keys verwalten →
+                                                </Link>
+                                            </div>
+
+                                            <div className="space-y-1.5">
+                                                {Object.entries(healthData.statuses).map(([prov, item]) => {
+                                                    const isErr = item.status === 'exhausted' || item.status === 'error';
+                                                    const isOk = item.status === 'ok';
+                                                    const nameMap: Record<string, string> = {
+                                                        eden: 'Eden AI (LLM)',
+                                                        serpapi: 'SerpAPI (Maps)',
+                                                        serper: 'Serper.dev (Google)',
+                                                        apify: 'Apify (GMB Deep)',
+                                                        firecrawl: 'Firecrawl (Scrape)',
+                                                    };
+                                                    return (
+                                                        <div key={prov} className="flex items-start justify-between gap-2 p-1.5 rounded-lg bg-slate-50 border border-slate-100">
+                                                            <div>
+                                                                <div className="font-medium text-slate-800">{nameMap[prov] || prov}</div>
+                                                                <div className={`text-[11px] ${isErr ? 'text-rose-600 font-semibold' : isOk ? 'text-emerald-600' : 'text-slate-400'}`}>
+                                                                    {item.message}
+                                                                </div>
+                                                            </div>
+                                                            <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold uppercase ${
+                                                                isErr ? 'bg-rose-100 text-rose-700' : isOk ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-600'
+                                                            }`}>
+                                                                {item.status === 'exhausted' ? 'Leer' : item.status === 'error' ? 'Fehler' : item.status === 'ok' ? 'Aktiv' : 'Fehlt'}
+                                                            </span>
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+
+                                            {healthData.has_flaw && (
+                                                <div className="p-2 bg-amber-50 border border-amber-200 rounded-md text-[11px] text-amber-800 leading-relaxed">
+                                                    💡 <strong>Auswirkung:</strong> Wenn SerpAPI oder Apify aufgebraucht sind, greift Google Maps auf Basisergebnisse zurück (weniger Details). Lade Guthaben auf oder nutze Web-Suche.
+                                                </div>
+                                            )}
+                                        </div>
+                                    </>
+                                )}
+                            </div>
+                        )}
+
                         <div className="h-4 w-px bg-slate-200" />
                         <Link
                             href="/settings/account"

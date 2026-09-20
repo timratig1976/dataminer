@@ -16,7 +16,14 @@ class ContactSearchService
     /**
      * Cache-First Entscheider-Extraktion
      */
-    public function searchContacts(array $rowData, string $apiKey, int $maxContacts = 3, string $model = 'openai/gpt-4o-mini'): array
+    public function searchContacts(
+        array $rowData,
+        string $apiKey,
+        int $maxContacts = 3,
+        string $model = 'openai/gpt-4o-mini',
+        ?string $customSystemPrompt = null,
+        string $region = 'us'
+    ): array
     {
         $domain = $this->resolveDomain($rowData);
         $companyName = $rowData['company_name'] ?? '';
@@ -75,15 +82,16 @@ class ContactSearchService
             }
         }
 
-        $system = "Du bist ein Kontaktdaten-Extraktions-Agent. Finde Entscheider (Geschäftsführer, Inhaber, CEO).\n"
+        $defaultSystem = "Du bist ein Kontaktdaten-Extraktions-Agent. Finde Entscheider (Geschäftsführer, Inhaber, CEO).\n"
             . "Antworte NUR mit JSON: {\"contacts\": [{\"first_name\": \"...\", \"last_name\": \"...\", \"position\": \"...\", \"email\": null, \"phone\": null, \"linkedin\": null}], \"company_email\": null}";
+        $system = !empty($customSystemPrompt) ? $customSystemPrompt : $defaultSystem;
 
         $userPrompt = "Unternehmen: {$companyName}\nDomain: {$domain}\n\n";
         if ($rawText) {
             $userPrompt .= "Quelltext:\n" . substr($rawText, 0, 6000);
         }
 
-        $chat = $this->edenAi->chatCompletion($apiKey, $model, $system, $userPrompt);
+        $chat = $this->edenAi->chatCompletion($apiKey, $model, $system, $userPrompt, 800, 0.0, $region);
         $jsonStr = trim(preg_replace('/^```(?:json)?\n?/i', '', preg_replace('/\n?```$/i', '', $chat['raw'])));
         $parsed = json_decode($jsonStr, true) ?? [];
 

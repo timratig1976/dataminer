@@ -77,11 +77,12 @@ class WebController extends Controller
         ]);
     }
 
-    public function plannerSettings(): Response
+    public function plannerSettings(\App\Services\PlannerService $planner): Response
     {
         $settings = GlobalSetting::instance();
         return Inertia::render('Settings/Planner', [
             'plannerPrompt' => $settings->planner_system_prompt,
+            'defaultPrompt' => $planner->buildDefaultSystemPrompt(),
         ]);
     }
 
@@ -103,5 +104,22 @@ class WebController extends Controller
     public function accountSettings(): Response
     {
         return Inertia::render('Settings/Account');
+    }
+
+    public function rawImportsIndex(): Response
+    {
+        return Inertia::render('RawImports/Index');
+    }
+
+    public function rawImportsShow(string $batchId): Response
+    {
+        return Inertia::render('RawImports/Show', [
+            'batchId' => $batchId,
+        ]);
+    }
+
+    public function promptsSettings(): Response
+    {
+        return Inertia::render('Settings/Prompts');
     }
 }

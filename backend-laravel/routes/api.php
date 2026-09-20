@@ -9,6 +9,9 @@ use App\Http\Controllers\Api\EnrichmentJobController;
 use App\Http\Controllers\Api\ImportController;
 use App\Http\Controllers\Api\SettingsController;
 use App\Http\Controllers\Api\AgentRunController;
+use App\Http\Controllers\Api\RawImportController;
+use App\Http\Controllers\Api\NormalizationPromptController;
+use App\Http\Controllers\Api\EvaluationController;
 
 // Public or Authenticated routes via Sanctum or Session
 Route::middleware(['web', 'auth'])->group(function () {
@@ -51,8 +54,11 @@ Route::middleware(['web', 'auth'])->group(function () {
     Route::get('/enrichment/jobs/{id}', [EnrichmentJobController::class, 'show']);
     Route::get('/enrichment/jobs/{id}/stream', [EnrichmentJobController::class, 'stream']);
     Route::get('/settings', [SettingsController::class, 'show']);
+    Route::get('/settings/health', [\App\Http\Controllers\Api\ApiStatusController::class, 'check']);
     Route::post('/settings/test-eden', [SettingsController::class, 'testEden']);
     Route::post('/settings/test-search', [SettingsController::class, 'testSearch']);
+    Route::get('/settings/test-planner', [SettingsController::class, 'getPlannerPrompt']);
+    Route::post('/settings/test-planner', [SettingsController::class, 'testPlanner']);
     Route::get('/agent/runs/{id}/stream', [AgentRunController::class, 'stream']);
 
     // Write access for Editor & Super-Admin
@@ -83,8 +89,28 @@ Route::middleware(['web', 'auth'])->group(function () {
         Route::post('/enrichment/jobs/{id}/cancel', [EnrichmentJobController::class, 'cancel']);
 
         Route::post('/import/csv', [ImportController::class, 'importCsv']);
+        Route::post('/import', [ImportController::class, 'importCsv']); // Alias to fix ImportWizard route discrepancy
         Route::post('/import/snapshot', [ImportController::class, 'importSnapshot']);
         Route::post('/import/xlsx', [ImportController::class, 'importXlsx']);
+        // Raw Imports Pipeline
+        Route::get('/raw-imports', [RawImportController::class, 'index']);
+        Route::get('/raw-imports/{batchId}', [RawImportController::class, 'show']);
+        Route::post('/raw-imports', [RawImportController::class, 'store']);
+        Route::post('/import/raw', [RawImportController::class, 'store']); // Alias as specified in plan
+        Route::post('/raw-imports/{batchId}/normalize', [RawImportController::class, 'normalize']);
+        Route::post('/raw-imports/{batchId}/promote', [RawImportController::class, 'promote']);
+        Route::post('/raw-imports/{batchId}/rollback', [RawImportController::class, 'rollback']);
+        Route::patch('/raw-imports/rows/{rowId}', [RawImportController::class, 'updateRow']);
+        Route::delete('/raw-imports/{batchId}', [RawImportController::class, 'destroy']);
+        // Prompt Management & Evaluations
+        Route::get('/normalization-prompts', [NormalizationPromptController::class, 'index']);
+        Route::post('/normalization-prompts', [NormalizationPromptController::class, 'store']);
+        Route::patch('/normalization-prompts/{id}', [NormalizationPromptController::class, 'update']);
+        Route::post('/normalization-prompts/{id}/activate', [NormalizationPromptController::class, 'activate']);
+        Route::delete('/normalization-prompts/{id}', [NormalizationPromptController::class, 'destroy']);
+        Route::post('/raw-imports/{batchId}/evaluate', [EvaluationController::class, 'run']);
+        Route::get('/raw-imports/{batchId}/evaluations', [EvaluationController::class, 'index']);
+        Route::get('/evaluations/{runId}', [EvaluationController::class, 'show']);
 
         Route::post('/agent/runs', [AgentRunController::class, 'store']);
         Route::post('/agent/runs/{id}/step', [AgentRunController::class, 'executeStep']);

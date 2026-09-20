@@ -99,12 +99,29 @@ class DiscoverySearchController extends Controller
         $hasEden = !empty($case->eden_api_key) || !empty($settings->eden_api_key) || !empty(env('EDEN_API_KEY'));
         $hasSearch = !empty($settings->serper_api_key) || !empty($settings->serp_api_key) || !empty($settings->brave_api_key) || !empty(env('SERPER_API_KEY')) || !empty(env('SERP_API_KEY')) || !empty(env('BRAVE_API_KEY'));
 
+        $serperConfigured = !empty($settings->serper_api_key) || !empty(env('SERPER_API_KEY'));
+        $serpApiConfigured = !empty($settings->serp_api_key) || !empty(env('SERP_API_KEY'));
+        $braveConfigured = !empty($settings->brave_api_key) || !empty(env('BRAVE_API_KEY'));
+        $apifyConfigured = !empty($settings->apify_api_token) || !empty(env('APIFY_API_TOKEN'));
+        $firecrawlConfigured = !empty($settings->firecrawl_api_key) || !empty(env('FIRECRAWL_API_KEY'));
+
+        $anySearchConfigured = $serperConfigured || $serpApiConfigured || $braveConfigured || $apifyConfigured;
+        $anyMapsConfigured = $serperConfigured || $serpApiConfigured || $apifyConfigured;
+
         return response()->json([
-            'ready' => $hasEden && $hasSearch,
+            'ready' => $hasEden && ($hasSearch || $apifyConfigured),
             'hasEdenKey' => $hasEden,
             'hasSearchKey' => $hasSearch,
-            'hasMapsKey' => !empty($settings->serper_api_key) || !empty($settings->serp_api_key),
-            'hasFirecrawlKey' => !empty($settings->firecrawl_api_key),
+            'hasMapsKey' => $anyMapsConfigured,
+            'hasFirecrawlKey' => $firecrawlConfigured,
+            'edenConfigured' => $hasEden,
+            'firecrawlConfigured' => $firecrawlConfigured,
+            'serperConfigured' => $serperConfigured,
+            'serpApiConfigured' => $serpApiConfigured,
+            'braveConfigured' => $braveConfigured,
+            'apifyConfigured' => $apifyConfigured,
+            'anySearchConfigured' => $anySearchConfigured,
+            'anyMapsConfigured' => $anyMapsConfigured,
         ]);
     }
 }

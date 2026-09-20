@@ -9,7 +9,7 @@ use Exception;
 class EdenAiService
 {
     protected string $usBaseUrl = 'https://api.edenai.run';
-    protected string $euBaseUrl = 'https://api.edenai.eu';
+    protected string $euBaseUrl = 'https://api.eu.edenai.run';
 
     /**
      * Chat completion call via Eden AI
@@ -23,6 +23,11 @@ class EdenAiService
         float $temperature = 0.0,
         string $region = 'us'
     ): array {
+        // On Eden AI EU endpoint, OpenAI models return 451. Transparently fallback to Mistral.
+        if ($region === 'eu' && str_starts_with($model, 'openai/')) {
+            $model = 'mistral/mistral-small-latest';
+        }
+
         $baseUrl = $region === 'eu' ? $this->euBaseUrl : $this->usBaseUrl;
         $endpoint = "{$baseUrl}/v3/chat/completions";
 

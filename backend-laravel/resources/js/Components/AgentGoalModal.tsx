@@ -931,7 +931,7 @@ export function AgentGoalModal({ caseId, rowsCount, onClose, onImported, externa
                 {run.goal.maxDurationMin != null ? ` / ${run.goal.maxDurationMin} min` : ""}
               </span>
               <span className="inline-flex items-center gap-1 text-xs bg-emerald-50 text-emerald-700 rounded px-2 py-1">
-                <TrendingUp className="w-3 h-3" /> {run.log[run.log.length - 1] ?? `${run.stepResults.length} Steps ausgeführt`}
+                <TrendingUp className="w-3 h-3" /> {(run.log && run.log[run.log.length - 1]) ?? `${(run.stepResults || []).length} Steps ausgeführt`}
               </span>
             </div>
 
@@ -964,7 +964,7 @@ export function AgentGoalModal({ caseId, rowsCount, onClose, onImported, externa
             )}
 
             {/* Log (compact) */}
-            {run.log.length > 1 && (
+            {Array.isArray(run.log) && run.log.length > 1 && (
               <div>
                 <div className="text-xs font-medium text-gray-600 mb-1">Log</div>
                 <div className="bg-gray-50 rounded-lg p-2 text-xs text-gray-500 space-y-0.5 max-h-32 overflow-y-auto font-mono">

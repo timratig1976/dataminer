@@ -54,7 +54,7 @@ class RolesAndAdminSeeder extends Seeder
             ['email' => 'admin@dataminer.local'],
             [
                 'name' => 'Administrator',
-                'password' => Hash::make('password123'),
+                'password' => Hash::make('password'),
             ]
         );
         $admin->assignRole($adminRole);

@@ -25,7 +25,16 @@ class AgentRunController extends Controller
     public function indexForCase(string $id): JsonResponse
     {
         $runs = AgentRun::where('case_id', $id)->orderByDesc('created_at')->get();
-        return response()->json($runs);
+        $formatted = $runs->map(function ($run) {
+            $state = $run->state ?? [];
+            return array_merge($run->toArray(), $state, [
+                'id' => $run->id,
+                'caseId' => $run->case_id,
+                'goal' => $run->goal,
+                'status' => $run->status,
+            ]);
+        });
+        return response()->json($formatted);
     }
 
     /**
@@ -39,17 +48,28 @@ class AgentRunController extends Controller
 
         // Support string or Next.js AgentGoal object: { description, targetCount, region, ... }
         $description = is_array($rawGoal) ? ($rawGoal['description'] ?? '') : (string) $rawGoal;
+        $targetCount = is_array($rawGoal) ? (int) ($rawGoal['targetCount'] ?? 3000) : 3000;
 
         if (empty(trim($description))) {
             return response()->json(['error' => 'goal / description required'], 400);
         }
 
-        $run = $this->agentRunner->startRun($caseId, $description);
+        $run = $this->agentRunner->startRun($caseId, $description, $targetCount);
+
+        // Merge state properties into response so React hooks (useAgentRun / AgentGoalModal)
+        // receive plan, stepResults, uniqueCount, etc. directly at top-level
+        $state = $run->state ?? [];
+        $payload = array_merge($run->toArray(), $state, [
+            'id' => $run->id,
+            'caseId' => $run->case_id,
+            'goal' => $run->goal,
+            'status' => $run->status,
+        ]);
 
         return response()->json([
             'message' => 'Agent run created',
-            'run' => $run,
-            ...$run->toArray(),
+            'run' => $payload,
+            ...$payload,
         ], 201);
     }
 
@@ -123,7 +143,13 @@ class AgentRunController extends Controller
         if (!$run) {
             return response()->json(['error' => 'Run not found'], 404);
         }
-        return response()->json($run);
+        $state = $run->state ?? [];
+        return response()->json(array_merge($run->toArray(), $state, [
+            'id' => $run->id,
+            'caseId' => $run->case_id,
+            'goal' => $run->goal,
+            'status' => $run->status,
+        ]));
     }
 
     /**

@@ -19,22 +19,46 @@ class AgentRunnerService
     /**
      * Initializes a new goal-based Agent Run and generates its discovery plan.
      */
-    public function startRun(string $caseId, string $goal): AgentRun
+    public function startRun(string $caseId, string $goal, int $targetCount = 3000): AgentRun
     {
-        $plan = $this->planner->createPlan($goal);
+        $plan = $this->planner->createPlan($goal, $targetCount);
+
+        // Ensure steps have unique string ids
+        $steps = array_map(function ($s, $idx) {
+            if (empty($s['id'])) {
+                $s['id'] = 'step_' . ($idx + 1);
+            }
+            return $s;
+        }, $plan['steps'] ?? [], array_keys($plan['steps'] ?? []));
+        $plan['steps'] = $steps;
+
+        $goalObj = [
+            'description' => $goal,
+            'targetCount' => $targetCount,
+        ];
 
         return AgentRun::create([
             'id' => (string) Str::uuid(),
             'case_id' => $caseId,
-            'goal' => $goal,
+            'goal' => $goalObj,
             'status' => 'pending',
             'state' => [
+                'id' => null, // will be populated
+                'caseId' => $caseId,
+                'goal' => $goalObj,
+                'status' => 'pending',
+                'iteration' => 0,
                 'plan' => $plan,
+                'stepResults' => [],
+                'uniqueCount' => 0,
+                'costUsd' => 0,
+                'startedAt' => now()->toIso8601String(),
+                'updatedAt' => now()->toIso8601String(),
                 'current_step_index' => 0,
-                'total_steps' => count($plan['steps'] ?? []),
+                'total_steps' => count($steps),
                 'rows_added' => 0,
                 'logs' => [
-                    ['timestamp' => now()->toIso8601String(), 'message' => "Plan created with " . count($plan['steps'] ?? []) . " steps."]
+                    ['timestamp' => now()->toIso8601String(), 'message' => "Plan created with " . count($steps) . " steps."]
                 ]
             ]
         ]);
@@ -74,25 +98,44 @@ class AgentRunnerService
             $logMessage = "Maps '{$query}' ({$loc}) found {$addedCount} new places.";
         }
 
+        // Record step result
+        $state['stepResults'] = $state['stepResults'] ?? [];
+        $state['stepResults'][] = [
+            'stepId' => $step['id'] ?? ('step_' . ($index + 1)),
+            'attemptedAt' => now()->toIso8601String(),
+            'hitsFound' => $addedCount,
+            'uniqueInserted' => $addedCount,
+            'costUsd' => 0,
+            'source' => $step['type'] ?? 'unknown',
+        ];
+
         // Advance state
         $state['current_step_index'] = $index + 1;
         $state['rows_added'] = ($state['rows_added'] ?? 0) + $addedCount;
+        $state['uniqueCount'] = ($state['uniqueCount'] ?? 0) + $addedCount;
+        $state['updatedAt'] = now()->toIso8601String();
         $state['logs'][] = [
             'timestamp' => now()->toIso8601String(),
             'message' => $logMessage,
         ];
 
         $isCompleted = ($index + 1) >= count($steps);
+        $status = $isCompleted ? 'completed' : 'running';
+        $state['status'] = $status;
         $run->update([
-            'status' => $isCompleted ? 'completed' : 'running',
+            'status' => $status,
             'state' => $state,
         ]);
 
-        return [
+        return array_merge($run->toArray(), $state, [
+            'id' => $run->id,
+            'caseId' => $run->case_id,
+            'goal' => $run->goal,
+            'status' => $status,
             'completed' => $isCompleted,
             'step' => $step,
             'added' => $addedCount,
             'run' => $run,
-        ];
+        ]);
     }
 }

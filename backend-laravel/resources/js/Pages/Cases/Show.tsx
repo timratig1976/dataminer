@@ -4,7 +4,7 @@ import {
     ArrowLeft, Play, Download, Sparkles, RefreshCw, ChevronLeft, 
     ChevronRight, AlertCircle, Plus, Target, Upload, Database, Sliders, 
     Building2, UserCheck, Users, Globe, ExternalLink, Flame, RotateCcw, GripVertical, 
-    Search, FileText, CheckCircle2, Clock, Trash2
+    Search, FileText, CheckCircle2, Clock, Trash2, Loader2, Edit2, Check, X
 } from 'lucide-react';
 import { Link } from '@inertiajs/react';
 import { AgentGoalModal } from '../../Components/AgentGoalModal';
@@ -17,6 +17,21 @@ import { ColumnHeaderMenu } from '../../Components/ColumnHeaderMenu';
 import GroupedTableView from '../../Components/GroupedTableView';
 import ConfirmDialog from '../../Components/ui/ConfirmDialog';
 import { apiFetch } from '../../api';
+import { getColumnLabel } from '../../lib/columns';
+
+const CONTACT_CORE_KEYS = [
+    "company_name",
+    "first_name",
+    "last_name",
+    "position",
+    "email",
+    "email_extrapolated",
+    "phone",
+    "linkedin",
+    "domain",
+    "city",
+    "source",
+];
 
 interface CaseDetail {
     id: string;
@@ -79,6 +94,26 @@ const COL_LABELS: Record<string, string> = {
     _scrape_cached_ts: "⚡ Cache-Status",
 };
 
+const DEFAULT_BASE_KEYS = [
+    'domain',
+    '_scrape_cached_ts',
+    'company_name',
+    'industry',
+    'address',
+    'zip',
+    'city',
+    'description',
+    'phone',
+    'email',
+    'company_email',
+    'employees',
+    'founded',
+    'maps_rating',
+    'category',
+    'maps_reviews',
+    'maps_url',
+];
+
 export default function CaseShow({ case: c }: Props) {
     const [caseData, setCaseData] = useState<CaseDetail>(c);
     const [rows, setRows] = useState<RowItem[]>([]);
@@ -129,6 +164,44 @@ export default function CaseShow({ case: c }: Props) {
     // Two-Step Confirmation State
     const [confirmDeleteRows, setConfirmDeleteRows] = useState(false);
     const [columnToDelete, setColumnToDelete] = useState<any | null>(null);
+
+    // Rename case state
+    const [isEditingName, setIsEditingName] = useState(false);
+    const [editedName, setEditedName] = useState(c.name);
+    const [savingName, setSavingName] = useState(false);
+
+    useEffect(() => {
+        if (!isEditingName) {
+            setEditedName(caseData.name);
+        }
+    }, [caseData.name, isEditingName]);
+
+    const handleSaveName = async (e?: React.FormEvent) => {
+        if (e) e.preventDefault();
+        const trimmed = editedName.trim();
+        if (!trimmed || trimmed === caseData.name) {
+            setIsEditingName(false);
+            setEditedName(caseData.name);
+            return;
+        }
+
+        setSavingName(true);
+        try {
+            const res = await apiFetch(`/api/cases/${caseData.id}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: trimmed }),
+            });
+            if (res.ok) {
+                setCaseData(prev => ({ ...prev, name: trimmed }));
+                setIsEditingName(false);
+            }
+        } catch (err) {
+            console.error('Failed to update case name', err);
+        } finally {
+            setSavingName(false);
+        }
+    };
 
     const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
@@ -184,11 +257,16 @@ export default function CaseShow({ case: c }: Props) {
                 .finally(() => setAgentRunsLoading(false));
         } else if (activeTab === "Log") {
             setLogsLoading(true);
-            apiFetch(`/api/logs?caseId=${caseData.id}&limit=200`)
-                .then(r => r.json())
-                .then(d => setLogs(Array.isArray(d) ? d : []))
-                .catch(() => setLogs([]))
-                .finally(() => setLogsLoading(false));
+            const fetchLogs = () => {
+                apiFetch(`/api/logs?caseId=${caseData.id}&limit=200`)
+                    .then(r => r.json())
+                    .then(d => setLogs(Array.isArray(d) ? d : []))
+                    .catch(() => setLogs([]))
+                    .finally(() => setLogsLoading(false));
+            };
+            fetchLogs();
+            const interval = setInterval(fetchLogs, 4000);
+            return () => clearInterval(interval);
         }
     }, [activeTab, caseData.id]);
 
@@ -395,9 +473,58 @@ export default function CaseShow({ case: c }: Props) {
 
     // Columns calculation
     const aiColumns = caseData.ai_columns || [];
-    const baseCols = caseData.columns && caseData.columns.length > 0 
-        ? caseData.columns.map(c => ({ key: c.key, label: c.label, isAi: false }))
-        : (rows[0] ? Object.keys(rows[0].data).filter(k => !k.startsWith('_')).map(k => ({ key: k, label: COL_LABELS[k] ?? k, isAi: false })) : []);
+    const aiKeySet = useMemo(() => new Set(aiColumns.map(c => c.outputKey)), [aiColumns]);
+
+    const baseCols = useMemo(() => {
+        let keys: string[] = [];
+        if (caseData.columns && caseData.columns.length > 0) {
+            keys = caseData.columns.map(c => c.key);
+        } else if (rows.length > 0) {
+            const rowKeySet = new Set<string>();
+            rows.slice(0, 20).forEach(r => {
+                Object.keys(r.data || {}).forEach(k => {
+                    if (!k.startsWith('_') || k === '_scrape_cached_ts') {
+                        rowKeySet.add(k);
+                    }
+                });
+            });
+            keys = Array.from(rowKeySet);
+        }
+
+        // When rows are empty or missing standard keys, populate from colOrder or default template keys
+        if (keys.length === 0) {
+            if (colOrder && colOrder.length > 0) {
+                keys = colOrder.filter(k => !aiKeySet.has(k) && (!k.startsWith('_') || k === '_scrape_cached_ts'));
+            } else {
+                keys = [...DEFAULT_BASE_KEYS];
+            }
+        }
+
+        // Include any non-AI keys present in colOrder
+        if (colOrder && colOrder.length > 0) {
+            colOrder.forEach(k => {
+                if (!aiKeySet.has(k) && (!k.startsWith('_') || k === '_scrape_cached_ts') && !keys.includes(k)) {
+                    keys.push(k);
+                }
+            });
+        }
+
+        // Always ensure cache status column exists
+        if (!keys.includes('_scrape_cached_ts')) {
+            const domainIdx = keys.indexOf('domain');
+            if (domainIdx !== -1) {
+                keys.splice(domainIdx + 1, 0, '_scrape_cached_ts');
+            } else {
+                keys.unshift('_scrape_cached_ts');
+            }
+        }
+
+        return keys.map(k => ({
+            key: k,
+            label: COL_LABELS[k] ?? k,
+            isAi: false,
+        }));
+    }, [caseData.columns, rows, colOrder, aiKeySet]);
 
     const aiColHeaders = aiColumns.map(c => ({
         key: c.outputKey,
@@ -422,7 +549,17 @@ export default function CaseShow({ case: c }: Props) {
                 }
             });
             colMap.forEach((col, k) => {
-                if (!manuallyHiddenCols.has(k)) ordered.push(col);
+                if (!manuallyHiddenCols.has(k)) {
+                    // Position cache column next to domain if not already in colOrder
+                    if (k === '_scrape_cached_ts') {
+                        const domainIdx = ordered.findIndex(c => c.key === 'domain');
+                        if (domainIdx !== -1) {
+                            ordered.splice(domainIdx + 1, 0, col);
+                            return;
+                        }
+                    }
+                    ordered.push(col);
+                }
             });
             return ordered;
         }
@@ -430,16 +567,159 @@ export default function CaseShow({ case: c }: Props) {
         return Array.from(colMap.values()).filter(c => !manuallyHiddenCols.has(c.key));
     }, [aiColHeaders, baseCols, colOrder, manuallyHiddenCols]);
 
+    // Export Studio state and available columns
+    const [exportType, setExportType] = useState<"companies" | "contacts">("companies");
+    const [exportSelectedCols, setExportSelectedCols] = useState<Set<string>>(new Set());
+    const [exportLoading, setExportLoading] = useState(false);
+
+    const exportCompanyColumns = useMemo(() => {
+        const allKeys = new Set([
+            ...baseCols.map(c => c.key),
+            ...aiColumns.map(c => c.outputKey),
+            'company_name', 'domain', 'phone', 'email', 'company_email', 'address', 'city', 'zip', 'industry', 'description'
+        ]);
+        const base = colOrder.length > 0 ? colOrder : Array.from(allKeys);
+        const ordered: string[] = [];
+        base.forEach(k => {
+            if (allKeys.has(k) && !ordered.includes(k) && !k.startsWith('_contacts_json_') && !k.startsWith('_scrape_')) {
+                ordered.push(k);
+            }
+        });
+        allKeys.forEach(k => {
+            if (!ordered.includes(k) && !k.startsWith('_contacts_json_') && !k.startsWith('_scrape_')) {
+                ordered.push(k);
+            }
+        });
+        return ordered;
+    }, [baseCols, aiColumns, colOrder]);
+
+    const exportContactColumns = useMemo(() => {
+        const set = new Set(CONTACT_CORE_KEYS);
+        contactRows.forEach(c => {
+            Object.keys(c.data || {}).forEach(k => {
+                if (!k.startsWith('_')) set.add(k);
+            });
+        });
+        return Array.from(set);
+    }, [contactRows]);
+
+    useEffect(() => {
+        if (exportType === 'companies') {
+            setExportSelectedCols(new Set(exportCompanyColumns));
+        } else {
+            setExportSelectedCols(new Set(exportContactColumns));
+        }
+    }, [exportType, exportCompanyColumns, exportContactColumns]);
+
+    const toggleExportCol = (key: string) => {
+        setExportSelectedCols(prev => {
+            const next = new Set(prev);
+            if (next.has(key)) next.delete(key);
+            else next.add(key);
+            return next;
+        });
+    };
+
+    const toggleAllExportCols = () => {
+        const currentList = exportType === 'companies' ? exportCompanyColumns : exportContactColumns;
+        if (exportSelectedCols.size === currentList.length) {
+            setExportSelectedCols(new Set());
+        } else {
+            setExportSelectedCols(new Set(currentList));
+        }
+    };
+
+    const handleExportDownload = async () => {
+        if (exportSelectedCols.size === 0) return;
+        setExportLoading(true);
+        const cols = Array.from(exportSelectedCols).join(',');
+        const url = `/api/export?caseId=${caseData.id}&type=${exportType}&cols=${encodeURIComponent(cols)}`;
+        try {
+            const res = await apiFetch(url);
+            const blob = await res.blob();
+            const safeCaseName = caseData.name.replace(/[^a-z0-9]/gi, '_');
+            const filename = exportType === 'contacts' 
+                ? `${safeCaseName}_kontakte.csv` 
+                : `${safeCaseName}_firmen.csv`;
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = filename;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        } catch (e: any) {
+            alert('Export fehlgeschlagen: ' + e.message);
+        } finally {
+            setExportLoading(false);
+        }
+    };
+
     return (
         <AppLayout
             title={
                 <div className="flex flex-col gap-0.5">
-                    <div className="text-base font-bold text-slate-900 tracking-tight">
-                        {caseData.name}
-                    </div>
+                    {isEditingName ? (
+                        <form onSubmit={handleSaveName} className="flex items-center gap-1.5 my-0.5">
+                            <input
+                                type="text"
+                                value={editedName}
+                                onChange={(e) => setEditedName(e.target.value)}
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Escape') {
+                                        setIsEditingName(false);
+                                        setEditedName(caseData.name);
+                                    }
+                                }}
+                                autoFocus
+                                disabled={savingName}
+                                className="text-base font-bold text-slate-900 tracking-tight px-2 py-0.5 rounded border border-orange-500 ring-2 ring-orange-200 outline-none bg-white min-w-[240px] max-w-[420px]"
+                            />
+                            <button
+                                type="submit"
+                                disabled={savingName}
+                                title="Speichern"
+                                className="p-1 rounded bg-orange-500 hover:bg-orange-600 text-white cursor-pointer shadow-xs transition-colors"
+                            >
+                                <Check className="w-4 h-4" />
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setIsEditingName(false);
+                                    setEditedName(caseData.name);
+                                }}
+                                disabled={savingName}
+                                title="Abbrechen"
+                                className="p-1 rounded hover:bg-slate-200 text-slate-500 cursor-pointer transition-colors"
+                            >
+                                <X className="w-4 h-4" />
+                            </button>
+                        </form>
+                    ) : (
+                        <div 
+                            className="flex items-center gap-2 group cursor-pointer w-fit" 
+                            onClick={() => setIsEditingName(true)}
+                            title="Klicken zum Umbenennen"
+                        >
+                            <h1 className="text-base font-bold text-slate-900 tracking-tight group-hover:text-orange-600 transition-colors">
+                                {caseData.name}
+                            </h1>
+                            <button
+                                type="button"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    setIsEditingName(true);
+                                }}
+                                className="p-1 rounded text-slate-400 hover:text-slate-700 hover:bg-slate-100 opacity-40 group-hover:opacity-100 transition-all cursor-pointer"
+                                title="Case umbenennen"
+                            >
+                                <Edit2 className="w-3.5 h-3.5" />
+                            </button>
+                        </div>
+                    )}
                     <div className="flex items-center gap-3 text-xs text-slate-500 font-mono">
-                        <span>{total} Zeilen</span>
-                        {catalogRows.length > 0 && <span>{catalogRows.length} Kataloge</span>}
+                        <span>{total.toLocaleString('de-DE')} Zeilen</span>
+                        {catalogRows.length > 0 && <span>{catalogRows.length.toLocaleString('de-DE')} Kataloge</span>}
                         <span>{baseCols.length} Quellspalten</span>
                         <span style={{ color: "var(--green)", fontWeight: 500 }}>{aiColumns.length} KI-Spalten</span>
                     </div>
@@ -453,7 +733,7 @@ export default function CaseShow({ case: c }: Props) {
                     <button onClick={() => setShowImportModal(true)} className="btn-v2">
                         <Upload style={{ width: 12, height: 12 }} /> Import
                     </button>
-                    <button onClick={() => setShowExportModal(true)} className="btn-v2">
+                    <button onClick={() => setActiveTab("Export")} className="btn-v2">
                         <Download style={{ width: 12, height: 12 }} /> Export
                     </button>
                     <button
@@ -483,24 +763,6 @@ export default function CaseShow({ case: c }: Props) {
                     >
                         ⭐ Als Vorlage sichern
                     </button>
-
-                    <div className="tsep-v2" />
-
-                    {/* Primary Run Buttons */}
-                    {aiColumns.length > 0 ? (
-                        <div style={{ display: "flex", gap: 3 }}>
-                            <button onClick={() => runPhase("company")} disabled={runningPhase !== null} className="btn-v2 btn-v2-primary">
-                                <Building2 style={{ width: 12, height: 12 }} /> Firmen
-                            </button>
-                            <button onClick={() => runPhase("contact")} disabled={runningPhase !== null} className="btn-v2 btn-v2-ai">
-                                <UserCheck style={{ width: 12, height: 12 }} /> Kontakte
-                            </button>
-                        </div>
-                    ) : (
-                        <button onClick={() => setShowAddColModal(true)} className="btn-v2 btn-v2-primary">
-                            ▶ Ausführen ▾
-                        </button>
-                    )}
                 </div>
             }
         >
@@ -1001,8 +1263,49 @@ export default function CaseShow({ case: c }: Props) {
                                     </tr>
                                 ) : rows.length === 0 ? (
                                     <tr>
-                                        <td colSpan={visibleColumns.length + 4} className="p-16 text-center text-slate-400 text-xs">
-                                            Keine Zeilen. CSV importieren um zu starten.
+                                        <td colSpan={visibleColumns.length + 4} className="p-0 border-0">
+                                            <div 
+                                                style={{ 
+                                                    position: "sticky", 
+                                                    left: 0, 
+                                                    width: "min(calc(100vw - 280px), 100%)",
+                                                    display: "flex",
+                                                    flexDirection: "column",
+                                                    alignItems: "center",
+                                                    justifyContent: "center",
+                                                    textAlign: "center",
+                                                    padding: "60px 20px"
+                                                }}
+                                            >
+                                                <div 
+                                                    className="w-14 h-14 rounded-2xl flex items-center justify-center mb-4 shadow-xs"
+                                                    style={{ background: "var(--orange-soft)", border: "1px solid var(--orange-mid)" }}
+                                                >
+                                                    <Building2 className="w-7 h-7 text-orange-600" />
+                                                </div>
+                                                <h3 className="text-sm font-semibold text-slate-800 mb-1">
+                                                    Noch keine Firmen oder Leads in diesem Case
+                                                </h3>
+                                                <p className="text-xs text-slate-500 mb-6 leading-relaxed max-w-sm">
+                                                    Lade eine CSV- oder Excel-Datei mit Domains und Firmendaten hoch, oder starte die automatisierte Maps- & Google-Suche nach Leads.
+                                                </p>
+                                                <div className="flex items-center gap-3">
+                                                    <button
+                                                        onClick={() => setShowImportModal(true)}
+                                                        className="btn-v2 btn-v2-primary flex items-center gap-2 px-3.5 py-2 text-xs font-medium cursor-pointer shadow-xs hover:shadow"
+                                                    >
+                                                        <Upload className="w-3.5 h-3.5" />
+                                                        CSV / Excel importieren
+                                                    </button>
+                                                    <button
+                                                        onClick={() => setShowAgentModal(true)}
+                                                        className="btn-v2 btn-v2-orange-soft flex items-center gap-2 px-3.5 py-2 text-xs font-medium cursor-pointer shadow-xs"
+                                                    >
+                                                        <Target className="w-3.5 h-3.5" />
+                                                        Leads finden & erweitern
+                                                    </button>
+                                                </div>
+                                            </div>
                                         </td>
                                     </tr>
                                 ) : (
@@ -1278,7 +1581,21 @@ export default function CaseShow({ case: c }: Props) {
                                                                     </button>
                                                                 </div>
                                                             );
-                                                        })() : col.key === "domain" ? (
+                                                        })() : col.key === "maps_url" ? (
+                                                            val ? (
+                                                                <a 
+                                                                    href={String(val)} 
+                                                                    target="_blank" 
+                                                                    rel="noreferrer"
+                                                                    className="inline-flex items-center gap-1 text-[11px] font-medium text-sky-600 hover:text-sky-800 hover:underline bg-sky-50 px-2 py-0.5 rounded border border-sky-200"
+                                                                    onClick={e => e.stopPropagation()}
+                                                                >
+                                                                    🗺 Maps öffnen ↗
+                                                                </a>
+                                                            ) : (
+                                                                <span className="text-slate-300 italic text-[11px]">—</span>
+                                                            )
+                                                        ) : col.key === "domain" ? (
                                                             <div className="flex items-center gap-1.5 min-w-0">
                                                                 {val ? (
                                                                     <>
@@ -1362,8 +1679,34 @@ export default function CaseShow({ case: c }: Props) {
                         {contactRowsLoading ? (
                             <div className="p-12 text-center text-xs text-slate-400">Lade Kontakte...</div>
                         ) : contactRows.length === 0 ? (
-                            <div className="p-12 text-center text-xs text-slate-400">
-                                Noch keine Kontakte vorhanden. Führe die Phase "👤 Kontakte" aus oder klicke auf "Aus Firmendaten extrahieren".
+                            <div className="py-16 px-4 text-center flex flex-col items-center">
+                                <div 
+                                    className="w-12 h-12 rounded-xl flex items-center justify-center mb-3 shadow-xs"
+                                    style={{ background: "var(--orange-soft)", border: "1px solid var(--orange-mid)" }}
+                                >
+                                    <Users className="w-6 h-6 text-orange-600" />
+                                </div>
+                                <h3 className="text-sm font-semibold text-slate-800 mb-1">
+                                    Noch keine Kontakte oder Entscheider
+                                </h3>
+                                <p className="text-xs text-slate-500 mb-5 max-w-sm">
+                                    Sobald Firmendaten vorliegen, kannst du Ansprechpartner automatisch extrahieren oder per KI suchen lassen.
+                                </p>
+                                <button
+                                    onClick={async () => {
+                                        const res = await apiFetch('/api/contact-rows/extract', {
+                                            method: 'POST',
+                                            headers: { 'Content-Type': 'application/json' },
+                                            body: JSON.stringify({ caseId: caseData.id }),
+                                        });
+                                        const data = await res.json();
+                                        alert(data.message || 'Kontakte extrahiert');
+                                        apiFetch(`/api/contact-rows?caseId=${caseData.id}`).then(r => r.json()).then(d => setContactRows(d.contacts || []));
+                                    }}
+                                    className="btn-v2 btn-v2-ai flex items-center gap-1.5"
+                                >
+                                    ⚡ Aus Firmendaten extrahieren
+                                </button>
                             </div>
                         ) : (
                             <div className="border rounded-lg overflow-hidden shadow-xs" style={{ borderColor: 'var(--border)' }}>
@@ -1371,6 +1714,7 @@ export default function CaseShow({ case: c }: Props) {
                                     <thead className="bg-[#fbfaf8] border-b text-[10.5px] uppercase font-semibold text-slate-600" style={{ borderColor: 'var(--border)' }}>
                                         <tr>
                                             <th className="p-2.5 w-10 border-r">#</th>
+                                            <th className="p-2.5 border-r">Firma</th>
                                             <th className="p-2.5 border-r">Name / Ansprechpartner</th>
                                             <th className="p-2.5 border-r">Position</th>
                                             <th className="p-2.5 border-r">E-Mail</th>
@@ -1382,6 +1726,12 @@ export default function CaseShow({ case: c }: Props) {
                                         {contactRows.map((c, i) => (
                                             <tr key={c.id || i} className="hover:bg-[#faf9f7]">
                                                 <td className="p-2.5 border-r font-mono text-slate-400">{i + 1}</td>
+                                                <td className="p-2.5 border-r text-slate-800 font-medium">
+                                                    {c.company_name || c.data?.company_name || '—'}
+                                                    {(c.domain || c.data?.domain) && (
+                                                        <div className="text-[10px] text-slate-400 font-mono">{c.domain || c.data?.domain}</div>
+                                                    )}
+                                                </td>
                                                 <td className="p-2.5 border-r font-semibold text-slate-900">{c.name || `${c.first_name || ''} ${c.last_name || ''}`.trim() || '—'}</td>
                                                 <td className="p-2.5 border-r text-slate-600">{c.position || '—'}</td>
                                                 <td className="p-2.5 border-r font-mono text-orange-600">{c.email ? <a href={`mailto:${c.email}`}>{c.email}</a> : '—'}</td>
@@ -1418,26 +1768,116 @@ export default function CaseShow({ case: c }: Props) {
                                 Bislang keine Discovery-Läufe in diesem Case. Klicke auf "+ Neue Suche starten", um Leads zu finden.
                             </div>
                         ) : (
-                            agentRuns.map((run) => (
-                                <div key={run.id} className="p-4 rounded-xl border bg-white shadow-xs space-y-2" style={{ borderColor: 'var(--border)' }}>
-                                    <div className="flex items-center justify-between">
-                                        <div className="font-semibold text-xs text-slate-900 flex items-center gap-2">
-                                            <span>🎯 {run.goal}</span>
-                                            <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${run.status === 'completed' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-orange-50 text-orange-700 border border-orange-200'}`}>
-                                                {run.status}
-                                            </span>
+                            agentRuns.map((run) => {
+                                const goalText = typeof run.goal === 'object' && run.goal !== null
+                                    ? (run.goal.description || JSON.stringify(run.goal))
+                                    : String(run.goal || '–');
+                                const targetCount = typeof run.goal === 'object' && run.goal !== null
+                                    ? (run.goal.targetCount || 3000)
+                                    : (run.targetCount || 3000);
+                                const foundCount = run.uniqueCount ?? run.state?.rows_added ?? run.state?.uniqueCount ?? 0;
+                                const planSteps = run.plan?.steps ?? run.state?.plan?.steps ?? [];
+                                const currentStep = run.state?.current_step_index ?? run.current_step_index ?? 0;
+                                const totalSteps = planSteps.length || run.state?.total_steps || 0;
+                                const pct = targetCount > 0 ? Math.min(100, Math.round((foundCount / targetCount) * 100)) : 0;
+                                const logs = run.logs ?? run.state?.logs ?? [];
+
+                                return (
+                                    <div key={run.id} className="p-4 rounded-xl border bg-white shadow-xs space-y-3" style={{ borderColor: 'var(--border)' }}>
+                                        <div className="flex items-start justify-between gap-3">
+                                            <div className="flex-1 min-w-0">
+                                                <div className="font-semibold text-sm text-slate-900 flex items-center gap-2">
+                                                    <span>🎯 {goalText}</span>
+                                                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
+                                                        run.status === 'completed'
+                                                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                                            : run.status === 'running'
+                                                            ? 'bg-blue-50 text-blue-700 border border-blue-200'
+                                                            : 'bg-orange-50 text-orange-700 border border-orange-200'
+                                                    }`}>
+                                                        {run.status}
+                                                    </span>
+                                                </div>
+                                                <div className="text-xs text-slate-500 mt-1 flex items-center gap-4 flex-wrap">
+                                                    <span>Ziel: {targetCount.toLocaleString('de-DE')} Leads</span>
+                                                    <span>•</span>
+                                                    <span>Gefundene Leads: <strong className="text-emerald-600">{foundCount.toLocaleString('de-DE')}</strong></span>
+                                                    <span>•</span>
+                                                    <span>Schritte: {currentStep} / {totalSteps}</span>
+                                                </div>
+                                            </div>
+                                            <div className="text-right shrink-0">
+                                                <span className="text-[11px] text-slate-400 font-mono block">
+                                                    {new Date(run.created_at).toLocaleString('de-DE')}
+                                                </span>
+                                                <button
+                                                    onClick={() => setShowAgentModal(true)}
+                                                    className="mt-1 text-xs text-blue-600 hover:text-blue-800 font-medium cursor-pointer"
+                                                >
+                                                    Im Modal öffnen ↗
+                                                </button>
+                                            </div>
                                         </div>
-                                        <span className="text-[11px] text-slate-400 font-mono">
-                                            {new Date(run.created_at).toLocaleString('de-DE')}
-                                        </span>
+
+                                        {/* Progress bar */}
+                                        <div className="space-y-1">
+                                            <div className="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden">
+                                                <div
+                                                    className={`h-full transition-all duration-300 ${run.status === 'completed' ? 'bg-emerald-500' : 'bg-blue-600'}`}
+                                                    style={{ width: `${pct}%` }}
+                                                />
+                                            </div>
+                                            <div className="flex justify-between text-[10px] text-slate-400">
+                                                <span>{pct}% erreicht</span>
+                                                <span>{foundCount} von {targetCount}</span>
+                                            </div>
+                                        </div>
+
+                                        {/* Plan steps snippet if present */}
+                                        {planSteps.length > 0 && (
+                                            <div className="border-t pt-2 space-y-1" style={{ borderColor: 'var(--border)' }}>
+                                                <div className="text-[11px] font-medium text-slate-600 flex justify-between">
+                                                    <span>Plan ({planSteps.length} Schritte)</span>
+                                                    <span className="text-slate-400">Aktuell: Schritt {Math.min(currentStep + 1, totalSteps)}</span>
+                                                </div>
+                                                <div className="max-h-28 overflow-y-auto space-y-1 pr-1 font-mono text-[11px]">
+                                                    {planSteps.slice(0, 8).map((st: any, idx: number) => {
+                                                        const isDone = idx < currentStep;
+                                                        const isCur = idx === currentStep && run.status === 'running';
+                                                        return (
+                                                            <div key={st.id || idx} className={`flex items-center gap-2 px-2 py-0.5 rounded text-[11px] ${
+                                                                isDone ? 'bg-emerald-50 text-emerald-800' : isCur ? 'bg-blue-50 text-blue-800 font-semibold' : 'bg-slate-50 text-slate-600'
+                                                            }`}>
+                                                                <span>{isDone ? '✓' : isCur ? '▶' : '○'}</span>
+                                                                <span className="uppercase text-[9px] px-1 bg-white rounded border border-slate-200">{st.type === 'google_maps' ? 'MAPS' : 'WEB'}</span>
+                                                                <span className="truncate flex-1">{st.label || st.mapQuery || st.query}</span>
+                                                                <span className="text-slate-400 text-[10px]">~{st.estimatedHits}</span>
+                                                            </div>
+                                                        );
+                                                    })}
+                                                    {planSteps.length > 8 && (
+                                                        <div className="text-[10px] text-slate-400 text-center py-0.5">
+                                                            + {planSteps.length - 8} weitere Schritte im Modal...
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {/* Recent activity log */}
+                                        {logs.length > 0 && (
+                                            <div className="text-[11px] bg-slate-900 text-slate-300 rounded-md p-2 font-mono max-h-20 overflow-y-auto">
+                                                <div className="text-[10px] text-slate-500 mb-1">Letzte Aktivität:</div>
+                                                {logs.slice(-3).map((l: any, i: number) => (
+                                                    <div key={i} className="truncate">
+                                                        {typeof l === 'object' && l !== null ? l.message : String(l)}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
                                     </div>
-                                    <div className="text-xs text-slate-500 flex items-center gap-4">
-                                        <span>Schritte: {run.state?.current_step_index || 0} / {run.state?.total_steps || 0}</span>
-                                        <span>•</span>
-                                        <span>Gefundene Leads: <strong className="text-emerald-600">{run.state?.rows_added || 0}</strong></span>
-                                    </div>
-                                </div>
-                            ))
+                                );
+                            })
                         )}
                     </div>
                 )}
@@ -1507,15 +1947,30 @@ export default function CaseShow({ case: c }: Props) {
                     <div className="flex-1 overflow-y-auto p-5 space-y-3 font-mono text-xs">
                         <div className="flex items-center justify-between pb-2 border-b" style={{ borderColor: 'var(--border-xs)' }}>
                             <span className="font-semibold text-slate-700">📜 Case Ausführungsprotokoll</span>
-                            <button
-                                onClick={async () => {
-                                    await apiFetch(`/api/logs?caseId=${caseData.id}`, { method: 'DELETE' });
-                                    setLogs([]);
-                                }}
-                                className="text-[11px] text-rose-600 hover:underline cursor-pointer"
-                            >
-                                Logs leeren
-                            </button>
+                            <div className="flex items-center gap-3">
+                                <button
+                                    onClick={() => {
+                                        setLogsLoading(true);
+                                        apiFetch(`/api/logs?caseId=${caseData.id}&limit=200`)
+                                            .then(r => r.json())
+                                            .then(d => setLogs(Array.isArray(d) ? d : []))
+                                            .catch(() => setLogs([]))
+                                            .finally(() => setLogsLoading(false));
+                                    }}
+                                    className="text-[11px] text-blue-600 hover:underline cursor-pointer"
+                                >
+                                    Aktualisieren
+                                </button>
+                                <button
+                                    onClick={async () => {
+                                        await apiFetch(`/api/logs?caseId=${caseData.id}`, { method: 'DELETE' });
+                                        setLogs([]);
+                                    }}
+                                    className="text-[11px] text-rose-600 hover:underline cursor-pointer"
+                                >
+                                    Logs leeren
+                                </button>
+                            </div>
                         </div>
 
                         {logsLoading ? (
@@ -1538,25 +1993,132 @@ export default function CaseShow({ case: c }: Props) {
 
                 {/* ══ TAB 6: EXPORT ══ */}
                 {activeTab === "Export" && (
-                    <div className="flex-1 overflow-y-auto p-6 space-y-5">
-                        <div className="max-w-md p-5 rounded-xl border bg-white shadow-xs space-y-3" style={{ borderColor: 'var(--border)' }}>
-                            <h3 className="font-semibold text-sm text-slate-900 flex items-center gap-2">
-                                <Download className="w-4 h-4 text-orange-500" />
-                                CSV-Tabelle exportieren
-                            </h3>
-                            <p className="text-xs text-slate-500 leading-relaxed">
-                                Lädt alle aktuellen Firmendaten und angereicherten Spalten als kommagetrennte CSV-Datei herunter.
-                            </p>
-                            <a
-                                href={`/api/export?caseId=${caseData.id}`}
-                                className="btn-v2 btn-v2-primary inline-flex"
-                            >
-                                <Download className="w-3.5 h-3.5" />
-                                CSV herunterladen ({total} Zeilen)
-                            </a>
+                    <div className="flex-1 overflow-y-auto p-6 space-y-6 max-w-5xl">
+                        {/* Interactive Export Studio */}
+                        <div className="p-6 rounded-2xl border bg-white shadow-xs space-y-5" style={{ borderColor: 'var(--border)' }}>
+                            <div className="flex flex-wrap items-center justify-between gap-4 pb-4 border-b" style={{ borderColor: 'var(--border-xs)' }}>
+                                <div>
+                                    <h3 className="font-bold text-base text-slate-900 flex items-center gap-2">
+                                        <Download className="w-5 h-5 text-orange-500" />
+                                        Daten & Spalten vor dem Export anpassen
+                                    </h3>
+                                    <p className="text-xs text-slate-500 mt-1">
+                                        Wähle aus, welche Spalten und Datenfelder in die CSV-Tabelle übernommen werden sollen.
+                                    </p>
+                                </div>
+
+                                {/* Type Switcher */}
+                                <div className="flex items-center p-1 bg-slate-100 rounded-xl border border-slate-200">
+                                    <button
+                                        type="button"
+                                        onClick={() => setExportType('companies')}
+                                        className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                                            exportType === 'companies'
+                                                ? 'bg-white text-slate-900 shadow-xs'
+                                                : 'text-slate-600 hover:text-slate-900'
+                                        }`}
+                                    >
+                                        <Building2 className="w-3.5 h-3.5 text-orange-500" />
+                                        Firmen ({total})
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setExportType('contacts')}
+                                        className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                                            exportType === 'contacts'
+                                                ? 'bg-white text-slate-900 shadow-xs'
+                                                : 'text-slate-600 hover:text-slate-900'
+                                        }`}
+                                    >
+                                        <UserCheck className="w-3.5 h-3.5 text-emerald-600" />
+                                        Kontakte ({contactRows.length})
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Column Selection Controls */}
+                            <div className="flex items-center justify-between text-xs">
+                                <span className="font-semibold text-slate-700 uppercase tracking-wider text-[11px]">
+                                    Ausgewählte Spalten: <span className="text-orange-600 font-bold">{exportSelectedCols.size}</span> von {(exportType === 'companies' ? exportCompanyColumns : exportContactColumns).length}
+                                </span>
+                                <div className="flex items-center gap-3">
+                                    <button
+                                        type="button"
+                                        onClick={toggleAllExportCols}
+                                        className="text-orange-600 hover:text-orange-700 font-semibold cursor-pointer text-xs"
+                                    >
+                                        {exportSelectedCols.size === (exportType === 'companies' ? exportCompanyColumns : exportContactColumns).length
+                                            ? "Keine auswählen"
+                                            : "Alle auswählen"}
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Column Checkboxes Grid */}
+                            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2.5 max-h-[360px] overflow-y-auto p-3 bg-slate-50 border rounded-xl" style={{ borderColor: 'var(--border-xs)' }}>
+                                {(exportType === 'companies' ? exportCompanyColumns : exportContactColumns).map(key => {
+                                    const isAi = aiColumns.some(c => c.outputKey === key);
+                                    const isSelected = exportSelectedCols.has(key);
+                                    const label = exportType === 'companies' 
+                                        ? getColumnLabel(key, { ...caseData, aiColumns } as any) 
+                                        : key;
+
+                                    return (
+                                        <label
+                                            key={key}
+                                            className={`flex items-center gap-2.5 p-2 rounded-lg border text-xs cursor-pointer select-none transition-all ${
+                                                isSelected 
+                                                    ? 'bg-white border-orange-300 text-slate-900 shadow-2xs font-medium' 
+                                                    : 'bg-transparent border-transparent text-slate-400 hover:bg-white/60'
+                                            }`}
+                                        >
+                                            <input
+                                                type="checkbox"
+                                                checked={isSelected}
+                                                onChange={() => toggleExportCol(key)}
+                                                className="w-4 h-4 rounded text-orange-500 focus:ring-orange-400 accent-orange-500 shrink-0 cursor-pointer"
+                                            />
+                                            <span className="truncate flex-1" title={label !== key ? `${label} (${key})` : key}>
+                                                {label}
+                                            </span>
+                                            {isAi && (
+                                                <span className="text-[10px] px-1.5 py-0.5 rounded font-bold bg-emerald-50 text-emerald-600 border border-emerald-200 shrink-0">
+                                                    KI
+                                                </span>
+                                            )}
+                                        </label>
+                                    );
+                                })}
+                            </div>
+
+                            {/* Action Row with Export Button */}
+                            <div className="pt-3 flex flex-wrap items-center justify-between gap-4 border-t" style={{ borderColor: 'var(--border-xs)' }}>
+                                <div className="text-xs text-slate-500">
+                                    Format: <strong className="text-slate-700">CSV</strong> (UTF-8, Kommagetrennt) &bull; {exportType === 'companies' ? `${total} Zeilen` : `${contactRows.length} Kontakte`}
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={handleExportDownload}
+                                    disabled={exportLoading || exportSelectedCols.size === 0}
+                                    className="btn-v2 btn-v2-primary py-2 px-5 text-sm font-semibold flex items-center gap-2 shadow-sm cursor-pointer disabled:opacity-50"
+                                >
+                                    {exportLoading ? (
+                                        <>
+                                            <Loader2 className="w-4 h-4 animate-spin" />
+                                            Export wird vorbereitet...
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Download className="w-4 h-4" />
+                                            CSV exportieren ({exportSelectedCols.size} Spalten)
+                                        </>
+                                    )}
+                                </button>
+                            </div>
                         </div>
 
-                        <div className="max-w-md p-5 rounded-xl border bg-white shadow-xs space-y-3" style={{ borderColor: 'var(--border)' }}>
+                        {/* JSON Snapshot Backup */}
+                        <div className="p-5 rounded-xl border bg-white shadow-xs space-y-3" style={{ borderColor: 'var(--border)' }}>
                             <h3 className="font-semibold text-sm text-slate-900 flex items-center gap-2">
                                 <Database className="w-4 h-4 text-emerald-600" />
                                 Vollständiger JSON-Snapshot
@@ -1566,7 +2128,7 @@ export default function CaseShow({ case: c }: Props) {
                             </p>
                             <a
                                 href={`/api/export/snapshot?caseId=${caseData.id}`}
-                                className="btn-v2 inline-flex"
+                                className="btn-v2 inline-flex items-center gap-2"
                             >
                                 <Download className="w-3.5 h-3.5" />
                                 Snapshot herunterladen (.json)

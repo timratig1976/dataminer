@@ -19,6 +19,7 @@ class ContactRow extends Model
         'data',
         'cell_statuses',
         'cell_errors',
+        'import_batch_id',
     ];
 
     protected $casts = [

@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\DataCase;
 use App\Models\Row;
 use App\Models\GlobalSetting;
+use App\Models\CaseLog;
 use App\Services\BatchEnrichService;
 use App\Services\ContactSearchService;
 use Illuminate\Http\JsonResponse;
@@ -53,12 +54,18 @@ class CellRunController extends Controller
         }
 
         $outputKey = $column['outputKey'] ?? $validated['columnId'];
-        $tool = $column['tool'] ?? 'batch_company';
+        $tool = $column['tool'] ?? null;
+        $region = $case->eden_region ?: ($global->eden_region ?: 'eu');
+        $model = $column['model'] ?? ($region === 'eu' ? 'mistral/mistral-small-latest' : 'openai/gpt-4o-mini');
 
         // Set status to running
         $statuses = $row->cell_statuses ?? [];
         $statuses[$outputKey] = 'running';
         $row->update(['cell_statuses' => $statuses]);
+
+        $company = $row->data['company_name'] ?? $row->data['name'] ?? ("Zeile #" . (($row->row_index ?? 0) + 1));
+        $colName = $column['name'] ?? $outputKey;
+        CaseLog::record($case->id, "▶ [{$colName}] {$company} gestartet (Model: {$model})");
 
         try {
             if ($tool === 'batch_contact') {
@@ -66,9 +73,9 @@ class CellRunController extends Controller
                     rowData: $row->data ?? [],
                     apiKey: $apiKey,
                     maxContacts: $column['batchContactsMax'] ?? 3,
-                    includeLinkedIn: $column['batchContactsLinkedIn'] ?? true,
-                    includeImpressum: $column['batchContactsImpressum'] ?? true,
-                    model: $column['model'] ?? 'openai/gpt-4o-mini'
+                    model: $model,
+                    customSystemPrompt: !empty($column['prompt']) ? $column['prompt'] : null,
+                    region: $region
                 );
 
                 $data = $row->data ?? [];
@@ -86,15 +93,23 @@ class CellRunController extends Controller
                 $statuses[$outputKey] = 'done';
                 $row->update(['data' => $data, 'cell_statuses' => $statuses]);
 
+                CaseLog::record($case->id, "✓ [{$colName}] {$company} — {$summary}");
+
                 return response()->json([
                     'status' => 'done',
                     'row' => $row,
                     'result' => $summary,
                 ]);
-            } else {
-                // Default: batch_company
+            } elseif ($tool === 'batch_company' || $tool === 'batch_enrich' || empty($tool) && empty($column['prompt'])) {
                 $fields = $column['batchOutputFields'] ?? ['company_name', 'domain', 'phone', 'company_email', 'address', 'city', 'zip', 'industry', 'description'];
-                $result = $batchEnrich->enrichRow($row->data ?? [], $apiKey, $fields, $column['model'] ?? 'openai/gpt-4o-mini');
+                $result = $batchEnrich->enrichRow(
+                    rowData: $row->data ?? [],
+                    apiKey: $apiKey,
+                    requestedFields: $fields,
+                    model: $model,
+                    customSystemPrompt: !empty($column['prompt']) ? $column['prompt'] : null,
+                    region: $region
+                );
 
                 $data = array_merge($row->data ?? [], $result['fields'] ?? []);
                 $filled = count(array_filter($result['fields'] ?? []));
@@ -106,11 +121,58 @@ class CellRunController extends Controller
                 $statuses[$outputKey] = 'done';
                 $row->update(['data' => $data, 'cell_statuses' => $statuses]);
 
+                CaseLog::record($case->id, "✓ [{$colName}] {$company} — {$summary}");
+
                 return response()->json([
                     'status' => 'done',
                     'row' => $row,
                     'result' => $summary,
                     'fields' => $result['fields'] ?? [],
+                ]);
+            } else {
+                // Custom prompt AI column
+                $promptTemplate = $column['prompt'] ?? '';
+                $renderedPrompt = $promptTemplate;
+                foreach ($row->data ?? [] as $k => $v) {
+                    $renderedPrompt = str_replace('{' . $k . '}', (string) $v, $renderedPrompt);
+                }
+
+                $chat = app(\App\Services\EdenAiService::class)->chatCompletion(
+                    apiKey: $apiKey,
+                    model: $model,
+                    system: 'Du bist ein KI-Assistent für Datenanreicherung. Antworte präzise.',
+                    prompt: $renderedPrompt ?: "Analysiere das Unternehmen: " . ($row->data['company_name'] ?? ''),
+                    maxTokens: 800,
+                    temperature: 0.0,
+                    region: $region
+                );
+
+                $val = trim($chat['raw'] ?? '');
+                $data = $row->data ?? [];
+
+                if (($column['outputMode'] ?? '') === 'json') {
+                    $cleaned = preg_replace('/^```(?:json)?\s*/i', '', trim($val));
+                    $cleaned = preg_replace('/\s*```$/', '', $cleaned);
+                    $json = json_decode($cleaned, true);
+                    if (is_array($json)) {
+                        $jsonKey = $column['jsonKey'] ?? null;
+                        $data[$outputKey] = ($jsonKey && isset($json[$jsonKey])) ? (is_string($json[$jsonKey]) ? $json[$jsonKey] : json_encode($json[$jsonKey])) : $val;
+                    } else {
+                        $data[$outputKey] = $val;
+                    }
+                } else {
+                    $data[$outputKey] = $val;
+                }
+
+                $statuses[$outputKey] = 'done';
+                $row->update(['data' => $data, 'cell_statuses' => $statuses]);
+
+                CaseLog::record($case->id, "✓ [{$colName}] {$company} — abgeschlossen");
+
+                return response()->json([
+                    'status' => 'done',
+                    'row' => $row,
+                    'result' => $data[$outputKey],
                 ]);
             }
         } catch (Exception $e) {
@@ -118,6 +180,8 @@ class CellRunController extends Controller
             $errors = $row->cell_errors ?? [];
             $errors[$outputKey] = $e->getMessage();
             $row->update(['cell_statuses' => $statuses, 'cell_errors' => $errors]);
+
+            CaseLog::record($case->id, "✗ [{$colName}] {$company} — Fehler: " . $e->getMessage());
 
             return response()->json([
                 'status' => 'error',

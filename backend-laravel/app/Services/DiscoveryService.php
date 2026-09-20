@@ -36,11 +36,15 @@ class DiscoveryService
             }
 
             $newRows[] = [
-                'Unternehmen' => $hit['title'] ?? $domain,
-                'Website' => "https://{$domain}",
-                'Quelle' => 'Google Search',
-                'Suchbegriff' => $query,
-                'Snippet' => $hit['snippet'] ?? null,
+                'company_name' => $hit['title'] ?? $domain,
+                'domain' => $domain,
+                'source_url' => $url,
+                'source_title' => $hit['title'] ?? $domain,
+                'source_snippet' => $hit['snippet'] ?? null,
+                'source_domain' => $domain,
+                'search_query' => $query,
+                'search_source' => 'google_search',
+                'is_catalog' => '',
             ];
             $existingDomains[] = $domain; // prevent duplicate within same run
         }
@@ -56,24 +60,42 @@ class DiscoveryService
         $existingDomains = $this->getExistingDomains($caseId);
         $places = $this->mapsService->search($query, $location, $limit);
 
+        // Fallback to Google Search if Maps yielded 0 results
+        if (empty($places)) {
+            $fallbackQuery = $location ? "{$query} in {$location}" : $query;
+            return $this->discoverWeb($caseId, $fallbackQuery, $limit);
+        }
+
         $newRows = [];
         foreach ($places as $p) {
             $url = $p['website'] ?? '';
-            $domain = $this->extractDomain($url);
+            $domain = !empty($url) ? $this->extractDomain($url) : null;
 
             // Skip duplicates if domain exists
             if (!empty($domain) && in_array($domain, $existingDomains)) {
                 continue;
             }
 
+            $name = $p['name'] ?? 'Unbekannt';
+            $address = $p['address'] ?? '';
+            $mapsUrl = $p['mapsUrl'] ?? '';
+
             $newRows[] = [
-                'Unternehmen' => $p['name'] ?? 'Unbekannt',
-                'Website' => !empty($domain) ? "https://{$domain}" : null,
-                'Adresse' => $p['address'] ?? null,
-                'Telefon' => $p['phone'] ?? null,
-                'Kategorie' => $p['category'] ?? null,
-                'Bewertung' => $p['rating'] ?? null,
-                'Quelle' => 'Google Maps',
+                'company_name' => $name,
+                'domain' => $domain ?? '',
+                'address' => $address,
+                'phone' => $p['phone'] ?? '',
+                'category' => $p['category'] ?? '',
+                'maps_rating' => !empty($p['rating']) ? (string) $p['rating'] : '',
+                'maps_reviews' => !empty($p['reviews']) ? (string) $p['reviews'] : '',
+                'maps_url' => $mapsUrl,
+                'source_url' => !empty($url) ? $url : $mapsUrl,
+                'source_title' => $name,
+                'source_snippet' => implode(' · ', array_filter([$p['category'] ?? null, $address])),
+                'source_domain' => $domain ?? '',
+                'search_query' => $query,
+                'search_source' => 'google_maps',
+                'is_catalog' => '',
             ];
 
             if (!empty($domain)) {

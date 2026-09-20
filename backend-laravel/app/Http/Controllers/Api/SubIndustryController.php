@@ -33,22 +33,55 @@ class SubIndustryController extends Controller
             return response()->json(['error' => 'No Eden API key configured'], 400);
         }
 
-        $systemPrompt = "Du bist ein B2B-Marktrecherche-Experte. Zerlege das gegebene Ziel in 4-8 relevante Teilbranchen, Gewerke oder Nischen. Antworte NUR als JSON-Array mit Objekten: [{\"id\": \"slug\", \"label\": \"Name\", \"query\": \"Suchbegriff\"}]";
+        $systemPrompt = "Du bist ein B2B-Recherche-Analyst. Deine Aufgabe: Analysiere ob eine Suchanfrage eine breite Branche umfasst.\n"
+            . "Wenn JA: Zerlege in spezifische Sub-Branchen (NUR Branchen-Namen, KEINE Städte im mapQuery).\n"
+            . "Erkenne IMMER die Geographie aus der Anfrage:\n"
+            . "- Einzelne Stadt → geography = Stadtname, cities = [Stadtname]\n"
+            . "- Region/Bundesland (z.B. \"Mecklenburg-Vorpommern\", \"MV\", \"Bayern\", \"NRW\") → geography = Regionsname, cities = ALLE Städte dieser Region recherchieren und vollständig aufzählen (15-50 Städte). Keine Stadt auslassen. Städte nur im cities-Array, NICHT in suggestions.mapQuery.\n"
+            . "- Gesamtes Land (z.B. \"Deutschland\") → geography = \"Deutschland\", cities = [] (zu viele Städte für Liste)\n\n"
+            . "Gib JSON zurück:\n"
+            . "{\n"
+            . "  \"isBroadIndustry\": true,\n"
+            . "  \"geography\": \"Region oder null\",\n"
+            . "  \"cities\": [\"Stadt1\", \"Stadt2\"],\n"
+            . "  \"suggestions\": [\n"
+            . "    {\"mapQuery\": \"Sub-Branche (OHNE Stadt)\", \"label\": \"Anzeigename\", \"description\": \"kurze Beschreibung\", \"estimatedSize\": \"groß|mittel|klein\"}\n"
+            . "  ]\n"
+            . "}";
 
         try {
+            $region = $global->eden_region ?: 'eu';
+            $defaultModel = $region === 'eu' ? 'mistral/mistral-small-latest' : 'openai/gpt-4o-mini';
+            $model = $request->input('model', $defaultModel);
+
             $resp = $edenAi->chatCompletion(
                 apiKey: $apiKey,
-                model: $request->input('model', 'openai/gpt-4o-mini'),
-                systemPrompt: $systemPrompt,
-                userPrompt: "Ziel: {$prompt}"
+                model: $model,
+                system: $systemPrompt,
+                prompt: "Analyse: {$prompt}",
+                region: $region
             );
 
-            $raw = trim(preg_replace('/^```(?:json)?\n?/i', '', preg_replace('/\n?```$/i', '', $resp['raw'])));
-            $items = json_decode($raw, true) ?? [];
+            $raw = trim(preg_replace('/^```(?:json)?\n?/i', '', preg_replace('/\n?```$/i', '', $resp['raw'] ?? '')));
+            $parsed = json_decode($raw, true) ?? [];
+
+            $suggestions = array_map(function ($s) {
+                return [
+                    'mapQuery' => (string) ($s['mapQuery'] ?? $s['query'] ?? ''),
+                    'label' => (string) ($s['label'] ?? $s['mapQuery'] ?? $s['name'] ?? ''),
+                    'description' => (string) ($s['description'] ?? ''),
+                    'estimatedSize' => (string) ($s['estimatedSize'] ?? 'mittel'),
+                    'selected' => false,
+                ];
+            }, $parsed['suggestions'] ?? $parsed['sub_industries'] ?? []);
 
             return response()->json([
-                'sub_industries' => $items,
-                'count' => count($items),
+                'isBroadIndustry' => (bool) ($parsed['isBroadIndustry'] ?? count($suggestions) > 0),
+                'geography' => $parsed['geography'] ?? null,
+                'cities' => is_array($parsed['cities'] ?? null) ? array_map('strval', $parsed['cities']) : [],
+                'suggestions' => $suggestions,
+                'sub_industries' => $suggestions,
+                'count' => count($suggestions),
             ]);
         } catch (\Throwable $e) {
             return response()->json(['error' => $e->getMessage()], 500);

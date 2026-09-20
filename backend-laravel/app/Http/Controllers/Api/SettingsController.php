@@ -98,12 +98,13 @@ class SettingsController extends Controller
      */
     public function destroyKey(Request $request): JsonResponse
     {
-        $keyName = $request->query('key');
+        $keyName = $request->input('key') ?: $request->query('key');
         $map = [
             'eden' => 'eden_api_key',
             'firecrawl' => 'firecrawl_api_key',
             'serper' => 'serper_api_key',
             'serp' => 'serp_api_key',
+            'serpapi' => 'serp_api_key',
             'brave' => 'brave_api_key',
             'apify' => 'apify_api_token',
         ];
@@ -133,24 +134,39 @@ class SettingsController extends Controller
 
         $t0 = microtime(true);
         try {
+            $region = $request->input('region') ?: ($settings->eden_region ?: 'eu');
+            $modelInput = $request->input('model');
+            if ($modelInput) {
+                $testModel = $modelInput;
+            } else {
+                // In Eden AI EU region, OpenAI models are restricted; use mistral if eu, otherwise openai
+                $testModel = $region === 'eu' ? 'mistral/mistral-small-latest' : 'openai/gpt-4o-mini';
+            }
+            $testPrompt = $request->input('prompt') ?: 'Reply with exactly: ok';
+
             $resp = $edenAi->chatCompletion(
                 apiKey: $apiKey,
-                model: 'openai/gpt-4o-mini',
-                systemPrompt: 'You are a smoke test responder.',
-                userPrompt: 'Reply with exactly: ok'
+                model: $testModel,
+                system: 'You are a smoke test responder.',
+                prompt: $testPrompt,
+                region: $region
             );
 
             return response()->json([
                 'ok' => true,
-                'region' => $settings->eden_region ?? 'eu',
+                'region' => $region,
                 'latencyMs' => round((microtime(true) - $t0) * 1000),
                 'preview' => substr($resp['raw'] ?? 'ok', 0, 80),
-                'costUsd' => $resp['cost'] ?? 0,
+                'costUsd' => $resp['cost_usd'] ?? $resp['cost'] ?? 0,
             ]);
         } catch (\Throwable $e) {
+            $err = $e->getMessage();
+            if (str_contains($err, '451') || str_contains($err, 'not available on the EU')) {
+                $err = "Model ist auf EU-Endpoint nicht verfügbar. Tipp: Wechsle Region auf 'US' für OpenAI oder nutze 'mistral/'.";
+            }
             return response()->json([
                 'ok' => false,
-                'error' => $e->getMessage(),
+                'error' => $err,
                 'latencyMs' => round((microtime(true) - $t0) * 1000),
             ]);
         }
@@ -183,7 +199,7 @@ class SettingsController extends Controller
                 ]);
             }
 
-            if ($provider === 'serp') {
+            if ($provider === 'serp' || $provider === 'serpapi') {
                 $key = $bodyKey ?: ($settings->serp_api_key ?: env('SERP_API_KEY'));
                 if (!$key) return response()->json(['ok' => false, 'error' => 'Kein SerpAPI-Key vorhanden']);
                 $res = $searchService->searchSerpApi($query, $key, 3);
@@ -287,6 +303,44 @@ class SettingsController extends Controller
             return response()->json(['ok' => false, 'error' => "Unbekannter Provider: {$provider}"]);
         } catch (\Throwable $e) {
             return response()->json(['ok' => false, 'error' => $e->getMessage()]);
+        }
+    }
+
+    /**
+     * GET /api/settings/test-planner
+     */
+    public function getPlannerPrompt(\App\Services\PlannerService $planner): JsonResponse
+    {
+        $settings = GlobalSetting::instance();
+        return response()->json([
+            'defaultPrompt' => $planner->buildDefaultSystemPrompt(),
+            'currentOverride' => $settings->planner_system_prompt,
+        ]);
+    }
+
+    /**
+     * POST /api/settings/test-planner
+     */
+    public function testPlanner(Request $request, \App\Services\PlannerService $planner): JsonResponse
+    {
+        $prompt = trim($request->input('prompt') ?: $request->input('goal') ?: '');
+        if (!$prompt) {
+            return response()->json(['error' => 'Such-Ziel (prompt) erforderlich'], 400);
+        }
+
+        $maxResults = (int) ($request->input('maxResults') ?: 50);
+        $systemPrompt = $request->has('systemPrompt') ? $request->input('systemPrompt') : null;
+
+        $t0 = microtime(true);
+        try {
+            $plan = $planner->createPlan($prompt, $maxResults, $systemPrompt);
+            return response()->json([
+                'plan' => $plan,
+                'latencyMs' => round((microtime(true) - $t0) * 1000),
+                'usedOverride' => !empty($systemPrompt),
+            ]);
+        } catch (\Throwable $e) {
+            return response()->json(['error' => $e->getMessage()], 500);
         }
     }
 }

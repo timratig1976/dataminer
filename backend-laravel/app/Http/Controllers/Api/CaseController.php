@@ -69,6 +69,7 @@ class CaseController extends Controller
 
                 $colOrder = array_values(array_filter([
                     'domain',
+                    '_scrape_cached_ts',
                     $batchCompany ? $batchCompany['outputKey'] : null,
                     'company_name',
                     'industry',
@@ -78,6 +79,7 @@ class CaseController extends Controller
                     'description',
                     'phone',
                     'email',
+                    'company_email',
                     'employees',
                     'founded',
                     'maps_rating',

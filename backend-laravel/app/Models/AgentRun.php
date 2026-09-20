@@ -32,7 +32,7 @@ class AgentRun extends Model
 
     public function getCaseIdAttribute(): ?string
     {
-        return $this->case_id;
+        return $this->attributes['case_id'] ?? null;
     }
 
     public function dataCase(): BelongsTo

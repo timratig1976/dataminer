@@ -1,0 +1,25 @@
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    public function up(): void
+    {
+        if (!Schema::hasTable('logs')) {
+            Schema::create('logs', function (Blueprint $table) {
+                $table->id();
+                $table->string('case_id')->index();
+                $table->text('message');
+                $table->timestamp('created_at')->useCurrent();
+            });
+        }
+    }
+
+    public function down(): void
+    {
+        Schema::dropIfExists('logs');
+    }
+};

@@ -101,7 +101,7 @@ class SearchService
         ];
     }
 
-    protected function searchSerpApi(string $query, string $apiKey, int $limit): array
+    public function searchSerpApi(string $query, string $apiKey, int $limit): array
     {
         $response = Http::timeout(10)->get('https://serpapi.com/search.json', [
             'q' => $query,
@@ -113,7 +113,8 @@ class SearchService
         ]);
 
         if (!$response->successful()) {
-            throw new \Exception("SerpAPI HTTP " . $response->status());
+            $msg = $response->json('error') ?: ("SerpAPI HTTP " . $response->status());
+            throw new \Exception($msg);
         }
 
         $organic = $response->json('organic_results') ?? [];
@@ -128,7 +129,7 @@ class SearchService
         return $out;
     }
 
-    protected function searchSerper(string $query, string $apiKey, int $limit): array
+    public function searchSerper(string $query, string $apiKey, int $limit): array
     {
         $response = Http::timeout(10)
             ->withHeaders(['X-API-KEY' => $apiKey, 'Content-Type' => 'application/json'])
@@ -140,7 +141,8 @@ class SearchService
             ]);
 
         if (!$response->successful()) {
-            throw new \Exception("Serper HTTP " . $response->status());
+            $msg = $response->json('message') ?: $response->json('error') ?: ("Serper HTTP " . $response->status());
+            throw new \Exception($msg);
         }
 
         $organic = $response->json('organic') ?? [];
@@ -155,7 +157,7 @@ class SearchService
         return $out;
     }
 
-    protected function searchBrave(string $query, string $apiKey, int $limit): array
+    public function searchBrave(string $query, string $apiKey, int $limit): array
     {
         $response = Http::timeout(10)
             ->withHeaders(['X-Subscription-Token' => $apiKey, 'Accept' => 'application/json'])
@@ -167,7 +169,8 @@ class SearchService
             ]);
 
         if (!$response->successful()) {
-            throw new \Exception("Brave HTTP " . $response->status());
+            $msg = $response->json('message') ?: $response->json('error') ?: ("Brave HTTP " . $response->status());
+            throw new \Exception($msg);
         }
 
         $results = $response->json('web.results') ?? [];

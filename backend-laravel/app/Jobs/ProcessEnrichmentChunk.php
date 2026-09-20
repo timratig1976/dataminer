@@ -11,6 +11,7 @@ use App\Models\EnrichmentJob;
 use App\Models\Row;
 use App\Models\DataCase;
 use App\Models\GlobalSetting;
+use App\Models\CaseLog;
 use App\Services\BatchEnrichService;
 use App\Services\ContactSearchService;
 use Illuminate\Support\Facades\DB;
@@ -111,12 +112,17 @@ class ProcessEnrichmentChunk implements ShouldQueue
             }
 
             try {
+                $region = $case->eden_region ?: ($global->eden_region ?: 'eu');
+                $model = $column['model'] ?? ($region === 'eu' ? 'mistral/mistral-small-latest' : 'openai/gpt-4o-mini');
+
                 if ($tool === 'batch_contact') {
                     $result = $contactSearch->searchContacts(
-                        $row->data ?? [],
-                        $apiKey,
-                        $column['batchContactsMax'] ?? 3,
-                        $column['model'] ?? 'openai/gpt-4o-mini'
+                        rowData: $row->data ?? [],
+                        apiKey: $apiKey,
+                        maxContacts: $column['batchContactsMax'] ?? 3,
+                        model: $model,
+                        customSystemPrompt: !empty($column['prompt']) ? $column['prompt'] : null,
+                        region: $region
                     );
 
                     $data = $row->data ?? [];
@@ -130,21 +136,76 @@ class ProcessEnrichmentChunk implements ShouldQueue
                         $data['company_email'] = $result['company_email'];
                     }
 
+                    $data[$outputKey] = $summary;
                     $statuses[$outputKey] = 'done';
                     $row->update(['data' => $data, 'cell_statuses' => $statuses]);
-                } else {
-                    // Default: batch_company
+
+                    $comp = $row->data['company_name'] ?? $row->data['name'] ?? ("Zeile #" . (($row->row_index ?? 0) + 1));
+                    CaseLog::record($case->id, "✓ [{$column['name']}] {$comp} — {$summary}");
+                } elseif ($tool === 'batch_company' || $tool === 'batch_enrich' || empty($tool) && empty($column['prompt'])) {
+                    // Batch company
                     $fields = $column['batchOutputFields'] ?? ['company_name', 'domain', 'phone', 'company_email', 'address', 'city', 'zip', 'industry', 'description'];
-                    $result = $batchEnrich->enrichRow($row->data ?? [], $apiKey, $fields, $column['model'] ?? 'openai/gpt-4o-mini');
+                    $result = $batchEnrich->enrichRow(
+                        rowData: $row->data ?? [],
+                        apiKey: $apiKey,
+                        requestedFields: $fields,
+                        model: $model,
+                        customSystemPrompt: !empty($column['prompt']) ? $column['prompt'] : null,
+                        region: $region
+                    );
 
                     $data = array_merge($row->data ?? [], $result['fields'] ?? []);
                     $filled = count(array_filter($result['fields'] ?? []));
-                    $data[$outputKey] = "{$filled}/" . count($fields) . " Felder angereichert";
+                    $summary = "{$filled}/" . count($fields) . " Felder angereichert";
+                    $data[$outputKey] = $summary;
                     $data['_scrape_cached_ts'] = now()->toIso8601String();
                     $data['_scrape_origin'] = $result['source_origin'] ?? 'live:scrape';
 
                     $statuses[$outputKey] = 'done';
                     $row->update(['data' => $data, 'cell_statuses' => $statuses]);
+
+                    $comp = $row->data['company_name'] ?? $row->data['name'] ?? ("Zeile #" . (($row->row_index ?? 0) + 1));
+                    CaseLog::record($case->id, "✓ [{$column['name']}] {$comp} — {$summary}");
+                } else {
+                    // Custom prompt AI column
+                    $promptTemplate = $column['prompt'] ?? '';
+                    $renderedPrompt = $promptTemplate;
+                    foreach ($row->data ?? [] as $k => $v) {
+                        $renderedPrompt = str_replace('{' . $k . '}', (string) $v, $renderedPrompt);
+                    }
+
+                    $chat = app(\App\Services\EdenAiService::class)->chatCompletion(
+                        apiKey: $apiKey,
+                        model: $model,
+                        system: 'Du bist ein KI-Assistent für Datenanreicherung. Antworte präzise.',
+                        prompt: $renderedPrompt ?: "Analysiere das Unternehmen: " . ($row->data['company_name'] ?? ''),
+                        maxTokens: 800,
+                        temperature: 0.0,
+                        region: $region
+                    );
+
+                    $val = trim($chat['raw'] ?? '');
+                    $data = $row->data ?? [];
+
+                    if (($column['outputMode'] ?? '') === 'json') {
+                        $cleaned = preg_replace('/^```(?:json)?\s*/i', '', trim($val));
+                        $cleaned = preg_replace('/\s*```$/', '', $cleaned);
+                        $json = json_decode($cleaned, true);
+                        if (is_array($json)) {
+                            $jsonKey = $column['jsonKey'] ?? null;
+                            $data[$outputKey] = ($jsonKey && isset($json[$jsonKey])) ? (is_string($json[$jsonKey]) ? $json[$jsonKey] : json_encode($json[$jsonKey])) : $val;
+                        } else {
+                            $data[$outputKey] = $val;
+                        }
+                    } else {
+                        $data[$outputKey] = $val;
+                    }
+
+                    $statuses[$outputKey] = 'done';
+                    $row->update(['data' => $data, 'cell_statuses' => $statuses]);
+
+                    $comp = $row->data['company_name'] ?? $row->data['name'] ?? ("Zeile #" . (($row->row_index ?? 0) + 1));
+                    CaseLog::record($case->id, "✓ [{$column['name']}] {$comp} — abgeschlossen");
                 }
 
                 // Increment job progress atomically
@@ -154,6 +215,9 @@ class ProcessEnrichmentChunk implements ShouldQueue
                 $errors = $row->cell_errors ?? [];
                 $errors[$outputKey] = $e->getMessage();
                 $row->update(['cell_statuses' => $statuses, 'cell_errors' => $errors]);
+
+                $comp = $row->data['company_name'] ?? $row->data['name'] ?? ("Zeile #" . (($row->row_index ?? 0) + 1));
+                CaseLog::record($case->id, "✗ [{$column['name']}] {$comp} — Fehler: " . $e->getMessage());
 
                 DB::table('enrichment_jobs')->where('id', $this->jobId)->increment('failed_rows');
             }

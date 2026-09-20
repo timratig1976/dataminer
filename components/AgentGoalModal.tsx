@@ -2,19 +2,17 @@
 
 import { useState, useCallback, useEffect, useRef } from "react";
 import {
-  Target, Loader2, CheckCircle2, XCircle, SkipForward, Circle,
+  X, Target, Loader2, CheckCircle2, XCircle, SkipForward, Circle,
   AlertTriangle, TrendingUp, DollarSign, Clock, MapPin,
   Play, Pause, Trash2, Pencil,
 } from "lucide-react";
 import { useAgentRun, type AgentGoal, type AgentRunState, type AgentRunStatus } from "@/hooks/useAgentRun";
-import { Modal, FormField, Input, Callout } from "@/components/ui/ModalMaster";
 
 interface Props {
   caseId: string;
   rowsCount: number;
   onClose: () => void;
   onImported: () => void;
-  embedded?: boolean;
   // Optional: externally managed run state (lifted to parent page)
   externalRun?: AgentRunState | null;
   externalRunning?: boolean;
@@ -60,7 +58,7 @@ function stepIcon(result: { uniqueInserted: number; error?: string }): React.Rea
 
 // ── Agent run hook — only used when no external state provided ──
 
-export function AgentGoalModal({ caseId, rowsCount, onClose, onImported, externalRun, externalRunning, externalStart, externalStep, externalCancel, externalReload, embedded }: Props) {
+export function AgentGoalModal({ caseId, rowsCount, onClose, onImported, externalRun, externalRunning, externalStart, externalStep, externalCancel, externalReload }: Props) {
   // ── Goal form state ──
   const [description, setDescription] = useState("");
   const [targetCount, setTargetCount] = useState(3000);
@@ -68,7 +66,6 @@ export function AgentGoalModal({ caseId, rowsCount, onClose, onImported, externa
   const [maxDurationMin, setMaxDurationMin] = useState("");
   const [maxIterations, setMaxIterations] = useState("");
   const [useMaps, setUseMaps] = useState(true);
-  const [sourceMode, setSourceMode] = useState<"auto" | "maps" | "search" | "combined">("auto");
   const [showCostDetails, setShowCostDetails] = useState(false);
 
   // ── Sub-industry selection state ──
@@ -310,8 +307,7 @@ export function AgentGoalModal({ caseId, rowsCount, onClose, onImported, externa
     if (maxBudgetUsd.trim()) goal.maxBudgetUsd = Number(maxBudgetUsd);
     if (maxDurationMin.trim()) goal.maxDurationMin = Number(maxDurationMin);
     if (maxIterations.trim()) goal.maxIterations = Number(maxIterations);
-    goal.useMaps = sourceMode === "search" ? false : useMaps;
-    goal.sourceMode = sourceMode;
+    goal.useMaps = useMaps;
     await start(goal);
   };
 
@@ -410,12 +406,24 @@ export function AgentGoalModal({ caseId, rowsCount, onClose, onImported, externa
     ? Math.round((Date.now() - new Date(run.startedAt).getTime()) / 60_000)
     : 0;
 
-  const content = (
-    <div>
-      {!run ? (
-        subIndustryScreen ? (
-          /* ── Sub-industry selection screen ── */
-          <div className="px-6 py-5 flex-1 overflow-y-auto space-y-4">
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col">
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 shrink-0">
+          <div className="flex items-center gap-2">
+            <Target className="w-5 h-5 text-rose-500" />
+            <h3 className="font-semibold text-gray-900">Ziel-basierte Suche</h3>
+          </div>
+          <button onClick={handleClose} className="text-gray-400 hover:text-gray-600">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        {!run ? (
+          subIndustryScreen ? (
+            /* ── Sub-industry selection screen ── */
+            <div className="px-6 py-5 flex-1 overflow-y-auto space-y-4">
               <div>
                 <div className="text-sm font-semibold text-gray-800 mb-1">
                   🏭 Welche Sub-Branchen sollen gesucht werden?
@@ -444,7 +452,7 @@ export function AgentGoalModal({ caseId, rowsCount, onClose, onImported, externa
                       >
                         {/* Select checkbox area */}
                         <button
-                          className="flex-1 text-left flex items-center gap-2 min-w-0 cursor-pointer"
+                          className="flex-1 text-left flex items-center gap-2 min-w-0"
                           onClick={() => toggleAtPath(path)}
                         >
                           <div className={`w-4 h-4 rounded border-2 shrink-0 flex items-center justify-center ${
@@ -470,7 +478,7 @@ export function AgentGoalModal({ caseId, rowsCount, onClose, onImported, externa
                         <button
                           title="Sub-Branchen laden"
                           onClick={() => handleDrillDown(path)}
-                          className={`shrink-0 w-6 h-6 rounded-lg flex items-center justify-center transition-colors cursor-pointer ${
+                          className={`shrink-0 w-6 h-6 rounded-lg flex items-center justify-center transition-colors ${
                             node.expanded
                               ? "bg-violet-100 text-violet-600"
                               : "text-gray-400 hover:bg-gray-100 hover:text-gray-600"
@@ -508,28 +516,32 @@ export function AgentGoalModal({ caseId, rowsCount, onClose, onImported, externa
               {/* Select all / none */}
               <div className="flex gap-2 items-center">
                 <button onClick={() => setSubSuggestions(p => p.map(s => ({ ...s, selected: true })))}
-                  className="text-xs text-gray-500 hover:text-gray-700 underline cursor-pointer">Alle auswählen</button>
+                  className="text-xs text-gray-500 hover:text-gray-700 underline">Alle auswählen</button>
                 <span className="text-gray-300">·</span>
                 <button onClick={() => setSubSuggestions(p => p.map(s => ({ ...s, selected: false })))}
-                  className="text-xs text-gray-500 hover:text-gray-700 underline cursor-pointer">Keine</button>
+                  className="text-xs text-gray-500 hover:text-gray-700 underline">Keine</button>
                 <span className="text-gray-400 ml-auto text-xs">
                   {collectSelected(subSuggestions).length} ausgewählt
                 </span>
               </div>
 
               {/* Custom addition */}
-              <FormField label="Eigene Branchen ergänzen" hint="(kommagetrennt)">
-                <Input
+              <div>
+                <label className="text-xs font-medium text-gray-600 mb-1 block">
+                  Eigene Branchen ergänzen <span className="text-gray-400 font-normal">(kommagetrennt)</span>
+                </label>
+                <input
                   value={subCustomInput}
                   onChange={e => setSubCustomInput(e.target.value)}
                   placeholder="z.B. Schreinerei, Glaserei, Dachdeckerei"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-rose-400"
                 />
-              </FormField>
+              </div>
 
               {/* City selection */}
               {subCities.length > 0 && (
-                <div className="bg-[var(--bg)] border border-[var(--border)] rounded-lg p-3">
-                  <label className="text-xs font-semibold text-[var(--text-1)] mb-2 block">
+                <div className="bg-blue-50 border border-blue-100 rounded-lg p-3">
+                  <label className="text-xs font-semibold text-blue-700 mb-2 block">
                     🏙️ Städte ({subSelectedCities.size}/{subCities.length} ausgewählt)
                   </label>
                   <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto mb-2">
@@ -538,7 +550,6 @@ export function AgentGoalModal({ caseId, rowsCount, onClose, onImported, externa
                       return (
                         <button
                           key={city}
-                          type="button"
                           onClick={() => {
                             setSubSelectedCities(prev => {
                               const next = new Set(prev);
@@ -546,10 +557,10 @@ export function AgentGoalModal({ caseId, rowsCount, onClose, onImported, externa
                               return next;
                             });
                           }}
-                          className={`text-xs px-2.5 py-1 rounded-full border cursor-pointer transition-colors ${
+                          className={`text-xs px-2 py-0.5 rounded-full border transition-colors ${
                             isSelected
-                              ? "bg-[var(--orange)] text-white border-[var(--orange)]"
-                              : "bg-[var(--surface)] text-[var(--text-2)] border-[var(--border)] hover:border-[var(--orange-mid)]"
+                              ? "bg-blue-500 text-white border-blue-500"
+                              : "bg-white text-gray-600 border-gray-200 hover:border-blue-300"
                           }`}
                         >
                           {city}
@@ -559,37 +570,39 @@ export function AgentGoalModal({ caseId, rowsCount, onClose, onImported, externa
                   </div>
                   <div className="flex gap-2">
                     <button onClick={() => setSubSelectedCities(new Set(subCities))}
-                      className="text-xs text-[var(--orange)] hover:underline cursor-pointer">Alle</button>
+                      className="text-xs text-blue-500 hover:text-blue-700 underline">Alle</button>
                     <span className="text-gray-300">·</span>
                     <button onClick={() => setSubSelectedCities(new Set())}
-                      className="text-xs text-gray-400 hover:text-gray-600 underline cursor-pointer">Keine</button>
+                      className="text-xs text-gray-400 hover:text-gray-600 underline">Keine</button>
                   </div>
                 </div>
               )}
 
               {/* Custom cities */}
-              <FormField label="Weitere Städte ergänzen" hint="(kommagetrennt)">
-                <Input
+              <div>
+                <label className="text-xs font-medium text-gray-600 mb-1 block">
+                  Weitere Städte ergänzen <span className="text-gray-400 font-normal">(kommagetrennt)</span>
+                </label>
+                <input
                   value={subCustomCitiesInput}
                   onChange={e => setSubCustomCitiesInput(e.target.value)}
                   placeholder="z.B. Bad Doberan, Teterow, Grimmen"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
                 />
-              </FormField>
+              </div>
 
               {/* Actions */}
               <div className="flex gap-2 pt-1">
                 <button
-                  type="button"
                   onClick={() => setSubIndustryScreen(false)}
-                  className="btn-v2"
+                  className="px-4 py-2 rounded-lg text-sm text-gray-600 border border-gray-200 hover:bg-gray-50"
                 >
                   ← Zurück
                 </button>
                 <button
-                  type="button"
                   onClick={handleSubIndustryConfirm}
                   disabled={collectSelected(subSuggestions).length === 0 && !subCustomInput.trim()}
-                  className="btn-v2 btn-v2-primary flex-1 justify-center py-2"
+                  className="flex-1 bg-rose-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-rose-700 disabled:opacity-40 flex items-center justify-center gap-2"
                 >
                   <Target className="w-4 h-4" />
                   Plan erstellen ({collectSelected(subSuggestions).length + subCustomInput.split(",").filter(s => s.trim()).length} Branchen)
@@ -599,123 +612,129 @@ export function AgentGoalModal({ caseId, rowsCount, onClose, onImported, externa
           ) : (
           /* ── Goal form ── */
           <div className="px-6 py-5 space-y-4 flex-1">
-            <p className="text-sm text-[var(--text-2)]">
+            <p className="text-sm text-gray-500">
               Beschreibe, welche Unternehmen du finden möchtest. Die KI plant und führt die Suche automatisch
               in mehreren Runden aus, bis das Ziel erreicht ist.
             </p>
 
             {/* Key status warning */}
             {keyStatus && !keyStatus.anySearchConfigured && (
-              <Callout
-                type="warn"
-                title="Keine Such-API-Keys konfiguriert"
-                action={<a href="/settings" className="underline font-medium" target="_blank">→ Globale Einstellungen öffnen</a>}
-              >
-                Die Ziel-Suche braucht mindestens einen Web-Search-Key (Serper, SerpApi oder Brave).
-              </Callout>
+              <div className="text-xs text-amber-700 bg-amber-50 rounded-lg px-3 py-2 border border-amber-200 leading-relaxed">
+                ⚠️ <strong>Keine Such-API-Keys konfiguriert.</strong> Die Ziel-Suche braucht mindestens einen Web-Search-Key (Serper, SerpApi oder Brave).<br />
+                <a href="/settings" className="text-amber-800 underline font-medium" target="_blank">→ Globale Einstellungen öffnen</a>
+              </div>
             )}
 
             {error && (
-              <Callout type="error" title="Fehler aufgetreten">
-                {error}
-              </Callout>
+              <div className="text-xs text-red-700 bg-red-50 rounded-lg px-3 py-2 border border-red-200">
+                ❌ {error}
+              </div>
             )}
 
-            <FormField
-              label="Was suchst du?"
-              error={description.length > 0 && !description.trim() ? "Bitte eine Beschreibung eingeben" : undefined}
-            >
-              <Input
+            <div>
+              <label className="text-xs font-medium text-gray-600 mb-1 block">
+                Was suchst du?
+              </label>
+              <input
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && description.trim() && handleStart()}
                 placeholder="z.B. Handwerksbetriebe Heizung/Sanitär in NRW"
+                className={`w-full border rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-rose-400 ${description.length > 0 && !description.trim() ? "border-red-400 bg-red-50" : "border-gray-300"}`}
                 disabled={isRunning}
                 autoFocus
               />
-            </FormField>
+              {description.length > 0 && !description.trim() && (
+                <p className="text-xs text-red-500 mt-1">Bitte eine Beschreibung eingeben</p>
+              )}
+            </div>
 
             <div className="grid grid-cols-2 gap-4">
-              <FormField label="Zielanzahl">
-                <Input
+              <div>
+                <label className="text-xs font-medium text-gray-600 mb-1 block">
+                  Zielanzahl
+                </label>
+                <input
                   type="number"
                   min={10}
                   max={100000}
                   value={targetCount}
                   onChange={(e) => setTargetCount(Math.max(10, Number(e.target.value) || 100))}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-rose-400"
                   disabled={isRunning}
                 />
-              </FormField>
-              <FormField label="Max. Budget ($)">
-                <Input
+              </div>
+              <div>
+                <label className="text-xs font-medium text-gray-600 mb-1 block">
+                  Max. Budget ($)
+                </label>
+                <input
                   type="number"
                   min={0}
                   step={0.5}
                   value={maxBudgetUsd}
                   onChange={(e) => setMaxBudgetUsd(e.target.value)}
                   placeholder="optional"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-rose-400"
                   disabled={isRunning}
                 />
-              </FormField>
+              </div>
             </div>
 
             <div className="grid grid-cols-2 gap-4">
-              <FormField label="Max. Dauer (Minuten)">
-                <Input
+              <div>
+                <label className="text-xs font-medium text-gray-600 mb-1 block">
+                  Max. Dauer (Minuten)
+                </label>
+                <input
                   type="number"
                   min={1}
                   max={480}
                   value={maxDurationMin}
                   onChange={(e) => setMaxDurationMin(e.target.value)}
                   placeholder="optional"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-rose-400"
                   disabled={isRunning}
                 />
-              </FormField>
-              <FormField label="Max. Iterationen">
-                <Input
+              </div>
+              <div>
+                <label className="text-xs font-medium text-gray-600 mb-1 block">
+                  Max. Iterationen
+                </label>
+                <input
                   type="number"
                   min={1}
                   max={50}
                   value={maxIterations}
                   onChange={(e) => setMaxIterations(e.target.value)}
                   placeholder="default: 10"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-rose-400"
                   disabled={isRunning}
                 />
-              </FormField>
+              </div>
             </div>
 
-            {/* Sources selector */}
+            {/* Sources toggle */}
             <div>
-              <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-2)", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 6 }}>
-                Such-Quelle
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {[
-                  { id: "auto" as const, label: "🔄 Auto", desc: "Beste Quelle automatisch" },
-                  { id: "maps" as const, label: "🗺️ Nur GMB", desc: "Google Maps Business" },
-                  { id: "search" as const, label: "🔍 Nur Google", desc: "Web-Suche" },
-                  { id: "combined" as const, label: "🗺️+🔍 Kombi", desc: "Maps + Web kombiniert" },
-                ].map(opt => (
-                  <button
-                    key={opt.id}
-                    type="button"
-                    onClick={() => {
-                      setSourceMode(opt.id);
-                      if (opt.id === "search") setUseMaps(false);
-                      else setUseMaps(true);
-                    }}
-                    disabled={isRunning}
-                    className={`flex flex-col items-start gap-0.5 px-3 py-2 rounded-lg border text-xs cursor-pointer transition-all ${
-                      sourceMode === opt.id
-                        ? "border-[var(--orange)] bg-[var(--orange-soft)] text-[var(--orange)] shadow-sm font-semibold"
-                        : "border-[var(--border)] bg-[var(--surface)] text-[var(--text-2)] hover:border-[var(--orange-mid)] hover:bg-[var(--bg)]"
-                    }`}
-                    title={opt.desc}
-                  >
-                    <span className="font-semibold text-sm">{opt.label}</span>
-                    <span className="opacity-75 text-[11px]">{opt.desc}</span>
-                  </button>
-                ))}
+              <label className="text-xs font-medium text-gray-600 mb-2 block">Datenquellen</label>
+              <div className="flex gap-2 flex-wrap items-center">
+                <button
+                  type="button"
+                  onClick={() => setUseMaps(v => !v)}
+                  disabled={isRunning}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors ${
+                    useMaps
+                      ? "bg-sky-50 border-sky-300 text-sky-700"
+                      : "bg-gray-50 border-gray-200 text-gray-400"
+                  }`}
+                >
+                  <MapPin className="w-3.5 h-3.5" />
+                  Google Maps / Places
+                  <span className={`ml-1 text-[10px] px-1.5 py-0.5 rounded-full font-semibold ${
+                    useMaps ? "bg-sky-200 text-sky-800" : "bg-gray-200 text-gray-500"
+                  }`}>{useMaps ? "AN" : "AUS"}</span>
+                </button>
+
               </div>
             </div>
 
@@ -725,39 +744,39 @@ export function AgentGoalModal({ caseId, rowsCount, onClose, onImported, externa
               const discovery = n * 0.003;
               const enrich    = n * 0.00036;
               const contacts  = n * 0.00113;
-              const maps      = (sourceMode !== "search" && useMaps) ? n * 0.002 : 0;
+              const maps      = useMaps ? n * 0.002 : 0;
               const total     = discovery + enrich + contacts + maps;
               const totalEur  = total * 0.91;
               const fmtU = (v: number) => v < 0.01 ? v.toFixed(3) : v < 10 ? v.toFixed(2) : v.toFixed(1);
               const fmtE = (v: number) => (v < 0.01 ? v.toFixed(3) : v < 10 ? v.toFixed(2) : v.toFixed(1)).replace(".", ",");
               return (
                 <div style={{ position: "relative", display: "flex", alignItems: "center", gap: 6 }}>
-                  <span style={{ fontSize: 11, color: "var(--text-2)" }}>Geschätzte Kosten:</span>
+                  <span style={{ fontSize: 11, color: "#9ca3af" }}>Geschätzte Kosten:</span>
                   <button
                     type="button"
                     onClick={() => setShowCostDetails(v => !v)}
-                    style={{ fontSize: 12, fontWeight: 700, color: "var(--orange)", background: showCostDetails ? "var(--orange-mid)" : "var(--orange-soft)", border: "1px solid var(--orange-mid)", padding: "2px 10px", borderRadius: 99, fontFamily: "monospace", cursor: "pointer" }}
+                    style={{ fontSize: 12, fontWeight: 700, color: "#92400e", background: showCostDetails ? "#fde68a" : "#fef3c7", border: "1px solid #fcd34d", padding: "2px 10px", borderRadius: 99, fontFamily: "monospace", cursor: "pointer" }}
                   >
                     ~€{fmtE(totalEur)} <span style={{ fontSize: 9, opacity: 0.6 }}>▾</span>
                   </button>
                   {showCostDetails && (
-                    <div style={{ position: "absolute", bottom: "calc(100% + 6px)", left: 0, background: "#fff", border: "1px solid var(--border)", borderRadius: "var(--r)", boxShadow: "var(--shadow)", zIndex: 999, minWidth: 230, padding: "12px 14px" }}
+                    <div style={{ position: "absolute", bottom: "calc(100% + 6px)", left: 0, background: "#fff", border: "1px solid #e5e7eb", borderRadius: 8, boxShadow: "0 8px 24px rgba(0,0,0,0.13)", zIndex: 999, minWidth: 230, padding: "12px 14px" }}
                       onMouseLeave={() => setShowCostDetails(false)}>
-                      <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-2)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 8 }}>Kosten für {n.toLocaleString("de-DE")} Firmen</div>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: "#6b7280", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 8 }}>Kosten für {n.toLocaleString("de-DE")} Firmen</div>
                       <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: "5px 16px", fontSize: 12 }}>
-                        <span style={{ color: "var(--text-2)" }}>🔍 Discovery</span>
+                        <span style={{ color: "#6b7280" }}>🔍 Discovery</span>
                         <span style={{ fontWeight: 600, fontFamily: "monospace", textAlign: "right" }}>${fmtU(discovery)}</span>
-                        {sourceMode !== "search" && useMaps && <><span style={{ color: "var(--text-2)" }}>📍 Google Maps</span><span style={{ fontWeight: 600, fontFamily: "monospace", textAlign: "right" }}>${fmtU(maps)}</span></>}
-                        <span style={{ color: "var(--text-2)" }}>🏢 Firmen-LLM</span>
+                        {useMaps && <><span style={{ color: "#6b7280" }}>📍 Google Maps</span><span style={{ fontWeight: 600, fontFamily: "monospace", textAlign: "right" }}>${fmtU(maps)}</span></>}
+                        <span style={{ color: "#6b7280" }}>🏢 Firmen-LLM</span>
                         <span style={{ fontWeight: 600, fontFamily: "monospace", textAlign: "right" }}>${fmtU(enrich)}</span>
-                        <span style={{ color: "var(--text-2)" }}>👤 Entscheider-LLM</span>
+                        <span style={{ color: "#6b7280" }}>👤 Entscheider-LLM</span>
                         <span style={{ fontWeight: 600, fontFamily: "monospace", textAlign: "right" }}>${fmtU(contacts)}</span>
                       </div>
-                      <div style={{ borderTop: "1px solid var(--border)", marginTop: 8, paddingTop: 8, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                        <span style={{ fontSize: 11, color: "var(--text-3)" }}>gpt-4o-mini · Ø echte Runs</span>
+                      <div style={{ borderTop: "1px solid #f3f4f6", marginTop: 8, paddingTop: 8, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <span style={{ fontSize: 11, color: "#9ca3af" }}>gpt-4o-mini · Ø echte Runs</span>
                         <div style={{ display: "flex", gap: 6 }}>
-                          <span style={{ fontFamily: "monospace", fontWeight: 700, fontSize: 12, color: "var(--orange)" }}>~${fmtU(total)}</span>
-                          <span style={{ fontFamily: "monospace", fontWeight: 700, fontSize: 12, color: "var(--orange)", background: "var(--orange-soft)", padding: "0 6px", borderRadius: 4 }}>~€{fmtE(totalEur)}</span>
+                          <span style={{ fontFamily: "monospace", fontWeight: 700, fontSize: 12, color: "#1d4ed8" }}>~${fmtU(total)}</span>
+                          <span style={{ fontFamily: "monospace", fontWeight: 700, fontSize: 12, color: "#92400e", background: "#fef3c7", padding: "0 6px", borderRadius: 4 }}>~€{fmtE(totalEur)}</span>
                         </div>
                       </div>
                     </div>
@@ -767,20 +786,23 @@ export function AgentGoalModal({ caseId, rowsCount, onClose, onImported, externa
             })()}
 
             {/* Extra context input */}
-            <FormField label="Zusätzliche Hinweise" hint="(optional, z.B. &quot;nur NRW&quot;, &quot;Hausbau&quot;, &quot;mind. 10 MA&quot;)">
-              <Input
+            <div>
+              <label className="text-xs font-medium text-gray-600 mb-1 block">
+                Zusätzliche Hinweise <span className="text-gray-400 font-normal">(optional, z.B. "nur NRW", "Hausbau", "mind. 10 MA")</span>
+              </label>
+              <input
                 value={extraContext}
                 onChange={e => setExtraContext(e.target.value)}
                 placeholder="Weitere Details oder Einschränkungen für die Suche…"
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-rose-400"
                 disabled={isRunning}
               />
-            </FormField>
+            </div>
 
             <button
-              type="button"
               onClick={handlePlan}
               disabled={!description.trim() || subIndustryLoading || isRunning || Boolean(keyStatus && !keyStatus.anySearchConfigured)}
-              className="btn-v2 btn-v2-primary w-full py-2.5 justify-center text-sm font-medium"
+              className="w-full bg-rose-600 text-white px-4 py-2.5 rounded-lg text-sm font-medium hover:bg-rose-700 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
               {subIndustryLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : running && paused ? <Loader2 className="w-4 h-4 animate-spin" /> : <Target className="w-4 h-4" />}
               {subIndustryLoading ? "Analysiere Branche…" : running && paused ? "Plane Suche…" : !description.trim() ? "Beschreibung eingeben…" : keyStatus && !keyStatus.anySearchConfigured ? "Keine Such-API-Keys konfiguriert" : "Ziel-Suche planen"}
@@ -989,14 +1011,14 @@ export function AgentGoalModal({ caseId, rowsCount, onClose, onImported, externa
                     <button
                       onClick={handleStart}
                       disabled={run.plan?.steps?.filter(s => !deletedStepIds.has(s.id)).length === 0}
-                      className="btn-v2 btn-v2-primary flex-1 py-2 text-sm font-medium disabled:opacity-40 justify-center gap-2"
+                      className="flex-1 bg-emerald-600 text-white px-3 py-2 rounded-lg text-sm font-medium hover:bg-emerald-700 disabled:opacity-40 flex items-center justify-center gap-2"
                     >
                       <Play className="w-4 h-4" />
                       Starten
                     </button>
                     <button
                       onClick={handleDiscard}
-                      className="btn-v2 py-2 text-sm font-medium justify-center gap-2"
+                      className="bg-gray-100 text-gray-600 px-3 py-2 rounded-lg text-sm font-medium hover:bg-gray-200 flex items-center justify-center gap-2"
                     >
                       <XCircle className="w-4 h-4" />
                       Verwerfen
@@ -1007,15 +1029,14 @@ export function AgentGoalModal({ caseId, rowsCount, onClose, onImported, externa
                   <>
                     <button
                       onClick={handlePause}
-                      className="btn-v2 flex-1 py-2 text-sm font-medium justify-center gap-2"
-                      style={{ background: "var(--warn-soft)", borderColor: "var(--warn)", color: "var(--warn)" }}
+                      className="flex-1 bg-amber-500 text-white px-3 py-2 rounded-lg text-sm font-medium hover:bg-amber-600 flex items-center justify-center gap-2"
                     >
                       <Pause className="w-4 h-4" />
                       Pausieren
                     </button>
                     <button
                       onClick={handleCancel}
-                      className="btn-v2 py-2 text-sm font-medium justify-center gap-2"
+                      className="bg-gray-600 text-white px-3 py-2 rounded-lg text-sm font-medium hover:bg-gray-700 flex items-center justify-center gap-2"
                     >
                       <XCircle className="w-4 h-4" />
                       Stoppen
@@ -1030,7 +1051,7 @@ export function AgentGoalModal({ caseId, rowsCount, onClose, onImported, externa
                       onImported();
                       onClose();
                     }}
-                    className="btn-v2 btn-v2-primary flex-1 py-2 text-sm font-medium justify-center gap-2"
+                    className="flex-1 bg-emerald-600 text-white px-3 py-2 rounded-lg text-sm font-medium hover:bg-emerald-700 flex items-center justify-center gap-2"
                   >
                     <CheckCircle2 className="w-4 h-4" />
                     {run.uniqueCount > 0
@@ -1046,8 +1067,7 @@ export function AgentGoalModal({ caseId, rowsCount, onClose, onImported, externa
                         }
                       } catch { /* ignore */ }
                     }}
-                    className="btn-v2 py-2 text-sm font-medium justify-center gap-2"
-                    style={{ background: "var(--orange-soft)", borderColor: "var(--orange-mid)", color: "var(--orange)" }}
+                    className="bg-violet-600 text-white px-3 py-2 rounded-lg text-sm font-medium hover:bg-violet-700 flex items-center justify-center gap-2"
                     title="Existierenden Plan fortsetzen — fehlgeschlagene Steps wiederholen"
                   >
                     <Play className="w-4 h-4" />
@@ -1055,7 +1075,7 @@ export function AgentGoalModal({ caseId, rowsCount, onClose, onImported, externa
                   </button>
                   <button
                     onClick={handleNewSearch}
-                    className="btn-v2 flex-1 py-2 text-sm font-medium justify-center gap-2"
+                    className="flex-1 bg-rose-600 text-white px-3 py-2 rounded-lg text-sm font-medium hover:bg-rose-700 flex items-center justify-center gap-2"
                   >
                     <Target className="w-4 h-4" />
                     Neue Suche
@@ -1066,20 +1086,6 @@ export function AgentGoalModal({ caseId, rowsCount, onClose, onImported, externa
           </div>
         )}
       </div>
-  );
-
-  if (embedded) {
-    return content;
-  }
-
-  return (
-    <Modal
-      onClose={handleClose}
-      title="Ziel-basierte Suche"
-      icon={<Target className="w-4 h-4" />}
-      maxWidth="42rem"
-    >
-      {content}
-    </Modal>
+    </div>
   );
 }

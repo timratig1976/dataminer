@@ -37,21 +37,22 @@ class LlmTestController extends Controller
      */
     public function smoke(Request $request, EdenAiService $edenAi): JsonResponse
     {
-        $models = $request->input('models', ['openai/gpt-4o-mini']);
+        $global = GlobalSetting::instance();
+        $apiKey = $request->input('apiKey') ?: ($global->eden_api_key ?: env('EDEN_API_KEY'));
+        $region = $request->input('region') ?: ($global->eden_region ?: 'eu');
+        $defaultModel = $region === 'eu' ? 'mistral/mistral-small-latest' : 'openai/gpt-4o-mini';
+        $models = $request->input('models') ?: [$defaultModel];
         $prompt = $request->input('prompt', 'Reply with exactly: ok');
 
-        $global = GlobalSetting::instance();
-        $apiKey = $global->eden_api_key ?: env('EDEN_API_KEY');
-
         if (!$apiKey) {
-            return response()->json(['error' => 'No Eden API key configured'], 400);
+            return response()->json(['error' => 'No Eden API key configured', 'ok' => false], 400);
         }
 
         $results = [];
         foreach ($models as $m) {
             $t0 = microtime(true);
             try {
-                $res = $edenAi->chatCompletion($apiKey, $m, 'You are a tester.', $prompt);
+                $res = $edenAi->chatCompletion($apiKey, $m, 'You are a tester.', $prompt, 800, 0.0, $region);
                 $results[] = [
                     'model' => $m,
                     'ok' => true,
@@ -68,7 +69,17 @@ class LlmTestController extends Controller
             }
         }
 
-        return response()->json(['results' => $results]);
+        $allOk = count($results) > 0 && collect($results)->every(fn($r) => $r['ok']);
+        $firstOk = collect($results)->firstWhere('ok', true);
+        $firstErr = collect($results)->firstWhere('ok', false);
+
+        return response()->json([
+            'ok' => $allOk,
+            'results' => $results,
+            'latencyMs' => $firstOk['latencyMs'] ?? $firstErr['latencyMs'] ?? 0,
+            'preview' => $firstOk['preview'] ?? null,
+            'error' => $firstErr['error'] ?? null,
+        ]);
     }
 
     /**

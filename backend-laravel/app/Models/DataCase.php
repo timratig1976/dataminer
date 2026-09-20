@@ -38,12 +38,12 @@ class DataCase extends Model
 
     public function getAiColumnsAttribute(): ?array
     {
-        return $this->attributes['ai_columns'] ? json_decode($this->attributes['ai_columns'], true) : [];
+        return !empty($this->attributes['ai_columns']) ? json_decode($this->attributes['ai_columns'], true) : [];
     }
 
     public function getColOrderAttribute(): ?array
     {
-        return $this->attributes['col_order'] ? json_decode($this->attributes['col_order'], true) : [];
+        return !empty($this->attributes['col_order']) ? json_decode($this->attributes['col_order'], true) : [];
     }
 
     public function getEdenApiKeyAttribute(): ?string

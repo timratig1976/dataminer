@@ -22,9 +22,27 @@ class ContactRowController extends Controller
         }
 
         $contacts = ContactRow::where('case_id', $caseId)->get();
+        $mapped = $contacts->map(function ($c) {
+            $d = $c->data ?? [];
+            return [
+                'id' => $c->id,
+                'company_row_id' => $c->company_row_id,
+                'name' => $d['name'] ?? trim(($d['first_name'] ?? '') . ' ' . ($d['last_name'] ?? '')),
+                'first_name' => $d['first_name'] ?? null,
+                'last_name' => $d['last_name'] ?? null,
+                'position' => $d['position'] ?? null,
+                'email' => $d['email'] ?? null,
+                'phone' => $d['phone'] ?? null,
+                'linkedin' => $d['linkedin'] ?? null,
+                'company_name' => $d['company_name'] ?? null,
+                'domain' => $d['domain'] ?? null,
+                'data' => $d,
+            ];
+        });
+
         return response()->json([
-            'contacts' => $contacts,
-            'total' => $contacts->count(),
+            'contacts' => $mapped,
+            'total' => $mapped->count(),
         ]);
     }
 

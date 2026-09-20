@@ -100,7 +100,16 @@ export default function SettingsPage({ settings: initialSettings }: { settings: 
                 body: JSON.stringify({ key: keyName }),
             });
             if (res.ok) {
-                refreshSettings();
+                await refreshSettings();
+                if (keyName === 'eden') setEdenApiKey('');
+                if (keyName === 'firecrawl') setFirecrawlApiKey('');
+                if (keyName === 'serper') setSerperApiKey('');
+                if (keyName === 'serp') setSerpApiKey('');
+                if (keyName === 'brave') setBraveApiKey('');
+                if (keyName === 'apify') setApifyApiToken('');
+            } else {
+                const errData = await res.json().catch(() => ({}));
+                alert('Löschen fehlgeschlagen: ' + (errData.error || errData.message || res.statusText));
             }
         } catch (e: any) {
             alert('Löschen fehlgeschlagen: ' + e.message);
@@ -112,15 +121,22 @@ export default function SettingsPage({ settings: initialSettings }: { settings: 
     const testEden = async () => {
         setTestingProvider('eden');
         try {
-            const res = await apiFetch('/api/llm/smoke', {
+            const res = await apiFetch('/api/settings/test-eden', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ apiKey: edenApiKey.trim() || undefined, region: edenRegion }),
             });
             const data = await res.json();
-            setTestResults(prev => ({ ...prev, eden: data }));
+            setTestResults(prev => ({
+                ...prev,
+                eden: {
+                    ...data,
+                    ok: Boolean(data?.ok),
+                    error: data?.error || data?.message || (!data?.ok ? 'Verbindung fehlgeschlagen' : undefined),
+                }
+            }));
         } catch (e: any) {
-            setTestResults(prev => ({ ...prev, eden: { ok: false, error: e.message } }));
+            setTestResults(prev => ({ ...prev, eden: { ok: false, error: e.message || 'Verbindung fehlgeschlagen' } }));
         } finally {
             setTestingProvider(null);
         }
@@ -135,9 +151,16 @@ export default function SettingsPage({ settings: initialSettings }: { settings: 
                 body: JSON.stringify({ provider, apiKey: key?.trim() || undefined }),
             });
             const data = await res.json();
-            setTestResults(prev => ({ ...prev, [provider]: data }));
+            setTestResults(prev => ({
+                ...prev,
+                [provider]: {
+                    ...data,
+                    ok: Boolean(data?.ok),
+                    error: data?.error || data?.message || (!data?.ok ? 'Test fehlgeschlagen' : undefined),
+                }
+            }));
         } catch (e: any) {
-            setTestResults(prev => ({ ...prev, [provider]: { ok: false, error: e.message } }));
+            setTestResults(prev => ({ ...prev, [provider]: { ok: false, error: e.message || 'Test fehlgeschlagen' } }));
         } finally {
             setTestingProvider(null);
         }
@@ -274,7 +297,7 @@ export default function SettingsPage({ settings: initialSettings }: { settings: 
                             }}
                         >
                             <span>{testResults.eden.ok ? '✓' : '✗'}</span>
-                            <span>{testResults.eden.ok ? `Erfolgreich (${testResults.eden.latencyMs}ms): "${testResults.eden.preview}"` : testResults.eden.error}</span>
+                            <span>{testResults.eden.ok ? `Erfolgreich (${testResults.eden.latencyMs}ms): "${testResults.eden.preview}"` : (testResults.eden.error || 'Verbindung fehlgeschlagen')}</span>
                         </div>
                     )}
                 </div>
@@ -459,17 +482,17 @@ export default function SettingsPage({ settings: initialSettings }: { settings: 
                         )}
                     </div>
 
-                    {testResults.serper && (
+                    {(testResults.serper || testResults['serper-places']) && (
                         <div 
                             className="p-2.5 rounded-md border text-xs flex items-center gap-2"
                             style={{
-                                background: testResults.serper.ok ? "var(--green-soft)" : "var(--danger-soft)",
-                                borderColor: testResults.serper.ok ? "var(--green-mid)" : "var(--danger)",
-                                color: testResults.serper.ok ? "var(--green)" : "var(--danger)",
+                                background: (testResults['serper-places'] || testResults.serper).ok ? "var(--green-soft)" : "var(--danger-soft)",
+                                borderColor: (testResults['serper-places'] || testResults.serper).ok ? "var(--green-mid)" : "var(--danger)",
+                                color: (testResults['serper-places'] || testResults.serper).ok ? "var(--green)" : "var(--danger)",
                             }}
                         >
-                            <span>{testResults.serper.ok ? '✓' : '✗'}</span>
-                            <span>{testResults.serper.ok ? `Erfolgreich: ${testResults.serper.sample}` : testResults.serper.error}</span>
+                            <span>{(testResults['serper-places'] || testResults.serper).ok ? '✓' : '✗'}</span>
+                            <span>{(testResults['serper-places'] || testResults.serper).ok ? `Erfolgreich: ${(testResults['serper-places'] || testResults.serper).sample}` : ((testResults['serper-places'] || testResults.serper).error || 'Test fehlgeschlagen')}</span>
                         </div>
                     )}
                 </div>
@@ -551,88 +574,23 @@ export default function SettingsPage({ settings: initialSettings }: { settings: 
                             </button>
                         )}
                     </div>
-                </div>
 
-                {/* ── 5. BRAVE SEARCH ── */}
-                <div 
-                    className="p-5 space-y-4"
-                    style={{
-                        background: "var(--surface)",
-                        border: "1px solid var(--border)",
-                        borderRadius: "var(--r)",
-                        boxShadow: "var(--shadow-sm)",
-                    }}
-                >
-                    <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2.5">
-                            <Search className="w-4 h-4" style={{ color: "var(--orange)" }} />
-                            <h2 className="font-semibold text-sm" style={{ color: "var(--text-1)" }}>Brave Search</h2>
-                            <span className="text-[11px]" style={{ color: "var(--text-3)" }}>Unabhängiger Web-Search Layer (2.000 free/Monat)</span>
-                        </div>
-                        <div>
-                            {state.has_brave_api_key ? (
-                                <span className="status-pill status-pill-done">
-                                    <CheckCircle2 className="w-3 h-3" /> In DB ({state.braveApiKeyMasked})
-                                </span>
-                            ) : (
-                                <span className="status-pill status-pill-pending">
-                                    Nicht hinterlegt
-                                </span>
-                            )}
-                        </div>
-                    </div>
-
-                    <div>
-                        <label className="text-[11px] font-semibold uppercase tracking-wider block mb-1" style={{ color: "var(--text-3)" }}>
-                            Brave API Key
-                        </label>
-                        <input
-                            type="password"
-                            value={braveApiKey}
-                            onChange={e => setBraveApiKey(e.target.value)}
-                            placeholder={state.has_brave_api_key ? `Gespeichert: ${state.braveApiKeyMasked}` : 'BSA...'}
-                            className="w-full border rounded px-3 py-1.5 text-xs font-mono focus:outline-none"
+                    {(testResults.serpapi || testResults.serp) && (
+                        <div 
+                            className="p-2.5 rounded-md border text-xs flex items-center gap-2"
                             style={{
-                                borderColor: "var(--border)",
-                                background: "var(--bg)",
-                                color: "var(--text-1)",
+                                background: (testResults.serpapi || testResults.serp).ok ? "var(--green-soft)" : "var(--danger-soft)",
+                                borderColor: (testResults.serpapi || testResults.serp).ok ? "var(--green-mid)" : "var(--danger)",
+                                color: (testResults.serpapi || testResults.serp).ok ? "var(--green)" : "var(--danger)",
                             }}
-                        />
-                    </div>
-
-                    <div className="flex items-center gap-2 flex-wrap pt-2 border-t" style={{ borderColor: "var(--border-xs)" }}>
-                        <button
-                            type="button"
-                            onClick={() => saveIndividualKey('brave', { brave_api_key: braveApiKey.trim() || undefined })}
-                            disabled={savingKey.brave || !braveApiKey.trim()}
-                            className="btn-v2 btn-v2-primary"
                         >
-                            {savingKey.brave ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
-                            {savedKeyMsg.brave ? 'Gespeichert ✓' : 'Speichern'}
-                        </button>
-                        <button
-                            type="button"
-                            onClick={() => testSearchProvider('brave', braveApiKey)}
-                            disabled={testingProvider === 'brave' || (!braveApiKey.trim() && !state.has_brave_api_key)}
-                            className="btn-v2"
-                        >
-                            {testingProvider === 'brave' ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />}
-                            Testen
-                        </button>
-                        {state.has_brave_api_key && (
-                            <button
-                                type="button"
-                                onClick={() => deleteIndividualKey('brave')}
-                                className="btn-v2 ml-auto"
-                                style={{ color: "var(--danger)", background: "var(--danger-soft)", borderColor: "var(--danger-soft)" }}
-                            >
-                                <Trash2 className="w-3.5 h-3.5" /> Key löschen
-                            </button>
-                        )}
-                    </div>
+                            <span>{(testResults.serpapi || testResults.serp).ok ? '✓' : '✗'}</span>
+                            <span>{(testResults.serpapi || testResults.serp).ok ? `Erfolgreich (${(testResults.serpapi || testResults.serp).hits} Treffer): ${(testResults.serpapi || testResults.serp).sample}` : ((testResults.serpapi || testResults.serp).error || 'Test fehlgeschlagen')}</span>
+                        </div>
+                    )}
                 </div>
 
-                {/* ── 6. APIFY ── */}
+                {/* ── 5. APIFY ── */}
                 <div 
                     className="p-5 space-y-4"
                     style={{
@@ -709,6 +667,20 @@ export default function SettingsPage({ settings: initialSettings }: { settings: 
                             </button>
                         )}
                     </div>
+
+                    {testResults.apify && (
+                        <div 
+                            className="p-2.5 rounded-md border text-xs flex items-center gap-2"
+                            style={{
+                                background: testResults.apify.ok ? "var(--green-soft)" : "var(--danger-soft)",
+                                borderColor: testResults.apify.ok ? "var(--green-mid)" : "var(--danger)",
+                                color: testResults.apify.ok ? "var(--green)" : "var(--danger)",
+                            }}
+                        >
+                            <span>{testResults.apify.ok ? '✓' : '✗'}</span>
+                            <span>{testResults.apify.ok ? `Erfolgreich: ${testResults.apify.sample}` : (testResults.apify.error || 'Test fehlgeschlagen')}</span>
+                        </div>
+                    )}
                 </div>
             </div>
         </AppLayout>

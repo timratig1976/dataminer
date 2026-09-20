@@ -3,7 +3,8 @@ import AppLayout from '../../Layouts/AppLayout';
 import { router } from '@inertiajs/react';
 import { 
     Plus, Calendar, Download, Upload, RefreshCw, AlertCircle, 
-    Trash2, FolderPlus, X, Search, ChevronRight, Database, Loader2 
+    Trash2, FolderPlus, X, Search, ChevronRight, Database, Loader2,
+    Edit2, Check
 } from 'lucide-react';
 import ConfirmDialog from '../../Components/ui/ConfirmDialog';
 import { apiFetch } from '../../api';
@@ -46,6 +47,43 @@ export default function CasesIndex({ cases: initialCases }: Props) {
 
     // Two-Step Case Deletion Confirmation
     const [caseToDelete, setCaseToDelete] = useState<{ id: string; name: string } | null>(null);
+
+    // Case Renaming State
+    const [editingCaseId, setEditingCaseId] = useState<string | null>(null);
+    const [editingCaseName, setEditingCaseName] = useState<string>('');
+    const [savingRename, setSavingRename] = useState(false);
+
+    const handleStartRename = (c: CaseItem, e: React.MouseEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setEditingCaseId(c.id);
+        setEditingCaseName(c.name);
+    };
+
+    const handleSaveRename = async (e?: React.FormEvent | React.MouseEvent) => {
+        if (e) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
+        if (!editingCaseId || !editingCaseName.trim()) return;
+
+        setSavingRename(true);
+        try {
+            const res = await apiFetch(`/api/cases/${editingCaseId}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: editingCaseName.trim() }),
+            });
+            if (res.ok) {
+                setCases(prev => prev.map(c => c.id === editingCaseId ? { ...c, name: editingCaseName.trim() } : c));
+                setEditingCaseId(null);
+            }
+        } catch (err) {
+            console.error('Failed to rename case', err);
+        } finally {
+            setSavingRename(false);
+        }
+    };
 
     const handleImportSnapshot = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
@@ -242,6 +280,13 @@ export default function CasesIndex({ cases: initialCases }: Props) {
                                     </div>
                                     <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                                         <button
+                                            onClick={(e) => handleStartRename(c, e)}
+                                            title="Case umbenennen"
+                                            className="p-1 rounded hover:bg-slate-100 cursor-pointer text-slate-500 hover:text-slate-800 transition-colors"
+                                        >
+                                            <Edit2 className="w-3.5 h-3.5" />
+                                        </button>
+                                        <button
                                             onClick={(e) => handleExportSnapshot(c.id, c.name, e)}
                                             title="Als Snapshot exportieren (JSON)"
                                             className="p-1 rounded hover:bg-slate-100 cursor-pointer"
@@ -264,9 +309,45 @@ export default function CasesIndex({ cases: initialCases }: Props) {
                                     </div>
                                 </div>
 
-                                <div className="font-semibold text-[13px] mb-1 truncate" style={{ color: "var(--text-1)" }}>
-                                    {c.name}
-                                </div>
+                                {editingCaseId === c.id ? (
+                                    <div 
+                                        className="flex items-center gap-1.5 mb-2" 
+                                        onClick={(e) => e.stopPropagation()}
+                                    >
+                                        <input
+                                            type="text"
+                                            value={editingCaseName}
+                                            onChange={(e) => setEditingCaseName(e.target.value)}
+                                            onKeyDown={(e) => {
+                                                if (e.key === 'Enter') handleSaveRename(e);
+                                                if (e.key === 'Escape') setEditingCaseId(null);
+                                            }}
+                                            autoFocus
+                                            className="flex-1 text-[13px] font-semibold px-2 py-0.5 rounded border border-orange-500 ring-2 ring-orange-200 outline-none bg-white text-slate-900"
+                                            disabled={savingRename}
+                                        />
+                                        <button
+                                            onClick={handleSaveRename}
+                                            disabled={savingRename}
+                                            title="Speichern"
+                                            className="p-1 rounded bg-orange-500 hover:bg-orange-600 text-white cursor-pointer transition-colors"
+                                        >
+                                            <Check className="w-3.5 h-3.5" />
+                                        </button>
+                                        <button
+                                            onClick={() => setEditingCaseId(null)}
+                                            disabled={savingRename}
+                                            title="Abbrechen"
+                                            className="p-1 rounded hover:bg-slate-200 text-slate-500 cursor-pointer transition-colors"
+                                        >
+                                            <X className="w-3.5 h-3.5" />
+                                        </button>
+                                    </div>
+                                ) : (
+                                    <div className="font-semibold text-[13px] mb-1 truncate" style={{ color: "var(--text-1)" }}>
+                                        {c.name}
+                                    </div>
+                                )}
 
                                 <div className="text-[11px] mb-3" style={{ color: "var(--text-3)" }}>
                                     {(c.ai_columns || []).length} KI-Spalten · {new Date(c.updated_at).toLocaleDateString("de-DE")} · {(c.rows_count || 0).toLocaleString("de-DE")} Zeilen
