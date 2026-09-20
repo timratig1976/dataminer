@@ -8,7 +8,7 @@ import {
 import { Link } from '@inertiajs/react';
 import { AgentGoalModal } from '../../Components/AgentGoalModal';
 import { AddColumnModal } from '../../Components/AddColumnModal';
-import ImportModal from '../../Components/ImportModal';
+import ImportModal from '@/Components/ImportModal';
 import EditPromptModal from '../../Components/case/EditPromptModal';
 import GroupedTableView from '../../Components/GroupedTableView';
 import { apiFetch } from '../../api';
@@ -542,7 +542,7 @@ export default function CaseShow({ case: c }: Props) {
                 <ImportModal
                     caseId={caseData.id}
                     onClose={() => setShowImportModal(false)}
-                    onImported={() => { refreshCase(); loadPage(1); }}
+                    onImported={(count) => { refreshCase(); loadPage(1); }}
                 />
             )}
 
