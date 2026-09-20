@@ -26,6 +26,15 @@ class AgentRun extends Model
         'updated_at' => 'datetime',
     ];
 
+    protected $appends = [
+        'caseId',
+    ];
+
+    public function getCaseIdAttribute(): ?string
+    {
+        return $this->case_id;
+    }
+
     public function dataCase(): BelongsTo
     {
         return $this->belongsTo(DataCase::class, 'case_id');

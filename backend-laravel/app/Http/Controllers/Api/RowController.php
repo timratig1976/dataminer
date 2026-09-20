@@ -68,11 +68,20 @@ class RowController extends Controller
             return response()->json(['error' => 'Not found'], 404);
         }
 
-        $row->update($request->only([
+        $payload = $request->only([
             'data',
             'cell_statuses',
             'cell_errors',
-        ]));
+        ]);
+
+        if ($request->has('cellStatuses') && !isset($payload['cell_statuses'])) {
+            $payload['cell_statuses'] = $request->input('cellStatuses');
+        }
+        if ($request->has('cellErrors') && !isset($payload['cell_errors'])) {
+            $payload['cell_errors'] = $request->input('cellErrors');
+        }
+
+        $row->update($payload);
 
         return response()->json($row);
     }

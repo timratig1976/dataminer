@@ -29,6 +29,33 @@ class DataCase extends Model
         'updated_at' => 'datetime',
     ];
 
+    protected $appends = [
+        'aiColumns',
+        'colOrder',
+        'edenApiKey',
+        'edenRegion',
+    ];
+
+    public function getAiColumnsAttribute(): ?array
+    {
+        return $this->attributes['ai_columns'] ? json_decode($this->attributes['ai_columns'], true) : [];
+    }
+
+    public function getColOrderAttribute(): ?array
+    {
+        return $this->attributes['col_order'] ? json_decode($this->attributes['col_order'], true) : [];
+    }
+
+    public function getEdenApiKeyAttribute(): ?string
+    {
+        return $this->attributes['eden_api_key'] ?? null;
+    }
+
+    public function getEdenRegionAttribute(): ?string
+    {
+        return $this->attributes['eden_region'] ?? null;
+    }
+
     public function rows(): HasMany
     {
         return $this->hasMany(Row::class, 'case_id')->orderBy('row_index', 'asc');
