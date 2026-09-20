@@ -40,6 +40,7 @@ Route::middleware(['web', 'auth'])->group(function () {
     Route::get('/contact-rows', [\App\Http\Controllers\Api\ContactRowController::class, 'index']);
     Route::get('/cache', [\App\Http\Controllers\Api\CacheController::class, 'index']);
     Route::match(['get', 'post'], '/discovery/search', [\App\Http\Controllers\Api\DiscoverySearchController::class, 'search']);
+    Route::post('/search/debug', [\App\Http\Controllers\Api\SearchDebugController::class, 'debug']);
     Route::get('/logs', [\App\Http\Controllers\Api\LogController::class, 'index']);
     Route::delete('/logs', [\App\Http\Controllers\Api\LogController::class, 'destroy']);
     Route::get('/export', [ExportController::class, 'exportCsv']);
