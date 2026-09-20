@@ -94,4 +94,9 @@ class WebController extends Controller
     {
         return Inertia::render('ScraplingTest');
     }
+
+    public function usersSettings(): Response
+    {
+        return Inertia::render('Settings/Users');
+    }
 }

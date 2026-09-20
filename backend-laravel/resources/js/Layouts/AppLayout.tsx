@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link, usePage } from '@inertiajs/react';
 import { 
-    LayoutDashboard, Database, Settings, Sliders, Zap, Sparkles 
+    LayoutDashboard, Database, Settings, Sliders, Zap, Sparkles, Users 
 } from 'lucide-react';
 
 interface SidebarCase {
@@ -38,6 +38,7 @@ export default function Layout({
         { href: '/settings/models', title: 'Modell-Auswahl', label: 'Models', icon: <Sliders className="w-3.5 h-3.5" /> },
         { href: '/settings/planner', title: 'Planner Prompt', label: 'Planner', icon: <Sparkles className="w-3.5 h-3.5" /> },
         { href: '/settings/llm-test', title: 'LLM-Testing', label: 'LLM', icon: <Zap className="w-3.5 h-3.5" /> },
+        { href: '/settings/users', title: 'Benutzer & Rollen', label: 'Users', icon: <Users className="w-3.5 h-3.5" /> },
     ];
 
     return (

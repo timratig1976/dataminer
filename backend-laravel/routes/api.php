@@ -102,6 +102,14 @@ Route::middleware(['web', 'auth'])->group(function () {
         Route::delete('/rows', [RowController::class, 'destroy']);
         Route::put('/settings', [SettingsController::class, 'update']);
         Route::delete('/settings', [SettingsController::class, 'destroyKey']);
+
+        // ── Full User Management APIs ──
+        Route::get('/admin/users', [\App\Http\Controllers\Api\UserManagementController::class, 'index']);
+        Route::post('/admin/users', [\App\Http\Controllers\Api\UserManagementController::class, 'store']);
+        Route::patch('/admin/users/{id}', [\App\Http\Controllers\Api\UserManagementController::class, 'update']);
+        Route::delete('/admin/users/{id}', [\App\Http\Controllers\Api\UserManagementController::class, 'destroy']);
+        Route::post('/admin/invitations', [\App\Http\Controllers\Api\UserManagementController::class, 'invite']);
+        Route::delete('/admin/invitations/{id}', [\App\Http\Controllers\Api\UserManagementController::class, 'revokeInvitation']);
     });
 });
 
