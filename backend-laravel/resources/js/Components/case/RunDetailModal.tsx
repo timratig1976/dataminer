@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { Play, Loader2, CheckCircle, AlertCircle, CheckCircle2, Sparkles } from "lucide-react";
 import type { AiColumn, RowData, CellStatus } from "../types";
 import { DEFAULT_MODEL_OPTIONS, mergeModelOptions } from "../types/model-options";
-import { Modal } from "./ui/ModalMaster";
+import { Modal } from "../ui/ModalMaster";
 
 type Tab = "result" | "sources" | "llm" | "raw" | "crawl" | "data" | "reasoning";
 

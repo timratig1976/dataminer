@@ -10,6 +10,7 @@ import { AgentGoalModal } from '../../Components/AgentGoalModal';
 import { AddColumnModal } from '../../Components/AddColumnModal';
 import ImportModal from '../../Components/ImportModal';
 import EditPromptModal from '../../Components/case/EditPromptModal';
+import RunDetailModal from '../../Components/case/RunDetailModal';
 import { ColumnHeaderMenu } from '../../Components/ColumnHeaderMenu';
 import GroupedTableView from '../../Components/GroupedTableView';
 import { apiFetch } from '../../api';
@@ -92,14 +93,16 @@ export default function CaseShow({ case: c }: Props) {
     const [showAddColModal, setShowAddColModal] = useState(false);
     const [showImportModal, setShowImportModal] = useState(false);
     const [editingCol, setEditingCol] = useState<any | null>(null);
+    const [runDetailCell, setRunDetailCell] = useState<{ col: any; row: any } | null>(null);
     const [cacheModalRow, setCacheModalRow] = useState<RowItem | null>(null);
     const [cacheModalEntries, setCacheModalEntries] = useState<Array<{url:string; title?:string; length:number; markdown:string; fetchedAt:string}>>([]);
     const [cacheModalLoading, setCacheModalLoading] = useState(false);
 
-    // Column Management & Visibility
+    // Column Management, Visibility & Resizing
     const [showColVisibility, setShowColVisibility] = useState(false);
     const [manuallyHiddenCols, setManuallyHiddenCols] = useState<Set<string>>(new Set());
     const [colOrder, setColOrder] = useState<string[]>(c.col_order || []);
+    const [colWidths, setColWidths] = useState<Record<string, number>>({});
     const [dragCol, setDragCol] = useState<string | null>(null);
     const [dragOverCol, setDragOverCol] = useState<string | null>(null);
 
@@ -482,7 +485,7 @@ export default function CaseShow({ case: c }: Props) {
                                         )}
                                     </button>
 
-                                    {/* Spalten Visibility Dropdown Panel (Identisch zu Next.js) */}
+                                    {/* Spalten Visibility Dropdown Panel */}
                                     {showColVisibility && (
                                         <div 
                                             style={{
@@ -600,7 +603,7 @@ export default function CaseShow({ case: c }: Props) {
                     </div>
                 )}
 
-                {/* Tab: Firmen (Main Table with Drag&Drop Reordering) */}
+                {/* Tab: Firmen (Main Table with Drag&Drop Reordering & Resizing) */}
                 {activeTab === "Firmen" && viewMode === "grouped" && (
                     <GroupedTableView caseId={caseData.id} />
                 )}
@@ -619,6 +622,8 @@ export default function CaseShow({ case: c }: Props) {
                                     <th className="p-2.5 w-10 border-r text-center" style={{ borderColor: "var(--border)" }}>#</th>
                                     {visibleColumns.map(col => {
                                         const isDragOver = dragOverCol === col.key;
+                                        const colWidth = colWidths[col.key] ?? (col.key === 'company_name' ? 200 : col.isAi ? 180 : 140);
+
                                         return (
                                             <th 
                                                 key={col.key} 
@@ -627,14 +632,36 @@ export default function CaseShow({ case: c }: Props) {
                                                 onDragOver={e => { e.preventDefault(); setDragOverCol(col.key); }}
                                                 onDragLeave={() => setDragOverCol(null)}
                                                 onDrop={() => handleColDrop(col.key)}
-                                                className="p-2 border-r min-w-[150px] transition-all cursor-grab active:cursor-grabbing select-none"
+                                                className="p-2 border-r transition-all cursor-grab active:cursor-grabbing select-none relative"
                                                 style={{ 
                                                     borderColor: "var(--border)",
                                                     background: isDragOver ? "var(--orange-mid)" : col.isAi ? "var(--orange-soft)" : "inherit",
                                                     color: col.isAi ? "var(--orange)" : "inherit",
                                                     borderLeft: isDragOver ? "2px solid var(--orange)" : undefined,
+                                                    width: colWidth,
+                                                    minWidth: 80,
                                                 }}
                                             >
+                                                {/* ↔ Column Resize Handle (Identisch zu Next.js) */}
+                                                <div
+                                                    style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 6, cursor: "col-resize", zIndex: 10 }}
+                                                    onMouseDown={e => {
+                                                        e.stopPropagation(); e.preventDefault();
+                                                        const startX = e.clientX;
+                                                        const startW = colWidth;
+                                                        const onMove = (ev: MouseEvent) => {
+                                                            const w = Math.max(80, startW + ev.clientX - startX);
+                                                            setColWidths(prev => ({ ...prev, [col.key]: w }));
+                                                        };
+                                                        const onUp = () => {
+                                                            window.removeEventListener("mousemove", onMove);
+                                                            window.removeEventListener("mouseup", onUp);
+                                                        };
+                                                        window.addEventListener("mousemove", onMove);
+                                                        window.addEventListener("mouseup", onUp);
+                                                    }}
+                                                />
+
                                                 <div className="flex items-center gap-1.5 justify-between">
                                                     <div className="flex items-center gap-1 min-w-0">
                                                         <GripVertical className="w-3 h-3 text-slate-400 shrink-0 opacity-40 hover:opacity-100" />
@@ -715,20 +742,31 @@ export default function CaseShow({ case: c }: Props) {
                                                                 <span className="text-slate-400 italic text-[11px]">—</span>
                                                             )
                                                         ) : col.isAi ? (
-                                                            <div className="flex items-center justify-between gap-1.5">
+                                                            <div 
+                                                                className="flex items-center justify-between gap-1.5 cursor-pointer group/cell"
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    // Klick auf Zelle öffnet RunDetailModal mit Prompt, Token, Raw Daten & Rerun
+                                                                    setRunDetailCell({ col: col.colDef, row: r });
+                                                                }}
+                                                                title="Klicken für Prompt, Token, Rohdaten & Rerun"
+                                                            >
                                                                 <span className="truncate">
                                                                     {isRunning ? (
                                                                         <span className="text-orange-600 font-medium flex items-center gap-1">
                                                                             <RefreshCw className="w-3 h-3 animate-spin" /> läuft...
                                                                         </span>
                                                                     ) : val ? (
-                                                                        <span className="ai-chip-v2 font-mono text-[11px]">{String(val)}</span>
+                                                                        <span className="ai-chip-v2 font-mono text-[11px] hover:underline">{String(val)}</span>
                                                                     ) : (
-                                                                        <span className="text-slate-400 italic text-[11px]">—</span>
+                                                                        <span className="text-slate-400 italic text-[11px] hover:text-slate-600">— leer (Klick für Details) —</span>
                                                                     )}
                                                                 </span>
                                                                 <button
-                                                                    onClick={() => runCell(r.id, col.colDef)}
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        runCell(r.id, col.colDef);
+                                                                    }}
                                                                     disabled={isRunning}
                                                                     title={`Zelle für ${col.label} einzeln berechnen`}
                                                                     className="btn-v2 p-1 hover:bg-orange-50 border-orange-200 text-orange-600 rounded cursor-pointer shrink-0"
@@ -800,7 +838,7 @@ export default function CaseShow({ case: c }: Props) {
                 <ImportModal
                     caseId={caseData.id}
                     onClose={() => setShowImportModal(false)}
-                    onImported={() => { refreshCase(); loadPage(1); }}
+                    onImported={(count) => { refreshCase(); loadPage(1); }}
                 />
             )}
 
@@ -823,7 +861,21 @@ export default function CaseShow({ case: c }: Props) {
                 />
             )}
 
-            {/* ⚡ Cache Inspector Modal (1:1 Next.js Original) */}
+            {/* 🔍 RunDetailModal (Klick auf KI-Zelle öffnet Prompt, Tokens, Rohdaten & Rerun) */}
+            {runDetailCell && (
+                <RunDetailModal
+                    col={runDetailCell.col}
+                    row={runDetailCell.row}
+                    caseId={caseData.id}
+                    onClose={() => setRunDetailCell(null)}
+                    onRowUpdate={(rowId, patch) => {
+                        setRows(prev => prev.map(r => r.id === rowId ? { ...r, ...patch } : r));
+                        setRunDetailCell(prev => prev && prev.row.id === rowId ? { ...prev, row: { ...prev.row, ...patch } } : prev);
+                    }}
+                />
+            )}
+
+            {/* ⚡ Cache Inspector Modal */}
             {cacheModalRow && (
                 <div 
                     className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in"
