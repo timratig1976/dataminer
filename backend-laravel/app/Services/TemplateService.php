@@ -122,7 +122,13 @@ class TemplateService
         ];
 
         $settings = GlobalSetting::instance();
-        $custom = $settings->custom_templates ?? [];
+        $custom = $settings->custom_templates;
+        if (is_string($custom)) {
+            $decoded = json_decode($custom, true);
+            $custom = is_array($decoded) ? $decoded : [];
+        } elseif (!is_array($custom)) {
+            $custom = [];
+        }
 
         return array_merge($builtIn, $custom);
     }
