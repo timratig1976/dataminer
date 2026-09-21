@@ -19,9 +19,9 @@ class AgentRunnerService
     /**
      * Initializes a new goal-based Agent Run and generates its discovery plan.
      */
-    public function startRun(string $caseId, string $goal, int $targetCount = 3000): AgentRun
+    public function startRun(string $caseId, string $goal, int $targetCount = 3000, string $sourceMode = 'gmb_first'): AgentRun
     {
-        $plan = $this->planner->createPlan($goal, $targetCount);
+        $plan = $this->planner->createPlan($goal, $targetCount, sourceMode: $sourceMode);
 
         // Ensure steps have unique string ids
         $steps = array_map(function ($s, $idx) {
@@ -35,6 +35,7 @@ class AgentRunnerService
         $goalObj = [
             'description' => $goal,
             'targetCount' => $targetCount,
+            'sourceMode' => $sourceMode,
         ];
 
         return AgentRun::create([
@@ -88,14 +89,18 @@ class AgentRunnerService
 
         if (($step['type'] ?? '') === 'google_search') {
             $query = $step['query'] ?? $step['label'];
-            $res = $this->discovery->discoverWeb($run->case_id, $query, $step['estimated_hits'] ?? 20);
+            // Fetch maximum yield (up to 100 results)
+            $limit = max(100, $step['estimated_hits'] ?? 100);
+            $res = $this->discovery->discoverWeb($run->case_id, $query, $limit);
             $addedCount = $res['added_count'] ?? 0;
             $stepCost = 0.001;
             $logMessage = "Search '{$query}' found {$addedCount} new companies.";
         } elseif (($step['type'] ?? '') === 'google_maps') {
             $query = $step['map_query'] ?? $step['label'];
             $loc = $step['location'] ?? null;
-            $res = $this->discovery->discoverMaps($run->case_id, $query, $loc, $step['estimated_hits'] ?? 20);
+            // Fetch maximum yield from Google Maps (up to 100 places per search)
+            $limit = max(100, $step['estimated_hits'] ?? 100);
+            $res = $this->discovery->discoverMaps($run->case_id, $query, $loc, $limit);
             $addedCount = $res['added_count'] ?? 0;
             $stepCost = 0.001;
             $logMessage = "Maps '{$query}' ({$loc}) found {$addedCount} new places.";

@@ -75,13 +75,39 @@ class CellRunController extends Controller
                     maxContacts: $column['batchContactsMax'] ?? 3,
                     model: $model,
                     customSystemPrompt: !empty($column['prompt']) ? $column['prompt'] : null,
-                    region: $region
+                    region: $region,
+                    searchLinkedIn: !empty($column['batchContactsLinkedIn'])
                 );
 
                 $data = $row->data ?? [];
                 if (!empty($result['contacts'])) {
                     $data["_contacts_json_{$outputKey}"] = json_encode($result['contacts']);
                     $summary = count($result['contacts']) . ' Kontakte gefunden';
+
+                    // Sync into contact_rows table for the Kontakte tab
+                    \App\Models\ContactRow::where('case_id', $case->id)
+                        ->where('company_row_id', $row->id)
+                        ->delete();
+
+                    foreach ($result['contacts'] as $c) {
+                        \App\Models\ContactRow::create([
+                            'id' => (string) \Illuminate\Support\Str::uuid(),
+                            'case_id' => $case->id,
+                            'company_row_id' => $row->id,
+                            'row_index' => \App\Models\ContactRow::where('case_id', $case->id)->count(),
+                            'data' => [
+                                'company_name' => $row->data['company_name'] ?? $row->data['Unternehmen'] ?? '',
+                                'first_name' => $c['first_name'] ?? null,
+                                'last_name' => $c['last_name'] ?? null,
+                                'position' => $c['position'] ?? null,
+                                'email' => $c['email'] ?? null,
+                                'phone' => $c['phone'] ?? $row->data['phone'] ?? null,
+                                'linkedin' => $c['linkedin'] ?? null,
+                                'domain' => $row->data['domain'] ?? null,
+                                'city' => $row->data['city'] ?? null,
+                            ],
+                        ]);
+                    }
                 } else {
                     $summary = '—';
                 }
@@ -102,13 +128,15 @@ class CellRunController extends Controller
                 ]);
             } elseif ($tool === 'batch_company' || $tool === 'batch_enrich' || empty($tool) && empty($column['prompt'])) {
                 $fields = $column['batchOutputFields'] ?? ['company_name', 'domain', 'phone', 'company_email', 'address', 'city', 'zip', 'industry', 'description'];
+                $crawlSources = $column['crawlSources'] ?? [];
                 $result = $batchEnrich->enrichRow(
                     rowData: $row->data ?? [],
                     apiKey: $apiKey,
                     requestedFields: $fields,
                     model: $model,
                     customSystemPrompt: !empty($column['prompt']) ? $column['prompt'] : null,
-                    region: $region
+                    region: $region,
+                    crawlSources: $crawlSources
                 );
 
                 $data = array_merge($row->data ?? [], $result['fields'] ?? []);
@@ -137,11 +165,92 @@ class CellRunController extends Controller
                     $renderedPrompt = str_replace('{' . $k . '}', (string) $v, $renderedPrompt);
                 }
 
+                // Multi-Search Steps or single WebSearch execution
+                $searchContextBlocks = [];
+                $searchSteps = $column['searchSteps'] ?? [];
+
+                if (!empty($searchSteps) && is_array($searchSteps)) {
+                    foreach ($searchSteps as $sStep) {
+                        $sQuery = trim($sStep['query'] ?? '');
+                        if (!$sQuery) continue;
+                        $comp = $row->data['company_name'] ?? $row->data['Unternehmen'] ?? $row->data['name'] ?? '';
+                        $city = $row->data['city'] ?? $row->data['Stadt'] ?? '';
+                        $domain = $row->data['domain'] ?? $row->data['website'] ?? '';
+                        $rendered = str_replace(['{company_name}', '{city}', '{domain}'], [$comp, $city, $domain], $sQuery);
+                        foreach ($row->data ?? [] as $k => $v) {
+                            if (is_scalar($v)) $rendered = str_replace('{' . $k . '}', (string) $v, $rendered);
+                        }
+                        $rendered = trim($rendered);
+
+                        $mode = $sStep['mode'] ?? 'search';
+                        $depth = $sStep['depth'] ?? 'snippet';
+                        $maxRes = min(10, max(1, (int) ($sStep['maxResults'] ?? 3)));
+
+                        if ($mode === 'maps') {
+                            $places = app(\App\Services\MapsService::class)->search($rendered, limit: $maxRes);
+                            $lines = array_map(fn($p) => "- " . ($p['name'] ?? '') . " | " . ($p['address'] ?? '') . " | " . ($p['phone'] ?? '') . " | Rating: " . ($p['rating'] ?? '—'), $places);
+                            if (!empty($lines)) {
+                                $searchContextBlocks[] = "## Google Maps Treffer (" . ($sStep['label'] ?? $rendered) . "):\n" . implode("\n", $lines);
+                            }
+                        } elseif ($mode === 'scrape_url') {
+                            $targetUrl = str_starts_with($rendered, 'http') ? $rendered : "https://{$rendered}";
+                            try {
+                                $sc = app(\App\Services\EdenAiService::class)->scrapeUrl($apiKey, $targetUrl);
+                                if (!empty($sc['markdown'])) {
+                                    $searchContextBlocks[] = "## Gecrawlte Seite ({$targetUrl}):\n" . substr($sc['markdown'], 0, 4000);
+                                }
+                            } catch (\Throwable $e) {}
+                        } else {
+                            $sRes = app(\App\Services\SearchService::class)->search($rendered, $maxRes);
+                            $snippets = [];
+                            foreach ($sRes['results'] ?? [] as $idx => $r) {
+                                $snippets[] = "[" . ($idx + 1) . "] " . ($r['title'] ?? '') . " (" . ($r['url'] ?? '') . ")\n" . ($r['snippet'] ?? '');
+                            }
+                            if (!empty($snippets)) {
+                                $searchContextBlocks[] = "## Suchergebnisse (" . ($sStep['label'] ?? $rendered) . "):\n" . implode("\n\n", $snippets);
+                            }
+                        }
+                    }
+                } elseif (!empty($column['useWebSearch'])) {
+                    $rawSearchTemplate = !empty($column['searchQuery']) ? trim($column['searchQuery']) : '{company_name} {city}';
+                    $renderedSearchQuery = $rawSearchTemplate;
+                    $comp = $row->data['company_name'] ?? $row->data['Unternehmen'] ?? $row->data['name'] ?? '';
+                    $city = $row->data['city'] ?? $row->data['Stadt'] ?? '';
+                    $renderedSearchQuery = str_replace('{company_name}', $comp, $renderedSearchQuery);
+                    $renderedSearchQuery = str_replace('{city}', $city, $renderedSearchQuery);
+                    foreach ($row->data ?? [] as $k => $v) {
+                        $renderedSearchQuery = str_replace('{' . $k . '}', (string) $v, $renderedSearchQuery);
+                    }
+                    $renderedSearchQuery = trim($renderedSearchQuery);
+                    if (!empty($renderedSearchQuery)) {
+                        try {
+                            $searchRes = app(\App\Services\SearchService::class)->search($renderedSearchQuery, $column['searchMaxResults'] ?? 5);
+                            $results = $searchRes['results'] ?? [];
+                            if (!empty($results)) {
+                                $snippets = [];
+                                foreach ($results as $idx => $r) {
+                                    $snippets[] = "[" . ($idx + 1) . "] " . ($r['title'] ?? '') . "\n" . ($r['snippet'] ?? '');
+                                }
+                                $searchContextBlocks[] = "## Web-Suchergebnisse für: {$renderedSearchQuery}\n\n" . implode("\n\n", $snippets);
+                            }
+                        } catch (\Throwable $e) {
+                            // Proceed without web context on search failure
+                        }
+                    }
+                }
+
+                $webSearchContext = implode("\n\n---\n\n", $searchContextBlocks);
+
+                $finalPrompt = $renderedPrompt ?: "Analysiere das Unternehmen: " . ($row->data['company_name'] ?? '');
+                if ($webSearchContext) {
+                    $finalPrompt = $webSearchContext . "\n\n---\n\n" . $finalPrompt;
+                }
+
                 $chat = app(\App\Services\EdenAiService::class)->chatCompletion(
                     apiKey: $apiKey,
                     model: $model,
                     system: 'Du bist ein KI-Assistent für Datenanreicherung. Antworte präzise.',
-                    prompt: $renderedPrompt ?: "Analysiere das Unternehmen: " . ($row->data['company_name'] ?? ''),
+                    prompt: $finalPrompt,
                     maxTokens: 800,
                     temperature: 0.0,
                     region: $region
@@ -164,6 +273,16 @@ class CellRunController extends Controller
                     $data[$outputKey] = $val;
                 }
 
+                // Speichere den exakten Prompt inkl. Web-Kontext & Raw-Output für volle Transparenz im Modal
+                $data["_llm_prompt_{$outputKey}"] = $finalPrompt;
+                $data["_llm_raw_{$outputKey}"] = $val;
+                if (!empty($chat['tokens'])) {
+                    $data["_llm_tokens_{$outputKey}"] = json_encode($chat['tokens']);
+                }
+                if (!empty($chat['cost_usd'])) {
+                    $data["_llm_cost_{$outputKey}"] = (string) $chat['cost_usd'];
+                }
+
                 $statuses[$outputKey] = 'done';
                 $row->update(['data' => $data, 'cell_statuses' => $statuses]);
 
@@ -173,6 +292,10 @@ class CellRunController extends Controller
                     'status' => 'done',
                     'row' => $row,
                     'result' => $data[$outputKey],
+                    'renderedPrompt' => $finalPrompt,
+                    'rawResponse' => $val,
+                    'tokens' => $chat['tokens'] ?? null,
+                    'costUsd' => $chat['cost_usd'] ?? null,
                 ]);
             }
         } catch (Exception $e) {

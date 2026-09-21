@@ -63,6 +63,14 @@ Route::middleware(['web', 'auth'])->group(function () {
     Route::post('/settings/test-planner', [SettingsController::class, 'testPlanner']);
     Route::get('/agent/runs/{id}/stream', [AgentRunController::class, 'stream']);
 
+    // Blacklist Domains Management
+    Route::get('/blacklist', [\App\Http\Controllers\Api\BlacklistController::class, 'index']);
+    Route::post('/blacklist', [\App\Http\Controllers\Api\BlacklistController::class, 'store']);
+    Route::delete('/blacklist/{id}', [\App\Http\Controllers\Api\BlacklistController::class, 'destroy']);
+
+    // Single Crawl / Search Step Test
+    Route::post('/run/test-step', [\App\Http\Controllers\Api\CrawlStepTestController::class, 'testStep']);
+
     // Write access for Editor & Super-Admin
     Route::middleware(['role:Super-Admin|Editor'])->group(function () {
         Route::post('/cases', [CaseController::class, 'store']);

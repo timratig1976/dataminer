@@ -20,18 +20,36 @@ class DiscoveryService
     /**
      * Executes a web discovery search and filters out duplicates against existing case rows.
      */
-    public function discoverWeb(string $caseId, string $query, int $limit = 20): array
+    public function discoverWeb(string $caseId, string $query, int $limit = 100): array
     {
         $existingDomains = $this->getExistingDomains($caseId);
         $searchRes = $this->searchService->search($query, $limit);
         $hits = $searchRes['results'] ?? [];
 
         $newRows = [];
+        $consecutiveJunkCount = 0;
+
         foreach ($hits as $hit) {
             $url = $hit['url'] ?? '';
             $domain = $this->extractDomain($url);
 
-            if (empty($domain) || in_array($domain, $existingDomains) || $this->searchService->isCatalogDomain($url)) {
+            // Check if result is unwanted (catalog, wikipedia, ebay, social media etc.)
+            $isJunk = empty($domain) || $this->searchService->isCatalogDomain($url);
+
+            if ($isJunk) {
+                $consecutiveJunkCount++;
+                // Early-Exit: If 4 unwanted results appear consecutively, relevance has decayed -> abort this query
+                if ($consecutiveJunkCount >= 4) {
+                    \Illuminate\Support\Facades\Log::info("[DiscoveryService] Aborting query '{$query}' early after 4 consecutive non-target/catalog results.");
+                    break;
+                }
+                continue;
+            }
+
+            // Valid target domain found: reset consecutive junk counter
+            $consecutiveJunkCount = 0;
+
+            if (in_array($domain, $existingDomains)) {
                 continue;
             }
 
@@ -55,7 +73,7 @@ class DiscoveryService
     /**
      * Executes a Google Maps discovery search and filters out duplicates.
      */
-    public function discoverMaps(string $caseId, string $query, ?string $location = null, int $limit = 20): array
+    public function discoverMaps(string $caseId, string $query, ?string $location = null, int $limit = 100): array
     {
         $existingDomains = $this->getExistingDomains($caseId);
         $places = $this->mapsService->search($query, $location, $limit);

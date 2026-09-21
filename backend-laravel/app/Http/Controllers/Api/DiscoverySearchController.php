@@ -25,7 +25,7 @@ class DiscoverySearchController extends Controller
     ): JsonResponse {
         $query = $request->input('query') ?: $request->query('q');
         $source = $request->input('source') ?: $request->query('source', 'auto');
-        $limit = min(100, max(1, (int) ($request->input('limit') ?: $request->query('limit', 20))));
+        $limit = min(100, max(1, (int) ($request->input('limit') ?: $request->query('limit', 100))));
         $caseId = $request->input('caseId') ?: $request->query('caseId');
 
         if (empty(trim((string) $query))) {

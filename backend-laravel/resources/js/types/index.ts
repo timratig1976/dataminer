@@ -24,6 +24,17 @@ export interface AiColumn {
   searchMaxResults?: number;        // default 5
   searchForceLayer?: "serpapi" | "brave" | "duckduckgo" | "playwright" | "scrapling" | "firecrawl";
   evidenceMode?: "snippet" | "page" | "auto";  // snippet (default) | page (scrape top results) | auto (retry with pages if empty)
+
+  /** Flexible Multi-Search & Crawl Steps before LLM */
+  searchSteps?: Array<{
+    id: string;
+    label?: string;
+    query: string;                 // template e.g. "{company_name} Impressum"
+    mode: "search" | "scrape_url" | "maps"; // web search, direct page scrape or Google maps
+    depth: "snippet" | "page";     // snippet only or full page crawl
+    maxResults?: number;           // default 3
+  }>;
+
   captureReasoning?: boolean;       // ask LLM to return _reasoning field; stored as _reasoning_{outputKey}
   /** Reasoning effort mapping per model family (see lib/edenai.ts). Default: none */
   reasoning?: "none" | "low" | "medium" | "high";

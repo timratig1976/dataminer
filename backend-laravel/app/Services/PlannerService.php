@@ -134,8 +134,15 @@ PROMPT;
 
     /**
      * Creates an executable DiscoveryPlan from a natural language prompt.
+     * Optionally takes a caseId to analyze existing data and prevent redundant searches.
      */
-    public function createPlan(string $userGoal, int $maxResults = 50, ?string $promptOverride = null): array
+    public function createPlan(
+        string $userGoal,
+        int $maxResults = 50,
+        ?string $promptOverride = null,
+        string $sourceMode = 'gmb_first',
+        ?string $caseId = null
+    ): array
     {
         $settings = GlobalSetting::instance();
         $apiKey = $settings->eden_api_key ?: env('EDEN_API_KEY');
@@ -148,7 +155,21 @@ PROMPT;
         $model = $region === 'eu' ? 'mistral/mistral-small-latest' : 'openai/gpt-4o-mini';
 
         $systemPrompt = $promptOverride ?: ($settings->planner_system_prompt ?: $this->buildDefaultSystemPrompt());
-        $userPrompt = "Create a discovery plan for the following goal:\nGoal: {$userGoal}\nmaxResults: {$maxResults}";
+        
+        $modeInstruction = match($sourceMode) {
+            'gmb_only' => "\nSTRATEGY INSTRUCTION: Use ONLY 'google_maps' steps. Do NOT generate any 'google_search' or 'catalog_scrape' steps.",
+            'search_only' => "\nSTRATEGY INSTRUCTION: Use ONLY 'google_search' steps. Do NOT generate any 'google_maps' steps.",
+            'search_first' => "\nSTRATEGY INSTRUCTION: Prioritize 'google_search' steps first to discover leads from web indices, and only add 'google_maps' as secondary supplement.",
+            default => "\nSTRATEGY INSTRUCTION: GMB First: Prioritize 'google_maps' steps for physical presence / local businesses. Add 'google_search' only for supplementary coverage.",
+        };
+
+        // If caseId is provided, extract existing profile to avoid duplicate searches
+        $caseContextInstruction = "";
+        if (!empty($caseId)) {
+            $caseContextInstruction = $this->buildCaseContextInstruction($caseId);
+        }
+
+        $userPrompt = "Create a discovery plan for the following goal:\nGoal: {$userGoal}\nmaxResults: {$maxResults}" . $modeInstruction . $caseContextInstruction;
 
         try {
             $resp = $this->eden->chatCompletion(
@@ -208,5 +229,62 @@ PROMPT;
             'estimatedRows' => min(50, $maxResults),
             'warnings' => ['Fallback-Plan generiert (LLM nicht verfügbar)'],
         ];
+    }
+
+    /**
+     * Aggregates existing cities, categories, and company names in this case
+     * to prevent the planner from generating redundant searches.
+     */
+    protected function buildCaseContextInstruction(string $caseId): string
+    {
+        try {
+            $rows = \App\Models\Row::where('case_id', $caseId)->limit(500)->get();
+            if ($rows->isEmpty()) {
+                return "";
+            }
+
+            $cities = [];
+            $categories = [];
+            $companyNames = [];
+
+            foreach ($rows as $r) {
+                $d = $r->data ?? [];
+                $c = $d['city'] ?? $d['Stadt'] ?? null;
+                if ($c && strlen($c) > 2 && strlen($c) < 50) {
+                    $cities[$c] = ($cities[$c] ?? 0) + 1;
+                }
+                $cat = $d['category'] ?? $d['Kategorie'] ?? $d['industry'] ?? null;
+                if ($cat && strlen($cat) > 2 && strlen($cat) < 50) {
+                    $categories[$cat] = ($categories[$cat] ?? 0) + 1;
+                }
+                $name = $d['company_name'] ?? $d['Unternehmen'] ?? null;
+                if ($name && strlen($name) < 40) {
+                    $companyNames[] = $name;
+                }
+            }
+
+            arsort($cities);
+            arsort($categories);
+
+            $topCities = array_slice(array_keys($cities), 0, 8);
+            $topCats = array_slice(array_keys($categories), 0, 6);
+            $sampleCompanies = array_slice($companyNames, 0, 10);
+
+            $cityStr = !empty($topCities) ? implode(', ', $topCities) : 'keine';
+            $catStr = !empty($topCats) ? implode(', ', $topCats) : 'keine';
+            $compStr = !empty($sampleCompanies) ? implode(', ', $sampleCompanies) : 'keine';
+
+            return "\n\nEXISTING CASE DATA CONTEXT (DO NOT DUPLICATE THESE):" .
+                "\nThis project already contains " . $rows->count() . " existing leads!" .
+                "\n- Heavily covered cities in this case: " . $cityStr .
+                "\n- Existing categories in this case: " . $catStr .
+                "\n- Sample of existing companies: " . $compStr .
+                "\n\nCRITICAL DEDUPLICATION DIRECTIVE:" .
+                "\n1. Do NOT generate discovery steps that target the exact same combinations of heavily covered cities and categories." .
+                "\n2. Focus on complementary sub-niches, neighboring towns/districts, or broader geographical coverage that is NOT yet covered above." .
+                "\n3. Ensure maximum new unique leads yield.";
+        } catch (\Throwable $e) {
+            return "";
+        }
     }
 }

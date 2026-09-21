@@ -69,7 +69,7 @@ export function AgentGoalModal({ caseId, rowsCount, onClose, onImported, externa
   const [maxDurationMin, setMaxDurationMin] = useState("");
   const [maxIterations, setMaxIterations] = useState("");
   const [useMaps, setUseMaps] = useState(true);
-  const [sourceMode, setSourceMode] = useState<"auto" | "maps" | "search" | "combined">("auto");
+  const [sourceMode, setSourceMode] = useState<"gmb_first" | "gmb_only" | "search_only" | "search_first">("gmb_first");
   const [showCostDetails, setShowCostDetails] = useState(false);
 
   // ── Sub-industry selection state ──
@@ -311,7 +311,7 @@ export function AgentGoalModal({ caseId, rowsCount, onClose, onImported, externa
     if (maxBudgetUsd.trim()) goal.maxBudgetUsd = Number(maxBudgetUsd);
     if (maxDurationMin.trim()) goal.maxDurationMin = Number(maxDurationMin);
     if (maxIterations.trim()) goal.maxIterations = Number(maxIterations);
-    goal.useMaps = sourceMode === "search" ? false : useMaps;
+    goal.useMaps = sourceMode === "search_only" ? false : useMaps;
     goal.sourceMode = sourceMode;
     await start(goal);
   };
@@ -688,33 +688,33 @@ export function AgentGoalModal({ caseId, rowsCount, onClose, onImported, externa
             {/* Sources selector */}
             <div>
               <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-2)", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 6 }}>
-                Such-Quelle
+                Such-Strategie & Primärdaten
               </div>
-              <div className="flex flex-wrap gap-2">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
                 {[
-                  { id: "auto" as const, label: "🔄 Auto", desc: "Beste Quelle automatisch" },
-                  { id: "maps" as const, label: "🗺️ Nur GMB", desc: "Google Maps Business" },
-                  { id: "search" as const, label: "🔍 Nur Google", desc: "Web-Suche" },
-                  { id: "combined" as const, label: "🗺️+🔍 Kombi", desc: "Maps + Web kombiniert" },
+                  { id: "gmb_first" as const, label: "🗺️ GMB First + Web", desc: "Primär GMB-Profile, Web als Ergänzung" },
+                  { id: "gmb_only" as const, label: "📍 Nur GMB", desc: "Ausschließlich Google Business Profile" },
+                  { id: "search_first" as const, label: "🔍 Web First + GMB", desc: "Web-Recherche priorisiert" },
+                  { id: "search_only" as const, label: "🌐 Nur Web-Suche", desc: "Ausschließlich Google Web Suche" },
                 ].map(opt => (
                   <button
                     key={opt.id}
                     type="button"
                     onClick={() => {
                       setSourceMode(opt.id);
-                      if (opt.id === "search") setUseMaps(false);
+                      if (opt.id === "search_only") setUseMaps(false);
                       else setUseMaps(true);
                     }}
                     disabled={isRunning}
-                    className={`flex flex-col items-start gap-0.5 px-3 py-2 rounded-lg border text-xs cursor-pointer transition-all ${
+                    className={`flex flex-col items-start gap-1 p-2.5 rounded-lg border text-xs cursor-pointer transition-all ${
                       sourceMode === opt.id
-                        ? "border-[var(--orange)] bg-[var(--orange-soft)] text-[var(--orange)] shadow-sm font-semibold"
+                        ? "border-[var(--orange)] bg-[var(--orange-soft)] text-[var(--orange)] shadow-sm font-semibold ring-1 ring-[var(--orange)]"
                         : "border-[var(--border)] bg-[var(--surface)] text-[var(--text-2)] hover:border-[var(--orange-mid)] hover:bg-[var(--bg)]"
                     }`}
                     title={opt.desc}
                   >
-                    <span className="font-semibold text-sm">{opt.label}</span>
-                    <span className="opacity-75 text-[11px]">{opt.desc}</span>
+                    <span className="font-semibold text-[12.5px] leading-tight">{opt.label}</span>
+                    <span className="opacity-75 text-[10.5px] leading-tight">{opt.desc}</span>
                   </button>
                 ))}
               </div>
@@ -726,7 +726,7 @@ export function AgentGoalModal({ caseId, rowsCount, onClose, onImported, externa
               const discovery = n * 0.003;
               const enrich    = n * 0.00036;
               const contacts  = n * 0.00113;
-              const maps      = (sourceMode !== "search" && useMaps) ? n * 0.002 : 0;
+              const maps      = (sourceMode !== "search_only" && useMaps) ? n * 0.002 : 0;
               const total     = discovery + enrich + contacts + maps;
               const totalEur  = total * 0.91;
               const fmtU = (v: number) => v < 0.01 ? v.toFixed(3) : v < 10 ? v.toFixed(2) : v.toFixed(1);

@@ -9,7 +9,7 @@ use Illuminate\Support\Facades\Log;
 class SearchService
 {
     /**
-     * Known catalog and directory domains in DACH
+     * Known catalog, directory and non-target consumer domains in DACH
      */
     protected array $catalogDomains = [
         'wlw.de', 'gelbeseiten.de', 'dasoertliche.de', 'dastelefonbuch.de',
@@ -17,35 +17,24 @@ class SearchService
         'branchenbuch.de', 'firmen.de', 'firmenwissen.de', 'northdata.de',
         'northdata.com', 'companyhouse.de', 'handelsregister.de',
         'unternehmensregister.de', 'bundesanzeiger.de', 'creditreform.de',
-        'linkedin.com', 'xing.com', 'facebook.com', 'instagram.com'
+        'linkedin.com', 'xing.com', 'facebook.com', 'instagram.com',
+        'speisekarte.de', 'speisekarte.menu', 'speisekartenweb.de',
+        'tripadvisor.de', 'tripadvisor.com', 'restaurant-guru.in', 'yelp.de',
+        'falstaff.com', 'opentable.de', 'lieferando.de', 'michelin.com',
+        'wikipedia.org', 'wikidata.org', 'ebay.de', 'ebay.com', 'ebay-kleinanzeigen.de',
+        'kleinanzeigen.de', 'amazon.de', 'amazon.com', 'youtube.com', 'pinterest.de',
+        'pinterest.com', 'tiktok.com', 'reddit.com', 'twitter.com', 'x.com'
     ];
 
     /**
      * Run web search across configured providers with automatic fallbacks.
      */
-    public function search(string $query, int $limit = 10, ?string $preferredSource = 'auto'): array
+    public function search(string $query, int $limit = 100, ?string $preferredSource = 'auto'): array
     {
         $settings = GlobalSetting::instance();
         $start = microtime(true);
 
-        // 1. SerpAPI (if key exists or preferred)
-        if (($preferredSource === 'auto' || $preferredSource === 'serpapi') && !empty($settings->serp_api_key)) {
-            try {
-                $results = $this->searchSerpApi($query, $settings->serp_api_key, $limit);
-                if (!empty($results)) {
-                    return [
-                        'results' => $results,
-                        'source' => 'serpapi',
-                        'query' => $query,
-                        'latency_ms' => round((microtime(true) - $start) * 1000),
-                    ];
-                }
-            } catch (\Throwable $e) {
-                Log::warning("SerpAPI search failed: " . $e->getMessage());
-            }
-        }
-
-        // 2. Serper.dev (if key exists)
+        // 1. Serper.dev (cheapest & fastest, if key exists or preferred)
         if (($preferredSource === 'auto' || $preferredSource === 'serper') && !empty($settings->serper_api_key)) {
             try {
                 $results = $this->searchSerper($query, $settings->serper_api_key, $limit);
@@ -59,6 +48,23 @@ class SearchService
                 }
             } catch (\Throwable $e) {
                 Log::warning("Serper search failed: " . $e->getMessage());
+            }
+        }
+
+        // 2. SerpAPI (if key exists or preferred)
+        if (($preferredSource === 'auto' || $preferredSource === 'serpapi') && !empty($settings->serp_api_key)) {
+            try {
+                $results = $this->searchSerpApi($query, $settings->serp_api_key, $limit);
+                if (!empty($results)) {
+                    return [
+                        'results' => $results,
+                        'source' => 'serpapi',
+                        'query' => $query,
+                        'latency_ms' => round((microtime(true) - $start) * 1000),
+                    ];
+                }
+            } catch (\Throwable $e) {
+                Log::warning("SerpAPI search failed: " . $e->getMessage());
             }
         }
 
@@ -224,11 +230,29 @@ class SearchService
         $host = strtolower(parse_url($url, PHP_URL_HOST) ?? '');
         $host = preg_replace('/^www\./', '', $host);
 
+        if (!$host) return false;
+
+        // 1. Check in-memory hardcoded list
         foreach ($this->catalogDomains as $catalog) {
             if ($host === $catalog || str_ends_with($host, '.' . $catalog)) {
                 return true;
             }
         }
+
+        // 2. Check dynamic database Blacklist
+        try {
+            $blocked = \App\Models\BlacklistDomain::where('domain', $host)
+                ->orWhereRaw('? LIKE CONCAT("%.", domain)', [$host])
+                ->first();
+
+            if ($blocked) {
+                $blocked->recordHit();
+                return true;
+            }
+        } catch (\Throwable $e) {
+            // DB fallback ignored
+        }
+
         return false;
     }
 }

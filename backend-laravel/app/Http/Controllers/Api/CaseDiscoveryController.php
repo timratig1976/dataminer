@@ -22,8 +22,15 @@ class CaseDiscoveryController extends Controller
     {
         $case = DataCase::findOrFail($id);
         $goal = $request->input('goal') ?: $case->name;
+        $maxResults = (int) $request->input('maxResults', 100);
+        $sourceMode = (string) $request->input('sourceMode', 'gmb_first');
 
-        $plan = $planner->createPlan($goal);
+        $plan = $planner->createPlan(
+            userGoal: $goal,
+            maxResults: $maxResults,
+            sourceMode: $sourceMode,
+            caseId: $case->id
+        );
         return response()->json($plan);
     }
 
@@ -36,7 +43,7 @@ class CaseDiscoveryController extends Controller
         $case = DataCase::findOrFail($id);
         $query = $request->input('query');
         $type = $request->input('type', 'web'); // web or maps
-        $limit = min((int) $request->input('limit', 20), 50);
+        $limit = min((int) $request->input('limit', 100), 100);
 
         if (empty($query)) {
             return response()->json(['error' => 'query required'], 400);
@@ -117,13 +124,39 @@ class CaseDiscoveryController extends Controller
     }
 
     /**
-     * Delete column shortcut.
+     * Delete column shortcut (AI column or Data column from all rows).
      * POST /api/cases/{id}/delete-column
      */
     public function deleteColumn(Request $request, string $id): JsonResponse
     {
         $case = DataCase::findOrFail($id);
         $columnId = $request->input('columnId');
+        $isDataKey = (bool) $request->input('isDataKey', false);
+
+        if ($isDataKey) {
+            // Delete this key from all rows of this case
+            $rows = \App\Models\Row::where('case_id', $case->id)->get();
+            foreach ($rows as $row) {
+                $data = $row->data ?? [];
+                if (array_key_exists($columnId, $data)) {
+                    unset($data[$columnId]);
+                    $row->update(['data' => $data]);
+                }
+            }
+
+            // Also remove from col_order and columns so the header dropdown immediately reflects the change
+            $colOrder = $case->col_order ?? [];
+            if (in_array($columnId, $colOrder)) {
+                $case->update(['col_order' => array_values(array_filter($colOrder, fn($k) => $k !== $columnId))]);
+            }
+
+            $columns = $case->columns ?? [];
+            if (!empty($columns)) {
+                $case->update(['columns' => array_values(array_filter($columns, fn($c) => is_array($c) ? (($c['key'] ?? '') !== $columnId) : ($c !== $columnId)))]);
+            }
+
+            return response()->json(['ok' => true, 'message' => "Spalte '{$columnId}' aus allen Zeilen und Spaltenlisten gelöscht.", 'case' => $case->fresh()]);
+        }
 
         $existing = $case->ai_columns ?? [];
         $filtered = array_values(array_filter($existing, fn($c) => ($c['id'] ?? '') !== $columnId && ($c['outputKey'] ?? '') !== $columnId));

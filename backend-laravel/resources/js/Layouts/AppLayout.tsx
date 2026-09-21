@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Link, usePage } from '@inertiajs/react';
 import { 
     LayoutDashboard, Database, Settings, Sliders, Zap, Sparkles, Users, User, DatabaseZap, BrainCircuit,
-    AlertTriangle, CheckCircle2, RefreshCw, Activity
+    AlertTriangle, CheckCircle2, RefreshCw, Activity, ChevronLeft, ChevronRight, ShieldAlert
 } from 'lucide-react';
 import { apiFetch } from '../api';
 
@@ -31,6 +31,25 @@ export default function Layout({
     const [recentCases, setRecentCases] = useState<SidebarCase[]>([]);
     const [healthData, setHealthData] = useState<ApiHealthData | null>(null);
     const [showHealthPopover, setShowHealthPopover] = useState(false);
+    const [showSettingsMenu, setShowSettingsMenu] = useState(false);
+    const [isCollapsed, setIsCollapsed] = useState(() => {
+        try {
+            return localStorage.getItem('dataminer_sidebar_collapsed') === 'true';
+        } catch {
+            return false;
+        }
+    });
+
+    const toggleSidebar = () => {
+        setIsCollapsed(prev => {
+            const next = !prev;
+            try {
+                localStorage.setItem('dataminer_sidebar_collapsed', String(next));
+            } catch {}
+            if (next) setShowSettingsMenu(false);
+            return next;
+        });
+    };
 
     useEffect(() => {
         fetch('/api/cases')
@@ -52,6 +71,7 @@ export default function Layout({
     const bottomNav = [
         { href: '/settings', title: 'API & Keys', label: 'Keys', icon: <Settings className="w-3.5 h-3.5" /> },
         { href: '/settings/models', title: 'Modell-Auswahl', label: 'Models', icon: <Sliders className="w-3.5 h-3.5" /> },
+        { href: '/settings/blacklist', title: 'Domain-Blacklist (Junk-Schutz)', label: 'Blacklist', icon: <ShieldAlert className="w-3.5 h-3.5" /> },
         { href: '/settings/prompts', title: 'Normalisierungs-Prompts', label: 'Prompts', icon: <BrainCircuit className="w-3.5 h-3.5" /> },
         { href: '/settings/planner', title: 'Planner Prompt', label: 'Planner', icon: <Sparkles className="w-3.5 h-3.5" /> },
         { href: '/settings/llm-test', title: 'LLM-Testing', label: 'LLM', icon: <Zap className="w-3.5 h-3.5" /> },
@@ -62,91 +82,139 @@ export default function Layout({
         <div className="flex h-screen overflow-hidden" style={{ background: 'var(--bg)', color: 'var(--text-1)', fontFamily: 'var(--f)' }}>
             {/* ─ Sidebar (Original Next.js Design) ─ */}
             <nav
-                className="flex flex-col shrink-0"
+                className="flex flex-col shrink-0 transition-all duration-200 relative"
                 style={{
-                    width: 210,
-                    minWidth: 210,
+                    width: isCollapsed ? 56 : 210,
+                    minWidth: isCollapsed ? 56 : 210,
                     background: 'var(--surface)',
-                    borderRight: '1px solid var(--border)',
-                    padding: '16px 0',
                 }}
             >
-                {/* Logo */}
-                <div className="flex items-center gap-2.5 px-4 pb-3.5" style={{ borderBottom: '1px solid var(--border-xs)' }}>
-                    <Link
-                        href="/"
-                        className="flex items-center gap-2.5 hover:opacity-85 transition-opacity text-left w-full cursor-pointer"
-                    >
-                        <div
-                            className="w-6 h-6 rounded flex items-center justify-center text-white text-[11px] font-bold shadow-sm"
-                            style={{ background: 'var(--orange)' }}
+                {/* Logo & Toggle Header (Exact 52px geometric match to topbar) */}
+                <div
+                    className="flex items-center shrink-0"
+                    style={{
+                        height: 52,
+                        paddingLeft: isCollapsed ? 8 : 16,
+                        paddingRight: isCollapsed ? 8 : 12,
+                        justifyContent: isCollapsed ? 'center' : 'space-between',
+                    }}
+                >
+                    {isCollapsed ? (
+                        <button
+                            onClick={toggleSidebar}
+                            title="Sidebar ausklappen"
+                            className="flex items-center justify-center gap-1.5 p-1.5 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer group"
                         >
-                            D
-                        </div>
-                        <span className="font-semibold text-[13.5px] tracking-tight" style={{ color: 'var(--text-1)' }}>
-                            DataMiner
-                        </span>
-                    </Link>
+                            <div
+                                className="w-6 h-6 rounded flex items-center justify-center text-white text-[11px] font-bold shadow-sm shrink-0"
+                                style={{ background: 'var(--orange)' }}
+                            >
+                                D
+                            </div>
+                            <ChevronRight className="w-3.5 h-3.5 text-slate-400 group-hover:text-slate-700 transition-transform group-hover:translate-x-0.5" />
+                        </button>
+                    ) : (
+                        <>
+                            <Link
+                                href="/"
+                                className="flex items-center gap-2.5 hover:opacity-85 transition-opacity text-left cursor-pointer overflow-hidden"
+                                title="DataMiner"
+                            >
+                                <div
+                                    className="w-6 h-6 rounded flex items-center justify-center text-white text-[11px] font-bold shadow-sm shrink-0"
+                                    style={{ background: 'var(--orange)' }}
+                                >
+                                    D
+                                </div>
+                                <span className="font-semibold text-[13.5px] tracking-tight truncate" style={{ color: 'var(--text-1)' }}>
+                                    DataMiner
+                                </span>
+                            </Link>
+                            <button
+                                onClick={toggleSidebar}
+                                title="Sidebar einklappen"
+                                className="p-1.5 rounded-lg hover:bg-slate-100 transition-colors text-slate-400 hover:text-slate-700 cursor-pointer shrink-0"
+                            >
+                                <ChevronLeft className="w-4 h-4" />
+                            </button>
+                        </>
+                    )}
                 </div>
 
                 {/* Section: Main Nav & Cases */}
-                <div className="flex-1 overflow-y-auto px-3.5 py-3">
-                    <div className="flex flex-col gap-0.5 mb-4">
+                <div className="flex-1 overflow-y-auto px-2 py-3 overflow-x-hidden">
+                    <div className="flex flex-col gap-1 mb-4">
                         <Link
                             href="/"
-                            className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded text-[12.5px] text-left transition-colors cursor-pointer"
+                            title="Dashboard"
+                            className="w-full flex items-center rounded text-[12.5px] text-left transition-colors cursor-pointer"
                             style={{
+                                padding: isCollapsed ? '8px 0' : '6px 10px',
+                                justifyContent: isCollapsed ? 'center' : 'flex-start',
+                                gap: isCollapsed ? 0 : 8,
                                 background: url === '/' ? 'var(--orange-soft)' : 'transparent',
                                 color: url === '/' ? 'var(--orange)' : 'var(--text-2)',
                                 fontWeight: url === '/' ? 600 : 400,
                             }}
                         >
-                            <LayoutDashboard className="w-3.5 h-3.5" />
-                            <span>Dashboard</span>
+                            <LayoutDashboard className="w-4 h-4 shrink-0" />
+                            {!isCollapsed && <span className="truncate">Dashboard</span>}
                         </Link>
 
                         <Link
                             href="/cases"
-                            className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded text-[12.5px] text-left transition-colors cursor-pointer"
+                            title="Alle Cases"
+                            className="w-full flex items-center rounded text-[12.5px] text-left transition-colors cursor-pointer"
                             style={{
+                                padding: isCollapsed ? '8px 0' : '6px 10px',
+                                justifyContent: isCollapsed ? 'center' : 'flex-start',
+                                gap: isCollapsed ? 0 : 8,
                                 background: url === '/cases' ? 'var(--orange-soft)' : 'transparent',
                                 color: url === '/cases' ? 'var(--orange)' : 'var(--text-2)',
                                 fontWeight: url === '/cases' ? 600 : 400,
                             }}
                         >
-                            <Database className="w-3.5 h-3.5" />
-                            <span>Alle Cases</span>
+                            <Database className="w-4 h-4 shrink-0" />
+                            {!isCollapsed && <span className="truncate">Alle Cases</span>}
                         </Link>
 
                         <Link
                             href="/raw-imports"
-                            className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded text-[12.5px] text-left transition-colors cursor-pointer"
+                            title="Raw Data Manager"
+                            className="w-full flex items-center rounded text-[12.5px] text-left transition-colors cursor-pointer"
                             style={{
+                                padding: isCollapsed ? '8px 0' : '6px 10px',
+                                justifyContent: isCollapsed ? 'center' : 'flex-start',
+                                gap: isCollapsed ? 0 : 8,
                                 background: url.startsWith('/raw-imports') ? 'var(--orange-soft)' : 'transparent',
                                 color: url.startsWith('/raw-imports') ? 'var(--orange)' : 'var(--text-2)',
                                 fontWeight: url.startsWith('/raw-imports') ? 600 : 400,
                             }}
                         >
-                            <DatabaseZap className="w-3.5 h-3.5" />
-                            <span>Raw Data Manager</span>
+                            <DatabaseZap className="w-4 h-4 shrink-0" />
+                            {!isCollapsed && <span className="truncate">Raw Data</span>}
                         </Link>
 
                         <Link
                             href="/monitoring"
-                            className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded text-[12.5px] text-left transition-colors cursor-pointer"
+                            title="Runner Monitoring"
+                            className="w-full flex items-center rounded text-[12.5px] text-left transition-colors cursor-pointer"
                             style={{
+                                padding: isCollapsed ? '8px 0' : '6px 10px',
+                                justifyContent: isCollapsed ? 'center' : 'flex-start',
+                                gap: isCollapsed ? 0 : 8,
                                 background: url.startsWith('/monitoring') ? 'var(--orange-soft)' : 'transparent',
                                 color: url.startsWith('/monitoring') ? 'var(--orange)' : 'var(--text-2)',
                                 fontWeight: url.startsWith('/monitoring') ? 600 : 400,
                             }}
                         >
-                            <Activity className="w-3.5 h-3.5" />
-                            <span>Runner Monitoring</span>
+                            <Activity className="w-4 h-4 shrink-0" />
+                            {!isCollapsed && <span className="truncate">Monitoring</span>}
                         </Link>
                     </div>
 
                     {/* Cases List */}
-                    {recentCases.length > 0 && (
+                    {recentCases.length > 0 && !isCollapsed && (
                         <div>
                             <div
                                 className="text-[10px] font-semibold tracking-wider uppercase mb-1.5 px-2"
@@ -186,38 +254,124 @@ export default function Layout({
                     )}
                 </div>
 
-                {/* Bottom icon row */}
+                {/* Bottom navigation links */}
                 <div
-                    className="px-2 pt-2.5 pb-0 flex items-center justify-around"
+                    className={isCollapsed ? "px-2 py-2 flex flex-col items-center shrink-0 relative" : "px-2 pt-2 pb-1 flex flex-col gap-0.5 shrink-0"}
                     style={{ borderTop: '1px solid var(--border-xs)' }}
                 >
-                    {bottomNav.map((item, idx) => {
-                        const active = url === item.href;
-                        return (
-                            <Link
-                                key={idx}
-                                href={item.href}
-                                title={item.title}
-                                className="flex flex-col items-center gap-0.5 px-1.5 py-1 rounded transition-colors cursor-pointer"
+                    {isCollapsed ? (
+                        <>
+                            <button
+                                type="button"
+                                onClick={() => setShowSettingsMenu(prev => !prev)}
+                                title="Einstellungen Menü"
+                                className="w-10 h-10 flex items-center justify-center rounded-lg transition-all cursor-pointer hover:bg-slate-100"
                                 style={{
-                                    color: active ? 'var(--orange)' : 'var(--text-3)',
-                                    background: active ? 'var(--orange-soft)' : 'transparent',
+                                    color: url.startsWith('/settings') ? 'var(--orange)' : 'var(--text-2)',
+                                    background: url.startsWith('/settings') || showSettingsMenu ? 'var(--orange-soft)' : 'transparent',
+                                    border: (url.startsWith('/settings') || showSettingsMenu) ? '1px solid rgba(234, 88, 12, 0.25)' : '1px solid transparent',
                                 }}
                             >
-                                {item.icon}
-                                <span className="text-[9px] leading-none font-medium mt-0.5">{item.label}</span>
-                            </Link>
-                        );
-                    })}
+                                <Settings className="w-4 h-4" />
+                            </button>
+
+                            {/* Flyout Submenu */}
+                            {showSettingsMenu && (
+                                <>
+                                    <div
+                                        className="fixed inset-0 z-40"
+                                        onClick={() => setShowSettingsMenu(false)}
+                                    />
+                                    <div
+                                        className="absolute left-full bottom-2 ml-2 w-56 rounded-xl shadow-xl z-50 p-1.5 flex flex-col gap-0.5 animate-in fade-in slide-in-from-left-2 duration-150"
+                                        style={{
+                                            background: 'var(--surface)',
+                                            border: '1px solid var(--border)',
+                                        }}
+                                    >
+                                        <div
+                                            className="text-[10px] font-semibold tracking-wider uppercase px-3 py-1.5"
+                                            style={{ color: 'var(--text-3)', borderBottom: '1px solid var(--border-xs)' }}
+                                        >
+                                            Einstellungen
+                                        </div>
+                                        <div className="flex flex-col gap-0.5 pt-1">
+                                            {bottomNav.map((item, idx) => {
+                                                const active = url === item.href;
+                                                return (
+                                                    <Link
+                                                        key={idx}
+                                                        href={item.href}
+                                                        onClick={() => setShowSettingsMenu(false)}
+                                                        className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-[12px] font-medium transition-colors cursor-pointer"
+                                                        style={{
+                                                            color: active ? 'var(--orange)' : 'var(--text-1)',
+                                                            background: active ? 'var(--orange-soft)' : 'transparent',
+                                                        }}
+                                                    >
+                                                        <div style={{ color: active ? 'var(--orange)' : 'var(--text-2)' }}>
+                                                            {item.icon}
+                                                        </div>
+                                                        <div className="flex flex-col text-left">
+                                                            <span className="leading-tight">{item.label}</span>
+                                                            <span className="text-[10px] opacity-60 leading-tight">{item.title}</span>
+                                                        </div>
+                                                    </Link>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                </>
+                            )}
+                        </>
+                    ) : (
+                        <>
+                            <div
+                                className="text-[9.5px] font-semibold tracking-wider uppercase px-2 mb-1"
+                                style={{ color: 'var(--text-3)' }}
+                            >
+                                Einstellungen
+                            </div>
+                            <div className="grid grid-cols-3 gap-1">
+                                {bottomNav.map((item, idx) => {
+                                    const active = url === item.href;
+                                    return (
+                                        <Link
+                                            key={idx}
+                                            href={item.href}
+                                            title={item.title}
+                                            className="flex flex-col items-center justify-center py-1.5 px-1 rounded-md transition-all cursor-pointer group"
+                                            style={{
+                                                color: active ? 'var(--orange)' : 'var(--text-2)',
+                                                background: active ? 'var(--orange-soft)' : 'transparent',
+                                                border: active ? '1px solid rgba(234, 88, 12, 0.2)' : '1px solid transparent',
+                                            }}
+                                        >
+                                            <div className="transition-transform group-hover:scale-110">
+                                                {item.icon}
+                                            </div>
+                                            <span
+                                                className="text-[10px] leading-tight font-medium mt-1 truncate max-w-full text-center"
+                                                style={{ color: active ? 'var(--orange)' : 'var(--text-2)' }}
+                                            >
+                                                {item.label}
+                                            </span>
+                                        </Link>
+                                    );
+                                })}
+                            </div>
+                        </>
+                    )}
                 </div>
             </nav>
 
             {/* ─ Main Content Pane ─ */}
             <div className="flex-1 flex flex-col overflow-hidden">
-                {/* Topbar */}
+                {/* Topbar (Exact 52px geometric match to sidebar header) */}
                 <header
-                    className="px-6 py-2.5 flex items-center justify-between shrink-0"
+                    className="px-6 flex items-center justify-between shrink-0"
                     style={{
+                        height: 52,
                         background: 'var(--surface)',
                         borderBottom: '1px solid var(--border)',
                     }}

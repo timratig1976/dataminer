@@ -34,9 +34,13 @@ class AgentExtendController extends Controller
         $plan = $state['plan'] ?? [];
         $steps = $plan['steps'] ?? [];
 
-        // Generate new extension plan
+        // Generate new extension plan with case context to avoid redundant searches
         $extensionGoal = "Erweitere die Suche für '{$run->goal}'. Zusätzlicher Fokus: {$context}";
-        $newPlan = $planner->createPlan($extensionGoal);
+        $newPlan = $planner->createPlan(
+            userGoal: $extensionGoal,
+            maxResults: 100,
+            caseId: $case->id
+        );
         $newSteps = $newPlan['steps'] ?? [];
 
         // Append new steps

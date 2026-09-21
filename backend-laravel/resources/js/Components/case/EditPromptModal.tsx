@@ -52,6 +52,14 @@ export default function EditPromptModal({ col, caseId, onSave, onClose, cellCont
   const [compareResults, setCompareResults] = useState<Array<{ model: string; provider: string; ok: boolean; score: number; latencyMs: number; value: string; validation: "pass" | "fail"; validationReason: string; error?: string }>>([]);
   const [recommendedModel, setRecommendedModel] = useState<string | null>(null);
   const [modelOptions, setModelOptions] = useState<string[]>([...DEFAULT_MODEL_OPTIONS]);
+  const [stepTestResults, setStepTestResults] = useState<Record<string, {
+    loading?: boolean;
+    renderedQuery?: string;
+    latencyMs?: number;
+    results?: Array<{ title: string; url: string; snippet: string }>;
+    pageMarkdownSample?: string | null;
+    error?: string;
+  }>>({});
   const promptRef = useRef<HTMLTextAreaElement>(null);
   const requiredFields = draft.requiredFields ?? [];
 
@@ -59,6 +67,29 @@ export default function EditPromptModal({ col, caseId, onSave, onClose, cellCont
 
   /** Build the default batch system prompt for display/reset */
   function getDefaultBatchPrompt(): string {
+    if (draft.tool === "batch_contact") {
+      return `Du bist ein Kontaktdaten-Extraktions-Agent. Finde Entscheider (Geschäftsführer, Inhaber, CEO) des Unternehmens.
+
+Antworte NUR mit JSON (kein Markdown, keine Erklärungen):
+{
+  "contacts": [
+    {
+      "first_name": "Vorname",
+      "last_name": "Nachname",
+      "position": "Geschäftsführer / Inhaber / CEO",
+      "email": "persönliche oder direkte E-Mail (keine allgemeinen info@)",
+      "phone": "direkte Durchwahl oder Mobilnummer",
+      "linkedin": null
+    }
+  ],
+  "company_email": "allgemeine Firmen-E-Mail (z.B. info@...)"
+}
+
+Regeln:
+- Nur reale Personen als Entscheider identifizieren (keine Platzhalter)
+- Wenn kein Name erkennbar ist: first_name und last_name als null belassen`;
+    }
+
     const fields = draft.batchOutputFields ?? [...BATCH_FIELDS];
     const fieldList = fields
       .map((f) => `  "${f}": "${BATCH_FIELD_LABELS[f] ?? f}"`)
@@ -405,19 +436,26 @@ Regeln:
               </div>
             )}
 
-            {/* ── Web Search — inline under prompt ── */}
-            <div style={{marginTop:12,border:"1px solid var(--border)",borderRadius:"var(--r)",overflow:"hidden"}}>
+            {/* ── Web Search & Multi-Crawl Pipeline ── */}
+            <div style={{marginTop:16,border:"1px solid var(--border)",borderRadius:"var(--r)",overflow:"hidden",boxShadow:"0 1px 2px rgba(0,0,0,0.03)"}}>
               {/* Toggle header */}
               <button type="button"
-                onClick={() => setDraft(d => ({
-                  ...d,
-                  useWebSearch: d.useWebSearch ? undefined : true,
-                  searchQuery: d.useWebSearch ? undefined : d.searchQuery,
-                }))}
-                style={{width:"100%",display:"flex",alignItems:"center",gap:8,padding:"9px 12px",background:draft.useWebSearch?"var(--orange-soft)":"var(--bg)",border:"none",cursor:"pointer",textAlign:"left"}}>
+                onClick={() => setDraft(d => {
+                  const willEnable = !d.useWebSearch;
+                  const initialSteps = willEnable && (!d.searchSteps || d.searchSteps.length === 0)
+                    ? [{ id: "step_1", label: "Web-Suche / Impressum", query: d.searchQuery?.trim() || "{company_name} {city}", mode: "search" as const, depth: "snippet" as const, maxResults: 3 }]
+                    : d.searchSteps;
+                  return {
+                    ...d,
+                    useWebSearch: willEnable ? true : undefined,
+                    searchSteps: initialSteps,
+                    searchQuery: willEnable ? (d.searchQuery?.trim() || "{company_name} {city}") : undefined,
+                  };
+                })}
+                style={{width:"100%",display:"flex",alignItems:"center",gap:8,padding:"10px 14px",background:draft.useWebSearch?"var(--orange-soft)":"var(--bg)",border:"none",cursor:"pointer",textAlign:"left"}}>
                 <span style={{fontSize:13}}>🔍</span>
                 <span style={{fontSize:11.5,fontWeight:600,color:draft.useWebSearch?"var(--orange)":"var(--text-2)",textTransform:"uppercase",letterSpacing:"0.04em",flex:1}}>
-                  Web-Suche vor LLM
+                  Web-Suche & Crawls vor LLM
                 </span>
                 <span style={{fontSize:11,padding:"2px 8px",borderRadius:"var(--rs)",background:draft.useWebSearch?"var(--orange)":"var(--border)",color:draft.useWebSearch?"#fff":"var(--text-2)",fontWeight:600}}>
                   {draft.useWebSearch ? "AN" : "AUS"}
@@ -425,86 +463,298 @@ Regeln:
               </button>
 
               {draft.useWebSearch && (
-                <div style={{padding:"12px 14px",background:"var(--surface)",borderTop:"1px solid var(--border)",display:"grid",gap:10}}>
-                  {/* Search query input */}
-                  <div>
-                    <label style={{...lbl,color:"var(--text-2)",marginBottom:4}}>Suchanfrage-Template</label>
-                    <input style={{...inp,fontFamily:"monospace",fontSize:12}}
-                      value={draft.searchQuery || ""}
-                      onChange={e => setDraft(d => ({...d, searchQuery: e.target.value || undefined}))}
-                      placeholder="z.B. {company_name} offizieller Webauftritt" />
+                <div style={{padding:"14px 16px",background:"var(--surface)",borderTop:"1px solid var(--border)",display:"grid",gap:14}}>
+                  {/* Presets Toolbar */}
+                  <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+                    <span style={{fontSize:10.5,fontWeight:600,color:"var(--text-3)",textTransform:"uppercase"}}>+ Schnell-Schritt hinzufügen:</span>
+                    <button type="button"
+                      onClick={() => {
+                        const newStep = { id: `step_${Date.now()}`, label: "Impressum-Crawl", query: "{company_name} {city} Impressum", mode: "search" as const, depth: "page" as const, maxResults: 3 };
+                        setDraft(d => ({ ...d, searchSteps: [...(d.searchSteps || []), newStep] }));
+                      }}
+                      style={{fontSize:10.5,padding:"3px 8px",borderRadius:"var(--rs)",background:"#fff",border:"1px solid var(--border)",color:"var(--text-1)",cursor:"pointer",fontWeight:500}}>
+                      📄 Impressum
+                    </button>
+                    <button type="button"
+                      onClick={() => {
+                        const newStep = { id: `step_${Date.now()}`, label: "LinkedIn Entscheider", query: "\"{company_name}\" Geschäftsführer site:linkedin.com/in", mode: "search" as const, depth: "snippet" as const, maxResults: 3 };
+                        setDraft(d => ({ ...d, searchSteps: [...(d.searchSteps || []), newStep] }));
+                      }}
+                      style={{fontSize:10.5,padding:"3px 8px",borderRadius:"var(--rs)",background:"#fff",border:"1px solid var(--border)",color:"var(--text-1)",cursor:"pointer",fontWeight:500}}>
+                      💼 LinkedIn
+                    </button>
+                    <button type="button"
+                      onClick={() => {
+                        const newStep = { id: `step_${Date.now()}`, label: "Google Maps Treffer", query: "{company_name} {city}", mode: "maps" as const, depth: "snippet" as const, maxResults: 3 };
+                        setDraft(d => ({ ...d, searchSteps: [...(d.searchSteps || []), newStep] }));
+                      }}
+                      style={{fontSize:10.5,padding:"3px 8px",borderRadius:"var(--rs)",background:"#fff",border:"1px solid var(--border)",color:"var(--text-1)",cursor:"pointer",fontWeight:500}}>
+                      📍 Maps
+                    </button>
+                    <button type="button"
+                      onClick={() => {
+                        const newStep = { id: `step_${Date.now()}`, label: "Website Scrape", query: "{domain}", mode: "scrape_url" as const, depth: "page" as const, maxResults: 1 };
+                        setDraft(d => ({ ...d, searchSteps: [...(d.searchSteps || []), newStep] }));
+                      }}
+                      style={{fontSize:10.5,padding:"3px 8px",borderRadius:"var(--rs)",background:"#fff",border:"1px solid var(--border)",color:"var(--text-1)",cursor:"pointer",fontWeight:500}}>
+                      🌐 Website ({'{domain}'})
+                    </button>
                   </div>
 
-                  {/* Field chips for search query */}
-                  {availableFields && availableFields.length > 0 && (
-                    <div style={{display:"flex",flexWrap:"wrap",gap:5,alignItems:"center"}}>
-                      <span style={{fontSize:11,color:"var(--text-2)",marginRight:2}}>Felder:</span>
-                      {availableFields.map(f => {
-                        const inQuery = (draft.searchQuery || "").includes("{"+f+"}");
-                        return (
-                          <button key={f} type="button"
-                            onMouseDown={e => e.preventDefault()}
-                            onClick={() => setDraft(d => ({...d, searchQuery: (d.searchQuery || "") + "{"+f+"}"}))}
-                            style={{fontSize:11,padding:"2px 7px",borderRadius:"var(--rs)",fontFamily:"monospace",border:"1px solid",cursor:"pointer",
-                              background:inQuery?"var(--orange-soft)":"var(--surface)",
-                              color:inQuery?"var(--orange)":"var(--text-1)",
-                              borderColor:inQuery?"var(--orange-mid)":"var(--border)"}}>
-                            {"{"+f+"}"}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
+                  {/* Multiple Crawl Steps Cards */}
+                  <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                    {(draft.searchSteps && draft.searchSteps.length > 0 ? draft.searchSteps : [{
+                      id: "step_1", label: "Web-Suche", query: draft.searchQuery || "{company_name} {city}", mode: "search" as const, depth: (draft.evidenceMode === "page" ? "page" : "snippet") as const, maxResults: draft.searchMaxResults || 3
+                    }]).map((step, idx) => (
+                      <div key={step.id || idx} style={{border:"1px solid var(--border)",borderRadius:"var(--r)",background:"#fff",padding:10,display:"grid",gap:8}}>
+                        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                          <div style={{display:"flex",alignItems:"center",gap:6}}>
+                            <span style={{fontSize:10.5,fontWeight:700,background:"var(--orange-soft)",color:"var(--orange)",padding:"1px 6px",borderRadius:4}}>
+                              #{idx + 1}
+                            </span>
+                            <input
+                              value={step.label || `Schritt ${idx + 1}`}
+                              onChange={e => {
+                                const val = e.target.value;
+                                setDraft(d => ({
+                                  ...d,
+                                  searchSteps: (d.searchSteps || []).map((s, i) => i === idx ? { ...s, label: val } : s)
+                                }));
+                              }}
+                              style={{border:"none",fontWeight:600,fontSize:11.5,color:"var(--text-1)",background:"transparent",outline:"none",padding:0}}
+                            />
+                          </div>
 
-                  {/* Max results + layer */}
-                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
-                    <div>
-                      <label style={{...lbl,marginBottom:4}}>Max. Ergebnisse</label>
-                      <input type="number" min={1} max={10}
-                        style={inp}
-                        value={draft.searchMaxResults ?? 5}
-                        onChange={e => setDraft(d => ({...d, searchMaxResults: Math.max(1, Math.min(10, Number(e.target.value)))}))} />
-                    </div>
-                    <div>
-                      <label style={{...lbl,marginBottom:4}}>Layer</label>
-                      <select style={inp}
-                        value={draft.searchForceLayer || ""}
-                        onChange={e => setDraft(d => ({...d, searchForceLayer: (e.target.value || undefined) as typeof d.searchForceLayer}))}>
-                        <option value="">Auto (SerpAPI → Brave → DDG → Playwright)</option>
-                        <option value="serpapi">Nur SerpAPI</option>
-                        <option value="brave">Nur Brave Search</option>
-                        <option value="duckduckgo">Nur DuckDuckGo</option>
-                        <option value="playwright">Nur Playwright</option>
-                      </select>
-                    </div>
+                          <div style={{display:"flex",alignItems:"center",gap:6}}>
+                            {/* Live Test Step Button */}
+                            <button
+                              type="button"
+                              disabled={stepTestResults[step.id || String(idx)]?.loading}
+                              onClick={async () => {
+                                const stepKey = step.id || String(idx);
+                                setStepTestResults(prev => ({ ...prev, [stepKey]: { loading: true } }));
+                                try {
+                                  const sampleRow = cellContext?.row?.data || {};
+                                  const res = await apiFetch("/api/run/test-step", {
+                                    method: "POST",
+                                    headers: { "Content-Type": "application/json" },
+                                    body: JSON.stringify({
+                                      query: step.query,
+                                      mode: step.mode,
+                                      depth: step.depth,
+                                      maxResults: step.maxResults,
+                                      sampleData: sampleRow,
+                                    })
+                                  });
+                                  const data = await res.json();
+                                  if (data.ok) {
+                                    setStepTestResults(prev => ({
+                                      ...prev,
+                                      [stepKey]: {
+                                        loading: false,
+                                        renderedQuery: data.renderedQuery,
+                                        latencyMs: data.latencyMs,
+                                        results: data.results || [],
+                                        pageMarkdownSample: data.pageMarkdownSample,
+                                      }
+                                    }));
+                                  } else {
+                                    setStepTestResults(prev => ({
+                                      ...prev,
+                                      [stepKey]: { loading: false, error: data.error || "Fehler beim Schritt-Test" }
+                                    }));
+                                  }
+                                } catch (err: any) {
+                                  setStepTestResults(prev => ({
+                                    ...prev,
+                                    [stepKey]: { loading: false, error: err.message }
+                                  }));
+                                }
+                              }}
+                              style={{fontSize:10.5,padding:"3px 9px",borderRadius:4,background:"var(--orange-soft)",color:"var(--orange)",border:"1px solid var(--orange-mid)",cursor:"pointer",fontWeight:600}}>
+                              {stepTestResults[step.id || String(idx)]?.loading ? "⏳ Testet…" : "▶ Schritt probetesten"}
+                            </button>
+
+                            {(draft.searchSteps || []).length > 1 && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setDraft(d => ({ ...d, searchSteps: (d.searchSteps || []).filter((_, i) => i !== idx) }));
+                                }}
+                                style={{fontSize:11,color:"var(--danger)",background:"none",border:"none",cursor:"pointer",padding:"2px 4px"}}>
+                                ✕
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Query Input */}
+                        <div>
+                          <input
+                            value={step.query}
+                            onChange={e => {
+                              const val = e.target.value;
+                              setDraft(d => ({
+                                ...d,
+                                searchSteps: (d.searchSteps || []).map((s, i) => i === idx ? { ...s, query: val } : s)
+                              }));
+                            }}
+                            placeholder="z.B. {company_name} Impressum"
+                            style={{...inp,fontFamily:"monospace",fontSize:11.5,padding:"5px 8px"}}
+                          />
+                        </div>
+
+                        {/* Config Row: Mode & Depth */}
+                        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 90px",gap:8}}>
+                          <div>
+                            <select
+                              value={step.mode}
+                              onChange={e => {
+                                const val = e.target.value as any;
+                                setDraft(d => ({
+                                  ...d,
+                                  searchSteps: (d.searchSteps || []).map((s, i) => i === idx ? { ...s, mode: val } : s)
+                                }));
+                              }}
+                              style={{...inp,fontSize:11,padding:"4px 6px"}}>
+                              <option value="search">🌐 Google Web-Suche</option>
+                              <option value="scrape_url">🕷 Direkte URL scrapen</option>
+                              <option value="maps">📍 Google Maps Suche</option>
+                            </select>
+                          </div>
+
+                          <div>
+                            <select
+                              value={step.depth}
+                              onChange={e => {
+                                const val = e.target.value as any;
+                                setDraft(d => ({
+                                  ...d,
+                                  searchSteps: (d.searchSteps || []).map((s, i) => i === idx ? { ...s, depth: val } : s)
+                                }));
+                              }}
+                              style={{...inp,fontSize:11,padding:"4px 6px"}}>
+                              <option value="snippet">Snippets (schnell, günstig)</option>
+                              <option value="page">Ganze Seite crawlen (Markdown)</option>
+                            </select>
+                          </div>
+
+                          <div>
+                            <select
+                              value={step.maxResults || 3}
+                              onChange={e => {
+                                const val = Number(e.target.value);
+                                setDraft(d => ({
+                                  ...d,
+                                  searchSteps: (d.searchSteps || []).map((s, i) => i === idx ? { ...s, maxResults: val } : s)
+                                }));
+                              }}
+                              style={{...inp,fontSize:11,padding:"4px 6px"}}>
+                              <option value={1}>1 Treffer</option>
+                              <option value={3}>3 Treffer</option>
+                              <option value={5}>5 Treffer</option>
+                              <option value={10}>10 Treffer</option>
+                            </select>
+                          </div>
+                        </div>
+
+                        {/* Inline Rich Test Results Preview */}
+                        {(() => {
+                          const testRes = stepTestResults[step.id || String(idx)];
+                          if (!testRes || testRes.loading) return null;
+
+                          if (testRes.error) {
+                            return (
+                              <div style={{background:"#fef2f2",border:"1px solid #fecaca",borderRadius:6,padding:"8px 10px",fontSize:11,color:"#dc2626"}}>
+                                <strong>Fehler beim Schritt-Test:</strong> {testRes.error}
+                              </div>
+                            );
+                          }
+
+                          return (
+                            <div style={{background:"#f8fafc",border:"1px solid #e2e8f0",borderRadius:6,padding:"9px 11px",display:"grid",gap:6}}>
+                              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",fontSize:11}}>
+                                <div style={{display:"flex",alignItems:"center",gap:6}}>
+                                  <span style={{color:"#16a34a",fontWeight:700}}>✓ {testRes.results?.length ?? 0} Treffer gefunden</span>
+                                  <span style={{color:"#94a3b8"}}>({testRes.latencyMs}ms)</span>
+                                </div>
+                                <span style={{fontFamily:"monospace",color:"#475569",fontSize:10.5,background:"#fff",padding:"1px 6px",borderRadius:4,border:"1px solid #cbd5e1"}}>
+                                  Query: "{testRes.renderedQuery}"
+                                </span>
+                              </div>
+
+                              {/* Hit Cards */}
+                              <div style={{display:"grid",gap:4,maxHeight:220,overflowY:"auto"}}>
+                                {testRes.results && testRes.results.length > 0 ? (
+                                  testRes.results.map((hit, hIdx) => (
+                                    <div key={hIdx} style={{background:"#fff",border:"1px solid #e2e8f0",borderRadius:5,padding:"6px 8px",display:"grid",gap:2}}>
+                                      <div style={{display:"flex",alignItems:"baseline",justifyContent:"space-between",gap:6}}>
+                                        <div style={{fontWeight:600,fontSize:11.5,color:"#0f172a",wordBreak:"break-word"}}>{hit.title || "Ohne Titel"}</div>
+                                        {hit.url && (
+                                          <a href={hit.url} target="_blank" rel="noreferrer" style={{fontSize:10.5,color:"#2563eb",textDecoration:"none",flexShrink:0}}>
+                                            Link ↗
+                                          </a>
+                                        )}
+                                      </div>
+                                      <div style={{fontSize:10,color:"#64748b",fontFamily:"monospace",wordBreak:"break-all"}}>{hit.url}</div>
+                                      {hit.snippet && (
+                                        <div style={{fontSize:11,color:"#334155",lineHeight:1.35}}>{hit.snippet}</div>
+                                      )}
+                                    </div>
+                                  ))
+                                ) : (
+                                  <div style={{fontSize:11,color:"#94a3b8",fontStyle:"italic"}}>Keine Ergebnisse für diese Suchanfrage.</div>
+                                )}
+                              </div>
+
+                              {/* Scraped Markdown snippet if page depth */}
+                              {testRes.pageMarkdownSample && (
+                                <div style={{marginTop:4,borderTop:"1px solid #e2e8f0",paddingTop:4}}>
+                                  <div style={{fontSize:10,fontWeight:700,color:"#64748b",textTransform:"uppercase",marginBottom:2}}>
+                                    📄 Gecrawlter Seiteninhalt (Auszug für LLM):
+                                  </div>
+                                  <pre style={{background:"#fff",border:"1px solid #e2e8f0",borderRadius:4,padding:6,fontSize:10,fontFamily:"monospace",maxHeight:100,overflowY:"auto",whiteSpace:"pre-wrap",margin:0,color:"#334155"}}>
+                                    {testRes.pageMarkdownSample}
+                                  </pre>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
+                      </div>
+                    ))}
                   </div>
 
-                  <div>
-                    <label style={{...lbl,marginBottom:4}}>Evidenz-Tiefe (Firecrawl)</label>
-                    <select style={inp}
-                      value={draft.evidenceMode || "snippet"}
-                      onChange={e => setDraft(d => ({...d, evidenceMode: (e.target.value === "snippet" ? undefined : e.target.value) as typeof d.evidenceMode}))}>
-                      <option value="snippet">Snippets (schnell, günstig)</option>
-                      <option value="page">Ganze Seiten lesen (Firecrawl-Scrape)</option>
-                      <option value="auto">Auto: erst Snippets, bei leerer Antwort Seiten lesen</option>
-                    </select>
-                  </div>
+                  {/* Add Step Button */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const newStep = {
+                        id: `step_${Date.now()}`,
+                        label: `Recherche-Schritt ${(draft.searchSteps?.length || 1) + 1}`,
+                        query: "{company_name}",
+                        mode: "search" as const,
+                        depth: "snippet" as const,
+                        maxResults: 3,
+                      };
+                      setDraft(d => ({ ...d, searchSteps: [...(d.searchSteps || []), newStep] }));
+                    }}
+                    style={{padding:"6px 12px",borderRadius:"var(--rs)",border:"1px dashed var(--border)",background:"#fff",fontSize:11.5,fontWeight:600,color:"var(--orange)",cursor:"pointer",textAlign:"center"}}>
+                    + Weiteren Recherche-Schritt hinzufügen
+                  </button>
 
                   <div style={{fontSize:11.5,color:"var(--text-2)",lineHeight:1.5,background:"var(--bg)",padding:10,borderRadius:"var(--rs)",border:"1px solid var(--border)"}}>
-                    Die Suchergebnisse werden automatisch als Kontext <strong>vor deinem Prompt</strong> eingefügt. Nutze Platzhalter wie <code style={{background:"var(--surface)",padding:"1px 5px",borderRadius:3,border:"1px solid var(--border)"}}>{"{company_name}"}</code> um zeilenspezifische Suchen zu bauen.
-                    <br />
-                    <span style={{color:"var(--text-3)",marginTop:3,display:"block"}}>„Ganze Seiten" lädt die Top-2 Treffer per Firecrawl als Markdown ins Prompt — für Infos, die nicht im Snippet stehen (Impressum, Adresse, Gründungsjahr …).</span>
+                    Die Ergebnisse aller aktiven Recherche-Schritte werden als strukturierte Blöcke <strong>vor deinem Prompt</strong> in den Kontext eingefügt.
                   </div>
                 </div>
               )}
             </div>
-          </div>
 
           {/* ── Reasoning capture ── */}
-          <div style={{border:"1px solid var(--border)",borderRadius:"var(--r)",overflow:"hidden"}}>
+          <div style={{marginTop:12,border:"1px solid var(--border)",borderRadius:"var(--r)",overflow:"hidden",boxShadow:"0 1px 2px rgba(0,0,0,0.03)"}}>
             <button type="button"
               onClick={() => setDraft(d => ({...d, captureReasoning: d.captureReasoning ? undefined : true}))}
-              style={{width:"100%",display:"flex",alignItems:"center",gap:8,padding:"9px 12px",background:draft.captureReasoning?"var(--green-soft)":"var(--bg)",border:"none",cursor:"pointer",textAlign:"left"}}>
+              style={{width:"100%",display:"flex",alignItems:"center",gap:8,padding:"10px 14px",background:draft.captureReasoning?"var(--green-soft)":"var(--bg)",border:"none",cursor:"pointer",textAlign:"left"}}>
               <span style={{fontSize:13}}>🧠</span>
               <span style={{fontSize:11.5,fontWeight:600,color:draft.captureReasoning?"var(--green)":"var(--text-2)",textTransform:"uppercase",letterSpacing:"0.04em",flex:1}}>
                 Reasoning erfassen
@@ -514,13 +764,13 @@ Regeln:
               </span>
             </button>
             {draft.captureReasoning && (
-              <div style={{padding:"10px 14px",background:"var(--surface)",borderTop:"1px solid var(--border)",fontSize:11.5,color:"var(--text-2)",lineHeight:1.5}}>
+              <div style={{padding:"12px 16px",background:"var(--surface)",borderTop:"1px solid var(--border)",fontSize:11.5,color:"var(--text-2)",lineHeight:1.5}}>
                 Das LLM gibt eine kurze Begründung seiner Antwort zurück (welche Quelle, warum, was abgelehnt). Wird als <code style={{background:"var(--bg)",padding:"1px 5px",borderRadius:3,border:"1px solid var(--border)",fontFamily:"monospace"}}>_reasoning_{draft.outputKey}</code> in der Zeile gespeichert.
               </div>
             )}
           </div>
 
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12}}>
+          <div style={{marginTop:20,display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:14}}>
             <div><label style={lbl}>Modell</label>
               <select style={inp} value={draft.model||"openai/gpt-4o-mini"} onChange={e=>setDraft(d=>({...d,model:e.target.value}))}>
                 {mergeModelOptions([draft.model || "openai/gpt-4o-mini"], modelOptions).map((m) => <option key={m}>{m}</option>)}
@@ -569,152 +819,8 @@ Regeln:
               </div>
             )}
           </div>
-
-          {cellContext && (
-            <div style={{border:"1px solid var(--border)",background:"var(--surface)",borderRadius:"var(--r)",padding:14,display:"grid",gap:10}}>
-              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10}}>
-                <div>
-                  <div style={{fontSize:12,fontWeight:600,color:"var(--text-1)"}}>Model Compare</div>
-                  <div style={{fontSize:11,color:"var(--text-2)"}}>Wähle bis zu 3 Modelle für denselben Prompt und diese Zeile.</div>
-                </div>
-                <button
-                  type="button"
-                  onClick={runModelCompare}
-                  disabled={compareLoading || compareModels.length === 0}
-                  className="btn-v2"
-                  style={{
-                    padding:"5px 11px",
-                    background:"var(--orange-soft)",
-                    borderColor:"var(--orange-mid)",
-                    color:"var(--orange)",
-                    fontWeight:600,
-                  }}
-                >
-                  {compareLoading ? <Loader2 style={{width:12,height:12}} className="animate-spin" /> : <Zap style={{width:12,height:12}} />}
-                  {compareLoading ? "Teste…" : "3 Modelle testen"}
-                </button>
-              </div>
-
-              <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
-                {mergeModelOptions(compareModels, modelOptions).map((m) => {
-                  const selected = compareModels.includes(m);
-                  const disabled = !selected && compareModels.length >= 3;
-                  return (
-                    <button
-                      key={m}
-                      type="button"
-                      onClick={() => toggleCompareModel(m)}
-                      disabled={disabled}
-                      style={{
-                        fontSize:11,
-                        padding:"3px 8px",
-                        borderRadius:"var(--rs)",
-                        border:"1px solid",
-                        cursor:disabled?"not-allowed":"pointer",
-                        opacity:disabled?0.5:1,
-                        fontFamily:"monospace",
-                        background:selected?"var(--orange-soft)":"var(--surface)",
-                        borderColor:selected?"var(--orange-mid)":"var(--border)",
-                        color:selected?"var(--orange)":"var(--text-1)",
-                      }}
-                    >
-                      {selected ? "✓ " : ""}{m}
-                    </button>
-                  );
-                })}
-              </div>
-
-              {compareError && <div style={{fontSize:12,color:"var(--danger)"}}>{compareError}</div>}
-
-              {recommendedModel && (
-                <div style={{display:"flex",alignItems:"center",gap:8,fontSize:12,color:"var(--green)",background:"var(--green-soft)",border:"1px solid var(--green-mid)",borderRadius:"var(--rs)",padding:"6px 10px"}}>
-                  <span>Automatisch übernommen: <strong style={{fontFamily:"monospace"}}>{recommendedModel}</strong></span>
-                </div>
-              )}
-
-              {compareResults.length > 0 && (
-                <div style={{display:"grid",gap:6}}>
-                  {compareResults.map((r) => (
-                    <div key={r.model} style={{border:"1px solid var(--border)",borderRadius:"var(--rs)",padding:"8px 10px",background:"var(--bg)"}}>
-                      <div style={{display:"flex",alignItems:"center",gap:8,fontSize:11,color:"var(--text-2)"}}>
-                        <span style={{fontFamily:"monospace",fontWeight:600,color:"var(--text-1)"}}>{r.model}</span>
-                        <span>· {r.provider}</span>
-                        <span>· score {r.score}</span>
-                        <span>· {r.validation}</span>
-                        <span>· {r.latencyMs}ms</span>
-                        <span style={{marginLeft:"auto",color:r.ok?"var(--green)":"var(--danger)",fontWeight:600}}>{r.ok ? "OK" : "FAIL"}</span>
-                      </div>
-                      <div style={{fontSize:11,color:r.validation==="pass"?"var(--green)":"var(--warn)",marginTop:3}}>Validation: {r.validationReason}</div>
-                      <div style={{fontSize:12,color:r.ok?"var(--text-1)":"var(--danger)",marginTop:4,whiteSpace:"pre-wrap",wordBreak:"break-word"}}>{r.ok ? (r.value || "(empty)") : (r.error || "Unknown error")}</div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
         </div>
-
-        {/* Cell log/error section */}
-        {cellContext && (
-          <div style={{margin:"0 24px 0",borderTop:"1px solid var(--border)",paddingTop:14}}>
-            <div style={{fontSize:11,fontWeight:600,color:"var(--text-2)",textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:8}}>
-              Zellen-Log{cellContext.rowLabel ? ` — ${cellContext.rowLabel}` : ""}
-            </div>
-            {/* Status badge */}
-            <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:8}}>
-              {cellContext.status==="error" && <span className="status-pill status-pill-error">Fehler</span>}
-              {cellContext.status==="done" && <span className="status-pill status-pill-done">Fertig</span>}
-              {cellContext.status==="running" && <span className="status-pill status-pill-pending"><Loader2 style={{width:10,height:10}} className="animate-spin" /> Läuft</span>}
-              {cellContext.status==="idle" && <span style={{fontSize:11,color:"var(--text-3)"}}>○ Noch nicht ausgeführt</span>}
-              {cellContext.status==="skipped" && <span style={{display:"inline-flex",alignItems:"center",gap:4,fontSize:11,color:"var(--text-3)",background:"var(--bg)",border:"1px solid var(--border)",padding:"2px 8px",borderRadius:"var(--rs)"}}>⏭ Übersprungen</span>}
-              {onRunCell && (
-                <button onClick={()=>{onRunCell();}}
-                  className="btn-v2 btn-v2-ai"
-                  style={{marginLeft:"auto"}}>
-                  <Play style={{width:11,height:11}} /> Jetzt ausführen
-                </button>
-              )}
-              {onOpenRunDetail && (
-                <button onClick={onOpenRunDetail}
-                  className="btn-v2"
-                  style={{borderColor:"var(--orange-mid)",background:"var(--orange-soft)",color:"var(--orange)"}}>
-                  <Info style={{width:11,height:11}} /> Run + Detail-Log
-                </button>
-              )}
-            </div>
-            {cellContext.error && (
-              <div style={{background:"var(--danger-soft)",border:"1px solid #fecaca",borderRadius:"var(--rs)",padding:"8px 12px",marginBottom:8}}>
-                <div style={{fontSize:11,fontWeight:600,color:"var(--danger)",marginBottom:3}}>Fehlermeldung</div>
-                <pre style={{fontSize:11.5,color:"#991b1b",margin:0,whiteSpace:"pre-wrap",wordBreak:"break-all",fontFamily:"monospace",lineHeight:1.4}}>{cellContext.error}</pre>
-              </div>
-            )}
-            {cellContext.status==="done" && (cellContext.value || cellContext.multiValues) && (
-              <div style={{background:"var(--bg)",border:"1px solid var(--border)",borderRadius:"var(--rs)",overflow:"hidden"}}>
-                <div style={{fontSize:11,fontWeight:600,color:"var(--text-2)",padding:"6px 12px",borderBottom:"1px solid var(--border)",background:"var(--surface)",textTransform:"uppercase",letterSpacing:"0.05em"}}>
-                  Output
-                </div>
-                <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
-                  <tbody>
-                    {cellContext.multiValues
-                      ? Object.entries(cellContext.multiValues).map(([k, v]) => (
-                          <tr key={k} style={{borderBottom:"1px solid var(--border-xs)"}}>
-                            <td style={{padding:"5px 12px",fontFamily:"monospace",color:"var(--text-2)",whiteSpace:"nowrap",width:180,verticalAlign:"top"}}>{k}</td>
-                            <td style={{padding:"5px 12px",color:v.startsWith("✗")?"var(--danger)":v.startsWith("✓")?"var(--green)":"var(--text-1)",wordBreak:"break-all",lineHeight:1.4}}>{v||<span style={{color:"var(--text-3)",fontStyle:"italic"}}>empty</span>}</td>
-                          </tr>
-                        ))
-                      : (
-                          <tr>
-                            <td style={{padding:"5px 12px",fontFamily:"monospace",color:"var(--text-2)",whiteSpace:"nowrap",width:180}}>{col.outputKey}</td>
-                            <td style={{padding:"5px 12px",color:"var(--text-1)",wordBreak:"break-all"}}>{cellContext.value}</td>
-                          </tr>
-                        )
-                    }
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        )}
+      </div>
     </Modal>
   );
 }

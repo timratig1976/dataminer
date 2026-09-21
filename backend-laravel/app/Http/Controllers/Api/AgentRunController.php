@@ -49,12 +49,13 @@ class AgentRunController extends Controller
         // Support string or Next.js AgentGoal object: { description, targetCount, region, ... }
         $description = is_array($rawGoal) ? ($rawGoal['description'] ?? '') : (string) $rawGoal;
         $targetCount = is_array($rawGoal) ? (int) ($rawGoal['targetCount'] ?? 3000) : 3000;
+        $sourceMode = is_array($rawGoal) ? ($rawGoal['sourceMode'] ?? 'gmb_first') : 'gmb_first';
 
         if (empty(trim($description))) {
             return response()->json(['error' => 'goal / description required'], 400);
         }
 
-        $run = $this->agentRunner->startRun($caseId, $description, $targetCount);
+        $run = $this->agentRunner->startRun($caseId, $description, $targetCount, $sourceMode);
 
         // Dispatch background queue job so search runs automatically without browser
         \App\Jobs\ProcessAgentDiscoveryRun::dispatch($run->id);

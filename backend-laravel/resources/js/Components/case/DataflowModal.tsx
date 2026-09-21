@@ -44,86 +44,86 @@ export default function DataflowModal() {
                         </div>
 
                         {/* Body */}
-                        <div className="p-6 space-y-6 max-h-[80vh] overflow-y-auto text-xs leading-relaxed text-slate-700">
-                            {/* Pipeline Stages */}
-                            <div className="space-y-4">
+                        <div className="p-6 space-y-4 max-h-[80vh] overflow-y-auto text-xs leading-relaxed text-slate-700">
+                            {/* Pipeline Stages - Clean, unified monochromatic design matching DataMiner theme */}
+                            <div className="space-y-3">
                                 {/* Step 1 */}
-                                <div className="p-4 rounded-xl border border-blue-200 bg-blue-50/40 space-y-2">
+                                <div className="p-4 rounded-xl border border-slate-200 bg-white hover:border-slate-300 transition-colors space-y-2">
                                     <div className="flex items-center justify-between">
-                                        <div className="flex items-center gap-2 font-bold text-sm text-blue-900">
-                                            <span className="w-5 h-5 rounded-full bg-blue-600 text-white flex items-center justify-center text-xs">1</span>
+                                        <div className="flex items-center gap-2.5 font-bold text-sm text-slate-900">
+                                            <span className="w-5 h-5 rounded-full bg-slate-900 text-white flex items-center justify-center text-xs font-semibold">1</span>
                                             <span>Autonome Planung (PlannerService & Sub-Industries)</span>
                                         </div>
-                                        <span className="px-2 py-0.5 rounded bg-blue-100 text-blue-800 font-mono text-[10px] font-bold">LLM: GPT-4o-mini / Mistral (~$0.0004)</span>
+                                        <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700 font-mono text-[10px] font-semibold border border-slate-200">LLM: GPT-4o-mini / Mistral (~$0.0004)</span>
                                     </div>
-                                    <p>
-                                        <strong>Was passiert:</strong> Die natürliche Spracheingabe (z. B. <em>„Tourismus in MV“</em>) wird analysiert. Der Planner zerlegt das Ziel in geographische Cluster (alle Städte/Landkreise) und spezifische Nischen (Hotels, Gasthöfe, Pensionen, Ferienwohnungen).
+                                    <p className="text-slate-600">
+                                        <strong className="text-slate-800">Was passiert:</strong> Die natürliche Spracheingabe (z. B. <em>„Tourismus in MV“</em>) wird analysiert. Der Planner zerlegt das Ziel in geographische Cluster (alle Städte/Landkreise) und spezifische Nischen (Hotels, Gasthöfe, Pensionen, Ferienwohnungen).
                                     </p>
-                                    <div className="text-[11px] text-blue-800 font-medium">
-                                        Output: Ein strukturierter <code>DiscoveryPlan</code> mit 20–50 Einzelschritten inklusive Prioritäten und geschätzten Treffern.
+                                    <div className="text-[11px] text-slate-600 font-medium">
+                                        Output: Ein strukturierter <code className="bg-slate-100 px-1.5 py-0.5 rounded text-slate-800 font-mono">DiscoveryPlan</code> mit 20–50 Einzelschritten inklusive Prioritäten und geschätzten Treffern.
                                     </div>
                                 </div>
 
                                 {/* Step 2 */}
-                                <div className="p-4 rounded-xl border border-emerald-200 bg-emerald-50/40 space-y-2">
+                                <div className="p-4 rounded-xl border border-slate-200 bg-white hover:border-slate-300 transition-colors space-y-2">
                                     <div className="flex items-center justify-between">
-                                        <div className="flex items-center gap-2 font-bold text-sm text-emerald-900">
-                                            <span className="w-5 h-5 rounded-full bg-emerald-600 text-white flex items-center justify-center text-xs">2</span>
+                                        <div className="flex items-center gap-2.5 font-bold text-sm text-slate-900">
+                                            <span className="w-5 h-5 rounded-full bg-slate-900 text-white flex items-center justify-center text-xs font-semibold">2</span>
                                             <span>Autonome Background-Discovery (Queue-Runner)</span>
                                         </div>
-                                        <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 font-mono text-[10px] font-bold">Maps: $0.0010 | SerpAPI: $0.0100</span>
+                                        <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700 font-mono text-[10px] font-semibold border border-slate-200">Maps: $0.0010 | SerpAPI: $0.0100</span>
                                     </div>
-                                    <p>
-                                        <strong>Was passiert:</strong> Der Queue-Job <code>ProcessAgentDiscoveryRun</code> arbeitet die Schritte unabhängig vom Browser ab.
+                                    <p className="text-slate-600">
+                                        <strong className="text-slate-800">Was passiert:</strong> Der Queue-Job <code className="bg-slate-100 px-1 py-0.5 rounded text-slate-800 font-mono">ProcessAgentDiscoveryRun</code> arbeitet die Schritte unabhängig vom Browser ab.
                                     </p>
-                                    <ul className="list-disc pl-4 space-y-1 text-[11px]">
-                                        <li><strong>Priorität 1 — Serper /maps:</strong> Durchsucht Google Maps direkt und extrahiert Firmenname, Adresse, Telefon, Website, Rating, Reviews, Kategorie und den direkten Google Maps CID-Link.</li>
-                                        <li><strong>Deduplizierung:</strong> Existiert eine Domain bereits im Case, wird sie verworfen.</li>
-                                        <li><strong>Web-Fallback:</strong> Liefert ein Ort 0 Treffer, schaltet das System auf Google Web-Suche um.</li>
+                                    <ul className="list-disc pl-4 space-y-1 text-[11px] text-slate-600">
+                                        <li><strong className="text-slate-800">Priorität 1 — Serper /maps:</strong> Durchsucht Google Maps direkt und extrahiert Firmenname, Adresse, Telefon, Website, Rating, Reviews, Kategorie und den direkten Google Maps CID-Link.</li>
+                                        <li><strong className="text-slate-800">Deduplizierung:</strong> Existiert eine Domain bereits im Case, wird sie verworfen.</li>
+                                        <li><strong className="text-slate-800">Web-Fallback:</strong> Liefert ein Ort 0 Treffer, schaltet das System auf Google Web-Suche um.</li>
                                     </ul>
                                 </div>
 
                                 {/* Step 3 */}
-                                <div className="p-4 rounded-xl border border-amber-200 bg-amber-50/40 space-y-2">
+                                <div className="p-4 rounded-xl border border-slate-200 bg-white hover:border-slate-300 transition-colors space-y-2">
                                     <div className="flex items-center justify-between">
-                                        <div className="flex items-center gap-2 font-bold text-sm text-amber-900">
-                                            <span className="w-5 h-5 rounded-full bg-amber-600 text-white flex items-center justify-center text-xs">3</span>
+                                        <div className="flex items-center gap-2.5 font-bold text-sm text-slate-900">
+                                            <span className="w-5 h-5 rounded-full bg-slate-900 text-white flex items-center justify-center text-xs font-semibold">3</span>
                                             <span>Web-Recherche & Domain-Finding (bei fehlender Website)</span>
                                         </div>
-                                        <span className="px-2 py-0.5 rounded bg-amber-100 text-amber-800 font-mono text-[10px] font-bold">Serper: $0.0010 / Query</span>
+                                        <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700 font-mono text-[10px] font-semibold border border-slate-200">Serper: $0.0010 / Query</span>
                                     </div>
-                                    <p>
-                                        <strong>Was passiert:</strong> Besitzt ein Google Maps Eintrag keine hinterlegte Website, startet <code>BatchEnrichService</code> einen gezielten Web-Search nach <code>"{'{'}company{'}'} {'{'}address{'}'} Impressum Website"</code>, filtert Verzeichnisse (TripAdvisor, GelbeSeiten) aus und ermittelt die echte Domain.
+                                    <p className="text-slate-600">
+                                        <strong className="text-slate-800">Was passiert:</strong> Besitzt ein Google Maps Eintrag keine hinterlegte Website, startet <code className="bg-slate-100 px-1 py-0.5 rounded text-slate-800 font-mono">BatchEnrichService</code> einen gezielten Web-Search nach <code>"{'{'}company{'}'} {'{'}address{'}'} Impressum Website"</code>, filtert Verzeichnisse (TripAdvisor, GelbeSeiten) aus und ermittelt die echte Domain.
                                     </p>
                                 </div>
 
                                 {/* Step 4 */}
-                                <div className="p-4 rounded-xl border border-purple-200 bg-purple-50/40 space-y-2">
+                                <div className="p-4 rounded-xl border border-slate-200 bg-white hover:border-slate-300 transition-colors space-y-2">
                                     <div className="flex items-center justify-between">
-                                        <div className="flex items-center gap-2 font-bold text-sm text-purple-900">
-                                            <span className="w-5 h-5 rounded-full bg-purple-600 text-white flex items-center justify-center text-xs">4</span>
+                                        <div className="flex items-center gap-2.5 font-bold text-sm text-slate-900">
+                                            <span className="w-5 h-5 rounded-full bg-slate-900 text-white flex items-center justify-center text-xs font-semibold">4</span>
                                             <span>Live-Scraping & Cache-First Schutz</span>
                                         </div>
-                                        <span className="px-2 py-0.5 rounded bg-purple-100 text-purple-800 font-mono text-[10px] font-bold">Firecrawl: $0.0040 | Cache: $0.0000</span>
+                                        <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700 font-mono text-[10px] font-semibold border border-slate-200">Firecrawl: $0.0040 | Cache: $0.0000</span>
                                     </div>
-                                    <p>
-                                        <strong>Was passiert:</strong> Die Homepage und das Impressum werden via Firecrawl / Scrapling eingelesen. Der Inhalt wird als Markdown bereinigt (Cookie-Banner, Menüs und Footer werden entfernt) und in <code>scrape_cache</code> gespeichert (7 Tage gültig). Folgeabfragen kosten 0 Credits.
+                                    <p className="text-slate-600">
+                                        <strong className="text-slate-800">Was passiert:</strong> Die Homepage und das Impressum werden via Firecrawl / Scrapling eingelesen. Der Inhalt wird als Markdown bereinigt (Cookie-Banner, Menüs und Footer werden entfernt) und in <code className="bg-slate-100 px-1 py-0.5 rounded text-slate-800 font-mono">scrape_cache</code> gespeichert (7 Tage gültig). Folgeabfragen kosten 0 Credits.
                                     </p>
                                 </div>
 
                                 {/* Step 5 */}
-                                <div className="p-4 rounded-xl border border-rose-200 bg-rose-50/40 space-y-2">
+                                <div className="p-4 rounded-xl border border-slate-200 bg-white hover:border-slate-300 transition-colors space-y-2">
                                     <div className="flex items-center justify-between">
-                                        <div className="flex items-center gap-2 font-bold text-sm text-rose-900">
-                                            <span className="w-5 h-5 rounded-full bg-rose-600 text-white flex items-center justify-center text-xs">5</span>
+                                        <div className="flex items-center gap-2.5 font-bold text-sm text-slate-900">
+                                            <span className="w-5 h-5 rounded-full bg-slate-900 text-white flex items-center justify-center text-xs font-semibold">5</span>
                                             <span>KI-Synthese & Entscheider-Extraktion</span>
                                         </div>
-                                        <span className="px-2 py-0.5 rounded bg-rose-100 text-rose-800 font-mono text-[10px] font-bold">LLM: $0.0003 pro 1k Tokens</span>
+                                        <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700 font-mono text-[10px] font-semibold border border-slate-200">LLM: $0.0003 pro 1k Tokens</span>
                                     </div>
-                                    <p>
-                                        <strong>Was passiert:</strong> Das LLM (GPT-4o-mini via Eden AI) extrahiert aus dem Impressum und der Seite:
+                                    <p className="text-slate-600">
+                                        <strong className="text-slate-800">Was passiert:</strong> Das LLM (GPT-4o-mini via Eden AI) extrahiert aus dem Impressum und der Seite:
                                     </p>
-                                    <div className="grid grid-cols-2 gap-2 text-[11px] font-mono bg-white p-2.5 rounded-lg border border-rose-100">
+                                    <div className="grid grid-cols-2 gap-2 text-[11px] font-mono bg-slate-50 p-2.5 rounded-lg border border-slate-200 text-slate-700">
                                         <div>• Firmenname & Rechtsform</div>
                                         <div>• Allgemeine Firmen-Email (info@...)</div>
                                         <div>• Geschäftsführer / Inhaber</div>

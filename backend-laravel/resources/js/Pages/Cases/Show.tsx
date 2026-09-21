@@ -14,6 +14,7 @@ import { ExportModal } from '../../Components/ExportModal';
 import EditPromptModal from '../../Components/case/EditPromptModal';
 import RunDetailModal from '../../Components/case/RunDetailModal';
 import { ColumnHeaderMenu } from '../../Components/ColumnHeaderMenu';
+import { BaseColumnHeaderMenu } from '../../Components/BaseColumnHeaderMenu';
 import GroupedTableView from '../../Components/GroupedTableView';
 import ConfirmDialog from '../../Components/ui/ConfirmDialog';
 import CostDashboard from '../../Components/case/CostDashboard';
@@ -166,6 +167,13 @@ export default function CaseShow({ case: c }: Props) {
     // Two-Step Confirmation State
     const [confirmDeleteRows, setConfirmDeleteRows] = useState(false);
     const [columnToDelete, setColumnToDelete] = useState<any | null>(null);
+    const [dataColumnToDelete, setDataColumnToDelete] = useState<{
+        key: string;
+        label: string;
+        filledCount: number;
+        isReferenced: boolean;
+        isCore: boolean;
+    } | null>(null);
 
     // Rename case state
     const [isEditingName, setIsEditingName] = useState(false);
@@ -409,16 +417,34 @@ export default function CaseShow({ case: c }: Props) {
         }
     };
 
-    // Delete column
-    const deleteColumn = async (colId: string) => {
+    // Delete column (AI column or Data column)
+    const deleteColumn = async (colId: string, isDataKey: boolean = false) => {
         try {
-            await apiFetch(`/api/cases/${caseData.id}/delete-column`, {
+            const res = await apiFetch(`/api/cases/${caseData.id}/delete-column`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ columnId: colId }),
+                body: JSON.stringify({ columnId: colId, isDataKey }),
             });
+            const resData = await res.json();
+            if (resData.case) {
+                setCaseData(resData.case);
+                if (resData.case.col_order) {
+                    setColOrder(resData.case.col_order);
+                }
+            } else {
+                setColOrder(prev => prev.filter(k => k !== colId));
+            }
             refreshCase();
             setColumnToDelete(null);
+            setDataColumnToDelete(null);
+            // Optimistically clean rows state for data column
+            if (isDataKey) {
+                setRows(prev => prev.map(r => {
+                    const newData = { ...(r.data || {}) };
+                    delete newData[colId];
+                    return { ...r, data: newData };
+                }));
+            }
         } catch (e: any) {
             alert('Löschen fehlgeschlagen: ' + e.message);
         }
@@ -1245,9 +1271,37 @@ export default function CaseShow({ case: c }: Props) {
                                                             onDelete={() => setColumnToDelete(col.colDef)}
                                                             onEdit={() => setEditingCol(col.colDef)}
                                                         />
-                                                    ) : (
-                                                        <span className="truncate font-semibold flex-1">{col.label}</span>
-                                                    )}
+                                                    ) : (() => {
+                                                        const filled = rows.filter(r => r.data && r.data[col.key] != null && String(r.data[col.key]).trim() !== "").length;
+                                                        const isReferenced = (caseData.ai_columns || []).some(ac => 
+                                                            (ac.prompt && ac.prompt.includes(`{${col.key}}`)) ||
+                                                            (ac.searchQuery && ac.searchQuery.includes(`{${col.key}}`)) ||
+                                                            ac.conditionField === col.key
+                                                        );
+                                                        const isCore = ['company_name', 'domain', 'phone', 'address', 'city', 'zip'].includes(col.key);
+
+                                                        return (
+                                                            <div className="flex items-center justify-between gap-1 w-full min-w-0">
+                                                                <span className="truncate font-semibold flex-1">{col.label}</span>
+                                                                <BaseColumnHeaderMenu
+                                                                    columnKey={col.key}
+                                                                    label={col.label}
+                                                                    rowsCount={rows.length}
+                                                                    filledCount={filled}
+                                                                    isReferencedInPrompts={isReferenced}
+                                                                    isSystemCore={isCore}
+                                                                    onDelete={() => setDataColumnToDelete({
+                                                                        key: col.key,
+                                                                        label: col.label,
+                                                                        filledCount: filled,
+                                                                        isReferenced,
+                                                                        isCore,
+                                                                    })}
+                                                                    onSort={() => handleSort(col.key)}
+                                                                />
+                                                            </div>
+                                                        );
+                                                    })()}
                                                 </div>
                                             </th>
                                         );
@@ -2240,6 +2294,14 @@ export default function CaseShow({ case: c }: Props) {
                 <EditPromptModal
                     col={editingCol}
                     caseId={caseData.id}
+                    cellContext={rows.length > 0 ? {
+                        rowId: rows[0].id,
+                        value: rows[0].data[editingCol.outputKey] ?? "",
+                        status: (rows[0].cell_statuses?.[editingCol.outputKey] || "idle") as any,
+                        rowLabel: rows[0].data["company_name"] || rows[0].data["Unternehmen"] || `Zeile #1`,
+                        row: rows[0] as any,
+                    } : undefined}
+                    availableFields={baseCols.map(c => c.key)}
                     onSave={(updated) => {
                         const existing = caseData.ai_columns || (caseData as any).aiColumns || [];
                         const nextCols = existing.map((c: any) => c.id === updated.id ? updated : c);
@@ -2296,8 +2358,47 @@ export default function CaseShow({ case: c }: Props) {
                 }
                 confirmLabel="Spalte entfernen"
                 danger={true}
-                onConfirm={() => columnToDelete && deleteColumn(columnToDelete.id)}
+                onConfirm={() => columnToDelete && deleteColumn(columnToDelete.id, false)}
                 onClose={() => setColumnToDelete(null)}
+            />
+
+            {/* 🛡️ Two-Step Confirmation Dialog: Data Column Deletion with Pre-Flight Checking */}
+            <ConfirmDialog
+                isOpen={dataColumnToDelete !== null}
+                title={`Daten-Spalte "${dataColumnToDelete?.label}" löschen?`}
+                message={
+                    <div className="space-y-2 text-xs">
+                        <p>
+                            Möchtest du die Spalte <strong>{dataColumnToDelete?.label}</strong> (Feld: <code className="bg-slate-100 px-1 py-0.5 rounded font-mono">{dataColumnToDelete?.key}</code>) aus allen Zeilen entfernen?
+                        </p>
+                        <div className="p-2.5 rounded-lg border bg-slate-50 text-[11.5px] space-y-1.5">
+                            <div className="flex items-center justify-between">
+                                <span className="text-slate-500">Befüllte Zeilen:</span>
+                                <span className="font-semibold">{dataColumnToDelete?.filledCount} Zeilen</span>
+                            </div>
+                            {dataColumnToDelete?.isReferenced && (
+                                <div className="text-blue-700 font-medium bg-blue-50 p-1.5 rounded border border-blue-200">
+                                    ⚠️ <strong>Achtung:</strong> Dieses Feld wird in mindestens einem KI-Prompt oder einer Bedingung referenziert!
+                                </div>
+                            )}
+                            {dataColumnToDelete?.isCore && (
+                                <div className="text-amber-800 font-medium bg-amber-50 p-1.5 rounded border border-amber-200">
+                                    ⚠️ <strong>Hinweis:</strong> Dies ist ein Standard-Kernfeld ({dataColumnToDelete?.key}). Das Löschen wird nur empfohlen, falls es sich um ein unerwünschtes Duplikat handelt.
+                                </div>
+                            )}
+                            {dataColumnToDelete?.filledCount === 0 && (
+                                <div className="text-emerald-700 font-medium bg-emerald-50 p-1.5 rounded border border-emerald-200">
+                                    ✓ Die Spalte ist komplett leer (0 Werte). Das Löschen ist vollkommen sicher.
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                }
+                confirmLabel="Ja, Daten-Spalte löschen"
+                danger={true}
+                requireTextConfirmation={dataColumnToDelete && dataColumnToDelete.filledCount > 10 ? "LÖSCHEN" : undefined}
+                onConfirm={() => dataColumnToDelete && deleteColumn(dataColumnToDelete.key, true)}
+                onClose={() => setDataColumnToDelete(null)}
             />
 
             {/* ⚡ Cache Inspector Modal */}

@@ -1,0 +1,29 @@
+{
+    "case": {
+        "id": "a161ce78-8364-45de-be42-9a3ea1032438",
+        "name": "Automated Test Case",
+        "created_at": "2026-09-21T11:27:42+00:00",
+        "updated_at": "2026-09-21T11:27:42+00:00",
+        "columns": null,
+        "ai_columns": [],
+        "col_order": [
+            "company_name"
+        ],
+        "column_groups": null,
+        "eden_region": "us"
+    },
+    "rows_count": 1,
+    "contacts_count": 0,
+    "rows": [
+        {
+            "id": "4ba9d3fe-7b2a-4dee-add4-664ae0c453af",
+            "row_index": 0,
+            "data": {
+                "company_name": "Acme Test GmbH"
+            },
+            "cell_statuses": [],
+            "cell_errors": []
+        }
+    ],
+    "contacts": []
+}

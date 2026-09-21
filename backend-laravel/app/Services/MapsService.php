@@ -11,7 +11,7 @@ class MapsService
     /**
      * Search Google Maps places via Serper /maps, SerpAPI or Serper /places
      */
-    public function search(string $query, ?string $location = null, int $limit = 20): array
+    public function search(string $query, ?string $location = null, int $limit = 100): array
     {
         $settings = GlobalSetting::instance();
         $fullQuery = $location ? "{$query} {$location}" : $query;

@@ -10,7 +10,8 @@ use Exception;
 class ContactSearchService
 {
     public function __construct(
-        protected EdenAiService $edenAi
+        protected EdenAiService $edenAi,
+        protected SearchService $searchService
     ) {}
 
     /**
@@ -22,11 +23,12 @@ class ContactSearchService
         int $maxContacts = 3,
         string $model = 'openai/gpt-4o-mini',
         ?string $customSystemPrompt = null,
-        string $region = 'us'
+        string $region = 'us',
+        bool $searchLinkedIn = true
     ): array
     {
         $domain = $this->resolveDomain($rowData);
-        $companyName = $rowData['company_name'] ?? '';
+        $companyName = $rowData['company_name'] ?? $rowData['Unternehmen'] ?? '';
 
         if (!$domain && !$companyName) {
             return ['contacts' => [], 'error' => 'No domain or company name'];
@@ -48,7 +50,7 @@ class ContactSearchService
         // 2. Check Database ScrapeCache
         if (!$rawText) {
             $cachedImp = ScrapeCache::isFresh("{$base}/impressum");
-            if ($cachedImp && strlen($cachedImp->markdown) > 50) {
+            if ($cachedImp && strlen($cachedImp->markdown) > 100 && !str_contains($cachedImp->markdown, 'does not exist')) {
                 $rawText = $cachedImp->markdown;
                 $sourceOrigin = 'cache:db_impressum';
             } else {
@@ -60,22 +62,42 @@ class ContactSearchService
             }
         }
 
-        // 3. Fallback: Live scrape AT MOST 1 page (impressum)
+        // 3. Fallback: Search for exact Impressum URL if guessing {$base}/impressum fails
         if (!$rawText) {
             try {
+                // Try guessing /impressum first
                 $scraped = $this->edenAi->scrapeUrl($apiKey, "{$base}/impressum");
-                if (!empty($scraped['markdown'])) {
-                    $rawText = $scraped['markdown'];
+                $md = $scraped['markdown'] ?? '';
+                if (!empty($md) && strlen($md) > 100 && !str_contains($md, 'does not exist') && !str_contains($md, '404')) {
+                    $rawText = $md;
                     $sourceOrigin = 'live:scrape_impressum';
-
                     ScrapeCache::updateOrCreate(
                         ['url' => "{$base}/impressum"],
-                        [
-                            'markdown' => $rawText,
-                            'title' => $scraped['title'] ?? null,
-                            'fetched_at' => now(),
-                        ]
+                        ['markdown' => $rawText, 'title' => $scraped['title'] ?? null, 'fetched_at' => now()]
                     );
+                } else {
+                    // Smart search for the actual Impressum URL (e.g. /Impressum/mobile/, /rechtliches/impressum)
+                    $searchRes = $this->searchService->search("{$companyName} {$domain} Impressum", 3);
+                    $foundUrl = null;
+                    foreach ($searchRes['results'] ?? [] as $sr) {
+                        $u = $sr['url'] ?? '';
+                        if (str_contains($u, $domain) && (stripos($u, 'impressum') !== false || stripos($u, 'legal') !== false || stripos($u, 'kontakt') !== false)) {
+                            $foundUrl = $u;
+                            break;
+                        }
+                    }
+
+                    if ($foundUrl) {
+                        $scraped = $this->edenAi->scrapeUrl($apiKey, $foundUrl);
+                        if (!empty($scraped['markdown']) && strlen($scraped['markdown']) > 80) {
+                            $rawText = $scraped['markdown'];
+                            $sourceOrigin = 'live:search_impressum';
+                            ScrapeCache::updateOrCreate(
+                                ['url' => $foundUrl],
+                                ['markdown' => $rawText, 'title' => $scraped['title'] ?? null, 'fetched_at' => now()]
+                            );
+                        }
+                    }
                 }
             } catch (Exception $e) {
                 // Live scrape failed
@@ -96,6 +118,34 @@ class ContactSearchService
         $parsed = json_decode($jsonStr, true) ?? [];
 
         $contacts = array_slice($parsed['contacts'] ?? [], 0, $maxContacts);
+
+        // 4. Targeted LinkedIn SERP search for discovered names (Fast & bansicher via Google search)
+        if ($searchLinkedIn && !empty($contacts) && $companyName) {
+            foreach ($contacts as &$contact) {
+                if (empty($contact['linkedin'])) {
+                    $fullName = trim(($contact['first_name'] ?? '') . ' ' . ($contact['last_name'] ?? ''));
+                    // Query mit Namen oder Position + Firma
+                    $query = !empty($fullName) 
+                        ? "\"{$companyName}\" \"{$fullName}\" site:linkedin.com/in"
+                        : "\"{$companyName}\" " . ($contact['position'] ?? 'Geschäftsführer') . " site:linkedin.com/in";
+
+                    try {
+                        $searchRes = $this->searchService->search($query, 3);
+                        $results = $searchRes['results'] ?? [];
+                        foreach ($results as $res) {
+                            $u = $res['url'] ?? '';
+                            if (str_contains($u, 'linkedin.com/in/')) {
+                                $contact['linkedin'] = $u;
+                                break;
+                            }
+                        }
+                    } catch (\Throwable $e) {
+                        // Ignore linkedin lookup error
+                    }
+                }
+            }
+            unset($contact);
+        }
 
         return [
             'contacts' => $contacts,

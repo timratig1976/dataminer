@@ -122,13 +122,39 @@ class ProcessEnrichmentChunk implements ShouldQueue
                         maxContacts: $column['batchContactsMax'] ?? 3,
                         model: $model,
                         customSystemPrompt: !empty($column['prompt']) ? $column['prompt'] : null,
-                        region: $region
+                        region: $region,
+                        searchLinkedIn: !empty($column['batchContactsLinkedIn'])
                     );
 
                     $data = $row->data ?? [];
                     if (!empty($result['contacts'])) {
                         $data["_contacts_json_{$outputKey}"] = json_encode($result['contacts']);
                         $summary = count($result['contacts']) . ' Kontakte gefunden';
+
+                        // Sync into contact_rows table for the Kontakte tab
+                        \App\Models\ContactRow::where('case_id', $case->id)
+                            ->where('company_row_id', $row->id)
+                            ->delete();
+
+                        foreach ($result['contacts'] as $c) {
+                            \App\Models\ContactRow::create([
+                                'id' => (string) \Illuminate\Support\Str::uuid(),
+                                'case_id' => $case->id,
+                                'company_row_id' => $row->id,
+                                'row_index' => \App\Models\ContactRow::where('case_id', $case->id)->count(),
+                                'data' => [
+                                    'company_name' => $row->data['company_name'] ?? $row->data['Unternehmen'] ?? '',
+                                    'first_name' => $c['first_name'] ?? null,
+                                    'last_name' => $c['last_name'] ?? null,
+                                    'position' => $c['position'] ?? null,
+                                    'email' => $c['email'] ?? null,
+                                    'phone' => $c['phone'] ?? $row->data['phone'] ?? null,
+                                    'linkedin' => $c['linkedin'] ?? null,
+                                    'domain' => $row->data['domain'] ?? null,
+                                    'city' => $row->data['city'] ?? null,
+                                ],
+                            ]);
+                        }
                     } else {
                         $summary = '—';
                     }
@@ -145,13 +171,15 @@ class ProcessEnrichmentChunk implements ShouldQueue
                 } elseif ($tool === 'batch_company' || $tool === 'batch_enrich' || empty($tool) && empty($column['prompt'])) {
                     // Batch company
                     $fields = $column['batchOutputFields'] ?? ['company_name', 'domain', 'phone', 'company_email', 'address', 'city', 'zip', 'industry', 'description'];
+                    $crawlSources = $column['crawlSources'] ?? [];
                     $result = $batchEnrich->enrichRow(
                         rowData: $row->data ?? [],
                         apiKey: $apiKey,
                         requestedFields: $fields,
                         model: $model,
                         customSystemPrompt: !empty($column['prompt']) ? $column['prompt'] : null,
-                        region: $region
+                        region: $region,
+                        crawlSources: $crawlSources
                     );
 
                     $data = array_merge($row->data ?? [], $result['fields'] ?? []);
@@ -174,11 +202,46 @@ class ProcessEnrichmentChunk implements ShouldQueue
                         $renderedPrompt = str_replace('{' . $k . '}', (string) $v, $renderedPrompt);
                     }
 
+                    // If useWebSearch is active, run web search with fallback
+                    $webSearchContext = '';
+                    if (!empty($column['useWebSearch'])) {
+                        $rawSearchTemplate = !empty($column['searchQuery']) ? trim($column['searchQuery']) : '{company_name} {city}';
+                        $renderedSearchQuery = $rawSearchTemplate;
+                        $comp = $row->data['company_name'] ?? $row->data['Unternehmen'] ?? $row->data['name'] ?? '';
+                        $city = $row->data['city'] ?? $row->data['Stadt'] ?? '';
+                        $renderedSearchQuery = str_replace('{company_name}', $comp, $renderedSearchQuery);
+                        $renderedSearchQuery = str_replace('{city}', $city, $renderedSearchQuery);
+                        foreach ($row->data ?? [] as $k => $v) {
+                            $renderedSearchQuery = str_replace('{' . $k . '}', (string) $v, $renderedSearchQuery);
+                        }
+                        $renderedSearchQuery = trim($renderedSearchQuery);
+                        if (!empty($renderedSearchQuery)) {
+                            try {
+                                $searchRes = app(\App\Services\SearchService::class)->search($renderedSearchQuery, $column['searchMaxResults'] ?? 5);
+                                $results = $searchRes['results'] ?? [];
+                                if (!empty($results)) {
+                                    $snippets = [];
+                                    foreach ($results as $idx => $r) {
+                                        $snippets[] = "[" . ($idx + 1) . "] " . ($r['title'] ?? '') . "\n" . ($r['snippet'] ?? '');
+                                    }
+                                    $webSearchContext = "## Web-Suchergebnisse für: {$renderedSearchQuery}\n\n" . implode("\n\n", $snippets);
+                                }
+                            } catch (\Throwable $e) {
+                                // Proceed without web context
+                            }
+                        }
+                    }
+
+                    $finalPrompt = $renderedPrompt ?: "Analysiere das Unternehmen: " . ($row->data['company_name'] ?? '');
+                    if ($webSearchContext) {
+                        $finalPrompt = $webSearchContext . "\n\n---\n\n" . $finalPrompt;
+                    }
+
                     $chat = app(\App\Services\EdenAiService::class)->chatCompletion(
                         apiKey: $apiKey,
                         model: $model,
                         system: 'Du bist ein KI-Assistent für Datenanreicherung. Antworte präzise.',
-                        prompt: $renderedPrompt ?: "Analysiere das Unternehmen: " . ($row->data['company_name'] ?? ''),
+                        prompt: $finalPrompt,
                         maxTokens: 800,
                         temperature: 0.0,
                         region: $region
@@ -199,6 +262,16 @@ class ProcessEnrichmentChunk implements ShouldQueue
                         }
                     } else {
                         $data[$outputKey] = $val;
+                    }
+
+                    // Exakten Prompt und Output speichern für Transparenz
+                    $data["_llm_prompt_{$outputKey}"] = $finalPrompt;
+                    $data["_llm_raw_{$outputKey}"] = $val;
+                    if (!empty($chat['tokens'])) {
+                        $data["_llm_tokens_{$outputKey}"] = json_encode($chat['tokens']);
+                    }
+                    if (!empty($chat['cost_usd'])) {
+                        $data["_llm_cost_{$outputKey}"] = (string) $chat['cost_usd'];
                     }
 
                     $statuses[$outputKey] = 'done';

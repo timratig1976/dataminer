@@ -213,6 +213,41 @@ export default function RunDetailModal({ col, row: initialRow, caseId, onClose, 
         {/* ── Tab Content ── */}
         <div style={{flex:1,overflowY:"auto",padding:"16px"}}>
 
+          {/* ═══ EXECUTION EXPLANATION BANNER ═══ */}
+          <div style={{marginBottom:14,padding:"8px 12px",borderRadius:6,background:"#f8fafc",border:"1px solid #e2e8f0",display:"flex",alignItems:"flex-start",gap:8}}>
+            <span style={{fontSize:14,lineHeight:1.2}}>ℹ️</span>
+            <div style={{fontSize:11.5,lineHeight:1.4,color:"#334155"}}>
+              <strong style={{color:"#0f172a"}}>Was passiert beim Klick auf „Run“?</strong>
+              {col.tool === "batch_company" && (
+                <div style={{marginTop:2}}>
+                  {row.data["Quelle"] === "Google Maps" || row.data["maps_url"] ? (
+                    <span>
+                      🎯 <strong>Vorhandene GMB-Daten:</strong> Nutzt primär die bereits importierten Maps-Daten (Name, Adresse, Telefon, Bewertung) für eine schnelle & saubere LLM-Strukturierung. 
+                      {col.crawlSources?.includes("domain") ? " 🌐 Website-Crawl ist aktiv und wird zusätzlich abgefragt." : " 🔒 Kein externer Website-Crawl aktiv (spart Zeit & API-Kosten)."}
+                    </span>
+                  ) : (
+                    <span>
+                      🔍 <strong>Web-Suche / Domain-Anreicherung:</strong> Ermittelt Domain & Impressum, 
+                      {col.crawlSources?.includes("domain") ? " crawlt die Website " : " liest vorhandene Zeilendaten "} 
+                      und füllt die 11 Standard-Firmendatenfelder strukturiert via LLM aus.
+                    </span>
+                  )}
+                </div>
+              )}
+              {col.tool === "batch_contact" && (
+                <div style={{marginTop:2}}>
+                  👤 Sucht Ansprechpartner & Entscheider (Geschäftsführer, Inhaber) auf Website/Impressum & LinkedIn und extrapoliert ggf. E-Mail-Adressen.
+                </div>
+              )}
+              {col.tool !== "batch_company" && col.tool !== "batch_contact" && (
+                <div style={{marginTop:2}}>
+                  🤖 Führt den benutzerdefinierten Prompt mit dem Modell <code>{col.model ?? "Standard"}</code> auf Basis der aktuellen Zeilendaten aus.
+                  {col.crawlSources && col.crawlSources.length > 0 && ` Crawlt vorab: ${col.crawlSources.join(", ")}.`}
+                </div>
+              )}
+            </div>
+          </div>
+
           {/* ═══ RESULT TAB ═══ */}
           {activeTab === "result" && (<>
             {err && <div style={{marginBottom:10,padding:"8px 12px",background:"#fef2f2",border:"1px solid #fecaca",borderRadius:6,fontSize:12,color:"#991b1b"}}>{err}</div>}
@@ -650,16 +685,34 @@ export default function RunDetailModal({ col, row: initialRow, caseId, onClose, 
                   })}
                 </div>
 
-                {/* Missing important fields */}
-                {missing.length > 0 && (
-                  <div>
-                    <div style={{fontSize:11,fontWeight:700,color:"#dc2626",textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:6}}>
-                      ❌ Im Profil fehlend / leer ({missing.length}) — Optimierungspotenzial für ViLocal
+                {/* Missing important fields: Nur rot als echtes Optimierungspotenzial anzeigen wenn echter Crawl vorliegt! */}
+                {crawlJson ? (
+                  missing.length > 0 && (
+                    <div>
+                      <div style={{fontSize:11,fontWeight:700,color:"#dc2626",textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:6}}>
+                        ❌ Im Profil fehlend / leer ({missing.length}) — Optimierungspotenzial für ViLocal
+                      </div>
+                      <div style={{display:"flex",flexWrap:"wrap",gap:4}}>
+                        {missing.map(f => (
+                          <span key={f.label} style={{fontSize:11,color:"#dc2626",background:"#fef2f2",border:"1px solid #fecaca",padding:"2px 8px",borderRadius:4}}>
+                            {f.icon} {f.label}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )
+                ) : (
+                  <div style={{background:"#f9fafb",border:"1px dashed #d1d5db",borderRadius:6,padding:"8px 10px"}}>
+                    <div style={{fontSize:11,fontWeight:600,color:"#6b7280",marginBottom:4}}>
+                      ℹ️ Detail-Audit (Öffnungszeiten, Fotos, Inhaber-Verifizierung etc.)
+                    </div>
+                    <div style={{fontSize:11,color:"#9ca3af",marginBottom:6}}>
+                      Diese Attribute sind nicht in den Standard-Row-Daten enthalten. Sie werden erst durch einen Google-Places-Deep-Crawl (Apify/SerpAPI) ermittelt und verifiziert.
                     </div>
                     <div style={{display:"flex",flexWrap:"wrap",gap:4}}>
                       {missing.map(f => (
-                        <span key={f.label} style={{fontSize:11,color:"#dc2626",background:"#fef2f2",border:"1px solid #fecaca",padding:"2px 8px",borderRadius:4}}>
-                          {f.icon} {f.label}
+                        <span key={f.label} style={{fontSize:10.5,color:"#9ca3af",background:"#f3f4f6",border:"1px solid #e5e7eb",padding:"2px 7px",borderRadius:4}}>
+                          {f.icon} {f.label} (ungeprüft)
                         </span>
                       ))}
                     </div>

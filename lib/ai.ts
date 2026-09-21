@@ -694,7 +694,8 @@ Antworte NUR mit dem JSON-Objekt.`;
 
   // Run the search (primary query + fallbacks) and return raw results
   async function doSearch(): Promise<{ results: typeof searchResults; source: SearchLayer; query: string }> {
-    const primaryQuery = renderPrompt(column.searchQuery!, rowData, column.inputMappings);
+    const rawTemplate = column.searchQuery?.trim() || "{company_name} {city}";
+    const primaryQuery = renderPrompt(rawTemplate, rowData, column.inputMappings);
     const { resolveSearchKeys, resolveFirecrawlKey } = await import("./db");
     const [searchKeys, dbFirecrawlKey] = await Promise.all([
       resolveSearchKeys().catch(() => ({ serpApiKey: undefined, braveApiKey: undefined, serperApiKey: undefined })),
@@ -771,7 +772,7 @@ Antworte NUR mit dem JSON-Objekt.`;
     return blocks.join("\n\n---\n\n");
   }
 
-  if (column.useWebSearch && column.searchQuery) {
+  if (column.useWebSearch) {
     // Check cancellation before expensive web search
     if (operationId && isOperationCancelled(operationId)) {
       throw new Error("Operation cancelled");

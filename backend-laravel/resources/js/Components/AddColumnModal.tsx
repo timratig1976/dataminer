@@ -725,7 +725,15 @@ Regeln:
                     {/* ── Web Search — inline under prompt ── */}
                     <div className="mt-2 border border-blue-200 rounded-lg overflow-hidden">
                       <button type="button"
-                        onClick={() => { setUseWebSearch(v => !v); if (useWebSearch) setSearchQuery(""); }}
+                        onClick={() => {
+                          const willEnable = !useWebSearch;
+                          setUseWebSearch(willEnable);
+                          if (willEnable && !searchQuery.trim()) {
+                            setSearchQuery("{company_name} {city}");
+                          } else if (!willEnable) {
+                            setSearchQuery("");
+                          }
+                        }}
                         className="w-full flex items-center gap-2 px-3 py-1.5 text-left border-none cursor-pointer"
                         style={{background: useWebSearch ? "#dbeafe" : "#f0f9ff"}}>
                         <span className="text-sm">🔍</span>
@@ -739,10 +747,17 @@ Regeln:
                       {useWebSearch && (
                         <div className="p-3 bg-blue-50 grid gap-2">
                           <div>
-                            <label className="text-[11px] font-semibold text-blue-700 uppercase tracking-wide">Suchanfrage-Template</label>
+                            <div className="flex justify-between items-baseline mb-1">
+                              <label className="text-[11px] font-semibold text-blue-700 uppercase tracking-wide">Suchanfrage-Template</label>
+                              {!searchQuery && (
+                                <span className="text-[10px] text-orange-600 font-medium">
+                                  Standard-Fallback: <code>{"{company_name} {city}"}</code>
+                                </span>
+                              )}
+                            </div>
                             <input value={searchQuery} onChange={e => setSearchQuery(e.target.value)}
-                              placeholder="z.B. {company_name} offizieller Webauftritt"
-                              className="mt-1 w-full border border-blue-300 rounded-lg px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                              placeholder="{company_name} {city} (Standard-Fallback wenn leer)"
+                              className="w-full border border-blue-300 rounded-lg px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500" />
                           </div>
                           {availableFields.length > 0 && (
                             <div className="flex flex-wrap gap-1 items-center">
@@ -776,7 +791,8 @@ Regeln:
                               <label className="text-[11px] font-semibold text-blue-700 uppercase tracking-wide">Layer</label>
                               <select value={searchForceLayer} onChange={e => setSearchForceLayer(e.target.value as typeof searchForceLayer)}
                                 className="mt-1 w-full border border-blue-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-                                <option value="">Auto (SerpAPI → DDG → Playwright)</option>
+                                <option value="">Auto (Serper → SerpAPI → DDG → Playwright)</option>
+                                <option value="serper">Nur Serper.dev (Günstig & Schnell)</option>
                                 <option value="serpapi">Nur SerpAPI</option>
                                 <option value="duckduckgo">Nur DuckDuckGo</option>
                                 <option value="playwright">Nur Playwright</option>
