@@ -44,6 +44,14 @@ class WebController extends Controller
     }
 
     /**
+     * Central Queue & Runner Monitoring across all cases
+     */
+    public function monitoring(): Response
+    {
+        return Inertia::render('Monitoring');
+    }
+
+    /**
      * Settings view
      */
     public function settings(): Response

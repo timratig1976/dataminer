@@ -84,17 +84,20 @@ class AgentRunnerService
 
         $addedCount = 0;
         $logMessage = '';
+        $stepCost = 0.001; // default 0.001 per serper call
 
         if (($step['type'] ?? '') === 'google_search') {
             $query = $step['query'] ?? $step['label'];
             $res = $this->discovery->discoverWeb($run->case_id, $query, $step['estimated_hits'] ?? 20);
             $addedCount = $res['added_count'] ?? 0;
+            $stepCost = 0.001;
             $logMessage = "Search '{$query}' found {$addedCount} new companies.";
         } elseif (($step['type'] ?? '') === 'google_maps') {
             $query = $step['map_query'] ?? $step['label'];
             $loc = $step['location'] ?? null;
             $res = $this->discovery->discoverMaps($run->case_id, $query, $loc, $step['estimated_hits'] ?? 20);
             $addedCount = $res['added_count'] ?? 0;
+            $stepCost = 0.001;
             $logMessage = "Maps '{$query}' ({$loc}) found {$addedCount} new places.";
         }
 
@@ -105,7 +108,7 @@ class AgentRunnerService
             'attemptedAt' => now()->toIso8601String(),
             'hitsFound' => $addedCount,
             'uniqueInserted' => $addedCount,
-            'costUsd' => 0,
+            'costUsd' => $stepCost,
             'source' => $step['type'] ?? 'unknown',
         ];
 
@@ -113,6 +116,8 @@ class AgentRunnerService
         $state['current_step_index'] = $index + 1;
         $state['rows_added'] = ($state['rows_added'] ?? 0) + $addedCount;
         $state['uniqueCount'] = ($state['uniqueCount'] ?? 0) + $addedCount;
+        $state['costUsd'] = round(($state['costUsd'] ?? 0) + $stepCost, 4);
+        $state['tokens'] = ($state['tokens'] ?? 0) + 120;
         $state['updatedAt'] = now()->toIso8601String();
         $state['logs'][] = [
             'timestamp' => now()->toIso8601String(),

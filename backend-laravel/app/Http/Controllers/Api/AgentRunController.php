@@ -56,6 +56,9 @@ class AgentRunController extends Controller
 
         $run = $this->agentRunner->startRun($caseId, $description, $targetCount);
 
+        // Dispatch background queue job so search runs automatically without browser
+        \App\Jobs\ProcessAgentDiscoveryRun::dispatch($run->id);
+
         // Merge state properties into response so React hooks (useAgentRun / AgentGoalModal)
         // receive plan, stepResults, uniqueCount, etc. directly at top-level
         $state = $run->state ?? [];
@@ -197,6 +200,9 @@ class AgentRunController extends Controller
             'status' => 'pending',
             'state' => $state,
         ]);
+
+        // Dispatch background queue job on resume as well
+        \App\Jobs\ProcessAgentDiscoveryRun::dispatch($run->id);
 
         return response()->json($run);
     }

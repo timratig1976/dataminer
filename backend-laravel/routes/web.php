@@ -7,6 +7,7 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/', [WebController::class, 'dashboard'])->name('dashboard');
     Route::get('/cases', [WebController::class, 'cases'])->name('cases.index');
     Route::get('/cases/{id}', [WebController::class, 'caseDetail'])->name('cases.show');
+    Route::get('/monitoring', [WebController::class, 'monitoring'])->name('monitoring');
     Route::get('/settings', [WebController::class, 'settings'])->name('settings');
     Route::get('/settings/models', [WebController::class, 'modelsSettings'])->name('settings.models');
     Route::get('/settings/planner', [WebController::class, 'plannerSettings'])->name('settings.planner');

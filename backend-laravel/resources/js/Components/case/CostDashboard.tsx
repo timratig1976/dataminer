@@ -1,105 +1,169 @@
-"use client";
+import React, { useState, useEffect } from 'react';
+import { DollarSign, Layers, Zap, ExternalLink, HelpCircle, X } from 'lucide-react';
+import { apiFetch } from '../../api';
 
-import { useMemo, useState, useRef, useEffect } from "react";
-import type { CaseTotals } from "@/hooks/useCaseData";
-
-interface CostDashboardProps {
-  totals: CaseTotals;
-  rowCount: number;
-  colCount: number;
+interface CostBreakdownItem {
+    category: string;
+    provider: string;
+    rate: string;
+    calls: number;
+    costUsd: number;
 }
 
-function fmt(usd: number): string {
-  if (usd === 0) return "0,00";
-  if (usd < 0.001) return usd.toFixed(5);
-  if (usd < 0.01)  return usd.toFixed(4);
-  if (usd < 1)     return usd.toFixed(3);
-  return usd.toFixed(2);
+interface CostResponse {
+    totals: {
+        totalCostUsd: number;
+        totalCostEur: number;
+        totalTokens: number;
+        totalCalls: number;
+    };
+    rates: Record<string, { name: string; cost_usd?: number; cost_per_1k_tokens?: number; unit?: string }>;
+    breakdown: CostBreakdownItem[];
 }
 
-function fmtEur(eur: number): string {
-  if (eur === 0) return "0,00";
-  if (eur < 0.001) return eur.toFixed(5).replace(".", ",");
-  if (eur < 0.01)  return eur.toFixed(4).replace(".", ",");
-  if (eur < 1)     return eur.toFixed(3).replace(".", ",");
-  return eur.toFixed(2).replace(".", ",");
-}
+export default function CostDashboard({ caseId }: { caseId: string }) {
+    const [costData, setCostData] = useState<CostResponse | null>(null);
+    const [openModal, setOpenModal] = useState(false);
 
-export default function CostDashboard({ totals, rowCount }: CostDashboardProps) {
-  const { totalTokens, totalCostUsd, totalCostEur } = totals;
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
+    const loadCosts = async () => {
+        try {
+            const res = await apiFetch(`/api/cases/${caseId}/costs`);
+            if (res.ok) {
+                const data = await res.json();
+                setCostData(data);
+            }
+        } catch (e) {
+            console.error(e);
+        }
+    };
 
-  const avgCostPerRow = useMemo(
-    () => (rowCount > 0 && totalCostUsd > 0 ? totalCostUsd / rowCount : null),
-    [totalCostUsd, rowCount]
-  );
+    useEffect(() => {
+        loadCosts();
+        const interval = setInterval(loadCosts, 5000);
+        return () => clearInterval(interval);
+    }, [caseId]);
 
-  useEffect(() => {
-    if (!open) return;
-    function handler(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    }
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [open]);
+    if (!costData) return null;
 
-  if (totalCostUsd === 0 && totalTokens === 0) return null;
+    const usd = costData.totals.totalCostUsd;
+    const eur = costData.totals.totalCostEur;
 
-  return (
-    <div ref={ref} style={{ position: "relative", display: "inline-flex" }}>
-      <button
-        onClick={() => setOpen(v => !v)}
-        title="Kosten-Details anzeigen"
-        style={{
-          display: "inline-flex", alignItems: "center", gap: 5,
-          padding: "2px 8px", borderRadius: 99,
-          border: `1px solid ${open ? "var(--orange)" : "var(--border)"}`,
-          background: open ? "var(--orange-soft)" : "var(--surface)",
-          cursor: "pointer", fontSize: 11.5, fontWeight: 500,
-          color: open ? "var(--orange)" : "var(--text-2)", lineHeight: 1.5,
-        }}
-      >
-        <span style={{ fontSize: 11 }}>💰</span>
-        {totalCostEur > 0 ? <>€ {fmtEur(totalCostEur)}</> : <>$ {fmt(totalCostUsd)}</>}
-        <span style={{ fontSize: 9, opacity: 0.55, marginLeft: 1 }}>▾</span>
-      </button>
+    return (
+        <>
+            {/* Topbar Badge Button */}
+            <button
+                type="button"
+                onClick={() => setOpenModal(true)}
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold cursor-pointer border transition-colors bg-amber-50 text-amber-900 border-amber-200 hover:bg-amber-100 shadow-xs"
+                title="Detaillierte Kostenaufstellung aller API-Aufrufe"
+            >
+                <DollarSign className="w-3.5 h-3.5 text-amber-600" />
+                <span>${usd > 0 ? usd.toFixed(4) : '0.0000'}</span>
+                <span className="text-[10px] text-amber-700 font-normal">({eur > 0 ? `€${eur.toFixed(4)}` : '€0.00'})</span>
+            </button>
 
-      {open && (
-        <div style={{
-          position: "absolute", top: "calc(100% + 6px)", left: 0,
-          background: "var(--surface)", borderRadius: 8,
-          border: "1px solid var(--border)",
-          boxShadow: "var(--shadow)",
-          zIndex: 600, minWidth: 230, padding: "12px 14px",
-        }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: "var(--orange)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 10 }}>
-            Kosten-Übersicht
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            {totalCostEur > 0 && <KpiRow label="Gesamt (EUR)" value={`€ ${fmtEur(totalCostEur)}`} color="var(--orange)" bg="var(--orange-soft)" />}
-            {totalCostUsd > 0 && <KpiRow label="Gesamt (USD)" value={`$ ${fmt(totalCostUsd)}`} color="#1d4ed8" bg="#eff6ff" />}
-            {totalTokens > 0 && <KpiRow label="Tokens" value={totalTokens.toLocaleString("de-DE")} color="var(--text-1)" bg="var(--bg)" />}
-            {avgCostPerRow !== null && rowCount > 1 && (
-              <KpiRow label={`Ø pro Zeile (${rowCount})`} value={`$ ${fmt(avgCostPerRow)}`} color="var(--green)" bg="var(--green-soft)" />
+            {/* Detailed Modal */}
+            {openModal && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
+                    <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+                        {/* Modal Header */}
+                        <div className="px-6 py-4 border-b flex items-center justify-between bg-slate-50/50" style={{ borderColor: 'var(--border)' }}>
+                            <div className="flex items-center gap-2.5">
+                                <div className="w-8 h-8 rounded-lg bg-amber-500/10 text-amber-600 flex items-center justify-center font-bold">
+                                    💰
+                                </div>
+                                <div>
+                                    <h3 className="font-bold text-sm text-slate-900">API-Kosten & Aufrufe-Audit</h3>
+                                    <p className="text-[11px] text-slate-500">Exakte Abrechnung jedes einzelnen Plattform-Calls für diesen Case</p>
+                                </div>
+                            </div>
+                            <button
+                                onClick={() => setOpenModal(false)}
+                                className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+                            >
+                                <X className="w-4 h-4" />
+                            </button>
+                        </div>
+
+                        {/* Modal Body */}
+                        <div className="p-6 space-y-5 max-h-[75vh] overflow-y-auto">
+                            {/* Summary Cards */}
+                            <div className="grid grid-cols-3 gap-3">
+                                <div className="p-3.5 rounded-xl border bg-slate-50 space-y-1">
+                                    <div className="text-[11px] text-slate-500 font-medium">Gesamtkosten (USD)</div>
+                                    <div className="text-xl font-bold text-slate-900">${usd.toFixed(4)}</div>
+                                    <div className="text-[10px] text-slate-400">≈ €{eur.toFixed(4)} EUR</div>
+                                </div>
+                                <div className="p-3.5 rounded-xl border bg-slate-50 space-y-1">
+                                    <div className="text-[11px] text-slate-500 font-medium">API Aufrufe</div>
+                                    <div className="text-xl font-bold text-slate-900">{costData.totals.totalCalls}</div>
+                                    <div className="text-[10px] text-slate-400">Maps, Suche & Scraping</div>
+                                </div>
+                                <div className="p-3.5 rounded-xl border bg-slate-50 space-y-1">
+                                    <div className="text-[11px] text-slate-500 font-medium">LLM Tokenverbrauch</div>
+                                    <div className="text-xl font-bold text-slate-900">{costData.totals.totalTokens.toLocaleString('de-DE')}</div>
+                                    <div className="text-[10px] text-slate-400">Planung & Extraktion</div>
+                                </div>
+                            </div>
+
+                            {/* Detailed Table by Provider / Service */}
+                            <div>
+                                <div className="text-xs font-bold text-slate-800 uppercase tracking-wider mb-2">
+                                    Verbrauchte Einheiten nach Provider
+                                </div>
+                                <div className="border rounded-xl overflow-hidden divide-y" style={{ borderColor: 'var(--border)' }}>
+                                    {costData.breakdown.map((item, idx) => (
+                                        <div key={idx} className="p-3 flex items-center justify-between hover:bg-slate-50 transition-colors text-xs">
+                                            <div className="space-y-0.5">
+                                                <div className="font-semibold text-slate-800">{item.category}</div>
+                                                <div className="text-[11px] text-slate-500 flex items-center gap-2">
+                                                    <span>{item.provider}</span>
+                                                    <span>•</span>
+                                                    <span className="font-mono text-slate-400">{item.rate}</span>
+                                                </div>
+                                            </div>
+                                            <div className="text-right">
+                                                <div className="font-bold text-slate-900 font-mono">${item.costUsd.toFixed(4)}</div>
+                                                <div className="text-[11px] text-slate-400">{item.calls} Aufrufe</div>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* Pricing Reference Card */}
+                            <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 text-xs space-y-2">
+                                <div className="font-semibold text-slate-800 flex items-center gap-1.5">
+                                    <HelpCircle className="w-3.5 h-3.5 text-slate-500" />
+                                    <span>Hinterlegte Plattform-Tarife (Referenztabelle)</span>
+                                </div>
+                                <p className="text-[11px] text-slate-500 leading-relaxed">
+                                    Die Kosten werden anhand der exakt registrierten API-Endpunkte in <code className="bg-slate-200 px-1 py-0.5 rounded text-slate-700">CostTrackerService</code> abgerechnet:
+                                </p>
+                                <div className="grid grid-cols-2 gap-2 text-[11px] font-mono text-slate-600 pt-1">
+                                    <div>• Serper Places: $0.0010 / Query</div>
+                                    <div>• SerpAPI Maps: $0.0100 / Query</div>
+                                    <div>• Firecrawl Scrape: $0.0040 / Seite</div>
+                                    <div>• GPT-4o-mini: $0.0003 / 1k Tokens</div>
+                                    <div>• Serper Web: $0.0010 / Query</div>
+                                    <div>• Apify GMB Deep: $0.0040 / Place</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Modal Footer */}
+                        <div className="px-6 py-3 border-t bg-slate-50 flex items-center justify-between text-xs" style={{ borderColor: 'var(--border)' }}>
+                            <span className="text-slate-500 text-[11px]">Abrechnung erfolgt direkt bei den Providern.</span>
+                            <button
+                                onClick={() => setOpenModal(false)}
+                                className="btn-v2 btn-v2-primary py-1 px-4 text-xs font-semibold"
+                            >
+                                Schließen
+                            </button>
+                        </div>
+                    </div>
+                </div>
             )}
-          </div>
-          <div style={{ fontSize: 10, color: "var(--text-3)", marginTop: 10, lineHeight: 1.4 }}>
-            Von Providern erfasste Kosten · EUR ≈ USD × 0,91
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function KpiRow({ label, value, color, bg }: { label: string; value: string; color: string; bg: string }) {
-  return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-      <span style={{ fontSize: 12, color: "#6b7280" }}>{label}</span>
-      <span style={{ fontWeight: 700, fontSize: 12, color, background: bg, padding: "1px 8px", borderRadius: 6, fontFamily: "monospace", whiteSpace: "nowrap" }}>
-        {value}
-      </span>
-    </div>
-  );
+        </>
+    );
 }

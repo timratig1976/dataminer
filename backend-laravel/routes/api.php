@@ -41,6 +41,7 @@ Route::middleware(['web', 'auth'])->group(function () {
     Route::post('/cases/{id}/delete-column', [\App\Http\Controllers\Api\CaseDiscoveryController::class, 'deleteColumn']);
     Route::get('/cases/{id}/agent', [AgentRunController::class, 'indexForCase']);
     Route::get('/cases/{id}/agent/check-keys', [\App\Http\Controllers\Api\DiscoverySearchController::class, 'checkKeys']);
+    Route::get('/cases/{id}/costs', [\App\Http\Controllers\Api\CaseCostController::class, 'show']);
     Route::get('/rows', [RowController::class, 'index']);
     Route::get('/rows/grouped', [\App\Http\Controllers\Api\GroupedRowsController::class, 'index']);
     Route::get('/contact-rows', [\App\Http\Controllers\Api\ContactRowController::class, 'index']);
@@ -55,6 +56,7 @@ Route::middleware(['web', 'auth'])->group(function () {
     Route::get('/enrichment/jobs/{id}/stream', [EnrichmentJobController::class, 'stream']);
     Route::get('/settings', [SettingsController::class, 'show']);
     Route::get('/settings/health', [\App\Http\Controllers\Api\ApiStatusController::class, 'check']);
+    Route::get('/monitoring/overview', [\App\Http\Controllers\Api\MonitoringController::class, 'overview']);
     Route::post('/settings/test-eden', [SettingsController::class, 'testEden']);
     Route::post('/settings/test-search', [SettingsController::class, 'testSearch']);
     Route::get('/settings/test-planner', [SettingsController::class, 'getPlannerPrompt']);

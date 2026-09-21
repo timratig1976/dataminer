@@ -16,6 +16,8 @@ import RunDetailModal from '../../Components/case/RunDetailModal';
 import { ColumnHeaderMenu } from '../../Components/ColumnHeaderMenu';
 import GroupedTableView from '../../Components/GroupedTableView';
 import ConfirmDialog from '../../Components/ui/ConfirmDialog';
+import CostDashboard from '../../Components/case/CostDashboard';
+import DataflowModal from '../../Components/case/DataflowModal';
 import { apiFetch } from '../../api';
 import { getColumnLabel } from '../../lib/columns';
 
@@ -727,6 +729,8 @@ export default function CaseShow({ case: c }: Props) {
             }
             actions={
                 <div className="flex items-center gap-2">
+                    <DataflowModal />
+                    <CostDashboard caseId={caseData.id} />
                     <button onClick={() => setShowAgentModal(true)} className="btn-v2 btn-v2-orange-soft" style={{ fontWeight: 500 }}>
                         <Target style={{ width: 12, height: 12 }} /> Leads finden & erweitern
                     </button>
@@ -1875,6 +1879,42 @@ export default function CaseShow({ case: c }: Props) {
                                                 ))}
                                             </div>
                                         )}
+
+                                        {/* Actions: Resume, Cancel, Modal */}
+                                        <div className="flex items-center justify-end gap-2 pt-2 border-t" style={{ borderColor: 'var(--border)' }}>
+                                            {run.status === 'cancelled' && (
+                                                <button
+                                                    onClick={async () => {
+                                                        const res = await apiFetch(`/api/cases/${caseData.id}/agent/${run.id}`, { method: 'PATCH' });
+                                                        if (res.ok) {
+                                                            setShowAgentModal(true);
+                                                        }
+                                                    }}
+                                                    className="btn-v2 btn-v2-primary text-xs py-1 px-3"
+                                                >
+                                                    ▶ Fortsetzen
+                                                </button>
+                                            )}
+                                            {run.status === 'running' && (
+                                                <button
+                                                    onClick={async () => {
+                                                        await apiFetch(`/api/cases/${caseData.id}/agent/${run.id}/cancel`, { method: 'POST' });
+                                                        const runsRes = await apiFetch(`/api/cases/${caseData.id}/agent`);
+                                                        const d = await runsRes.json();
+                                                        setAgentRuns(Array.isArray(d) ? d : []);
+                                                    }}
+                                                    className="btn-v2 text-xs py-1 px-3 bg-red-50 text-red-700 border-red-200 hover:bg-red-100"
+                                                >
+                                                    ■ Stoppen
+                                                </button>
+                                            )}
+                                            <button
+                                                onClick={() => setShowAgentModal(true)}
+                                                className="btn-v2 btn-v2-ghost text-xs py-1 px-3"
+                                            >
+                                                📊 Im Modal steuern
+                                            </button>
+                                        </div>
                                     </div>
                                 );
                             })

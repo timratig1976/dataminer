@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Link, usePage } from '@inertiajs/react';
 import { 
     LayoutDashboard, Database, Settings, Sliders, Zap, Sparkles, Users, User, DatabaseZap, BrainCircuit,
-    AlertTriangle, CheckCircle2, RefreshCw
+    AlertTriangle, CheckCircle2, RefreshCw, Activity
 } from 'lucide-react';
 import { apiFetch } from '../api';
 
@@ -129,6 +129,19 @@ export default function Layout({
                         >
                             <DatabaseZap className="w-3.5 h-3.5" />
                             <span>Raw Data Manager</span>
+                        </Link>
+
+                        <Link
+                            href="/monitoring"
+                            className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded text-[12.5px] text-left transition-colors cursor-pointer"
+                            style={{
+                                background: url.startsWith('/monitoring') ? 'var(--orange-soft)' : 'transparent',
+                                color: url.startsWith('/monitoring') ? 'var(--orange)' : 'var(--text-2)',
+                                fontWeight: url.startsWith('/monitoring') ? 600 : 400,
+                            }}
+                        >
+                            <Activity className="w-3.5 h-3.5" />
+                            <span>Runner Monitoring</span>
                         </Link>
                     </div>
 
