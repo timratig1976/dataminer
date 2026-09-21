@@ -6,6 +6,7 @@ Automatische Backups aller Cases als JSON-Snapshots.
 
 | Datei | Case | Zeilen | Datum |
 |---|---|---|---|
+| `2026-09-21_Tourismus_Gastgewerbe_MV.json` | Tourismus/Gastgewerbe in MV | 114 | 2026-09-21 |
 | `2026-09-19_Wohnungsgenossenschaften_MV.json` | Wohnungsgenossenschaften MV | 712 | 2026-09-19 |
 | `2026-09-19_Schulte.json` | Schulte | 3.078 | 2026-09-19 |
 | `2026-09-19_Automated_Test_Case.json` | Automated Test Case | 1 | 2026-09-19 |
