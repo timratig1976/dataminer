@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import AppLayout from '../Layouts/AppLayout';
+import SettingsTabs from '../Components/settings/SettingsTabs';
 import { 
     Key, Globe, CheckCircle2, Trash2, 
     Save, RefreshCw, Sparkles, Sliders, Flame, Search
@@ -171,7 +172,9 @@ export default function SettingsPage({ settings: initialSettings }: { settings: 
             title="Globale Einstellungen"
             subtitle="Verwaltung aller API-Verbindungen (jeder Key wird asynchron separat gespeichert & verschlüsselt)"
         >
-            <div className="max-w-3xl mx-auto space-y-5 pb-16">
+            <div className="max-w-4xl mx-auto space-y-5 pb-16">
+                <SettingsTabs />
+
                 {/* ── 1. EDEN AI ── */}
                 <div 
                     className="p-5 space-y-4"

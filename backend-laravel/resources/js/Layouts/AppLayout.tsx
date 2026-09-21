@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Link, usePage } from '@inertiajs/react';
 import { 
     LayoutDashboard, Database, Settings, Sliders, Zap, Sparkles, Users, User, DatabaseZap, BrainCircuit,
-    AlertTriangle, CheckCircle2, RefreshCw, Activity, ChevronLeft, ChevronRight, ShieldAlert
+    AlertTriangle, CheckCircle2, RefreshCw, Activity, ChevronLeft, ChevronRight, ShieldAlert, LogOut
 } from 'lucide-react';
 import { apiFetch } from '../api';
 
@@ -69,13 +69,8 @@ export default function Layout({
     }, [url]);
 
     const bottomNav = [
-        { href: '/settings', title: 'API & Keys', label: 'Keys', icon: <Settings className="w-3.5 h-3.5" /> },
-        { href: '/settings/models', title: 'Modell-Auswahl', label: 'Models', icon: <Sliders className="w-3.5 h-3.5" /> },
-        { href: '/settings/blacklist', title: 'Domain-Blacklist (Junk-Schutz)', label: 'Blacklist', icon: <ShieldAlert className="w-3.5 h-3.5" /> },
-        { href: '/settings/prompts', title: 'Normalisierungs-Prompts', label: 'Prompts', icon: <BrainCircuit className="w-3.5 h-3.5" /> },
-        { href: '/settings/planner', title: 'Planner Prompt', label: 'Planner', icon: <Sparkles className="w-3.5 h-3.5" /> },
-        { href: '/settings/llm-test', title: 'LLM-Testing', label: 'LLM', icon: <Zap className="w-3.5 h-3.5" /> },
-        { href: '/settings/users', title: 'Benutzer & Rollen', label: 'Users', icon: <Users className="w-3.5 h-3.5" /> },
+        { href: '/settings', title: 'Einstellungen & Konfiguration', label: 'Settings', icon: <Settings className="w-4 h-4" /> },
+        { href: '/settings/users', title: 'Benutzer & Rollen', label: 'Users', icon: <Users className="w-4 h-4" /> },
     ];
 
     return (
@@ -330,17 +325,17 @@ export default function Layout({
                                 className="text-[9.5px] font-semibold tracking-wider uppercase px-2 mb-1"
                                 style={{ color: 'var(--text-3)' }}
                             >
-                                Einstellungen
+                                Administration
                             </div>
-                            <div className="grid grid-cols-3 gap-1">
+                            <div className="grid grid-cols-2 gap-1.5">
                                 {bottomNav.map((item, idx) => {
-                                    const active = url === item.href;
+                                    const active = url === item.href || (item.href === '/settings' && url.startsWith('/settings') && !url.startsWith('/settings/users'));
                                     return (
                                         <Link
                                             key={idx}
                                             href={item.href}
                                             title={item.title}
-                                            className="flex flex-col items-center justify-center py-1.5 px-1 rounded-md transition-all cursor-pointer group"
+                                            className="flex items-center gap-2 py-2 px-2.5 rounded-lg transition-all cursor-pointer group"
                                             style={{
                                                 color: active ? 'var(--orange)' : 'var(--text-2)',
                                                 background: active ? 'var(--orange-soft)' : 'transparent',
@@ -351,8 +346,8 @@ export default function Layout({
                                                 {item.icon}
                                             </div>
                                             <span
-                                                className="text-[10px] leading-tight font-medium mt-1 truncate max-w-full text-center"
-                                                style={{ color: active ? 'var(--orange)' : 'var(--text-2)' }}
+                                                className="text-[11px] leading-tight font-medium truncate"
+                                                style={{ color: active ? 'var(--orange)' : 'var(--text-1)' }}
                                             >
                                                 {item.label}
                                             </span>
@@ -483,6 +478,16 @@ export default function Layout({
                         >
                             <User className="w-3.5 h-3.5 text-orange-500" />
                             <span>Konto</span>
+                        </Link>
+                        <Link
+                            href="/logout"
+                            method="post"
+                            as="button"
+                            className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium text-red-600 hover:bg-red-50 transition-colors border border-red-200"
+                            title="Abmelden"
+                        >
+                            <LogOut className="w-3.5 h-3.5" />
+                            <span>Abmelden</span>
                         </Link>
                     </div>
                 </header>

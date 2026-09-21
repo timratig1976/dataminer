@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import AppLayout from '../../Layouts/AppLayout';
+import SettingsTabs from '../../Components/settings/SettingsTabs';
 import { ShieldBan, Search, Plus, Trash2, ArrowUpDown, RefreshCw, CheckCircle2, AlertCircle } from 'lucide-react';
 import { apiFetch } from '../../api';
 
@@ -109,7 +110,9 @@ export default function BlacklistSettings() {
 
     return (
         <AppLayout title="Domain-Blacklist (Junk-Schutz)">
-            <div className="max-w-5xl mx-auto space-y-6">
+            <div className="max-w-5xl mx-auto space-y-6 pb-16">
+                <SettingsTabs />
+
                 {/* Header */}
                 <div className="flex items-center justify-between">
                     <div>

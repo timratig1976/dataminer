@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import AppLayout from '../../Layouts/AppLayout';
+import SettingsTabs from '../../Components/settings/SettingsTabs';
 import { apiFetch } from '../../api';
 import {
   Sparkles, Save, RotateCcw, Play, RefreshCw, CheckCircle2,
@@ -160,6 +161,8 @@ export default function PlannerSettingsPage({
       subtitle="System-Prompt zur automatischen Ableitung von Suchschritten aus Freitext-Zielen"
     >
       <div className="max-w-5xl mx-auto space-y-5 pb-16">
+        <SettingsTabs />
+
         {/* Info Banner */}
         <div
           className="flex items-start gap-3 p-3.5 rounded-lg text-xs leading-relaxed"

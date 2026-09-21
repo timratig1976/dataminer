@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import AppLayout from '@/Layouts/AppLayout';
+import SettingsTabs from '@/Components/settings/SettingsTabs';
 import { 
   BrainCircuit, Plus, CheckCircle2, ShieldAlert, Sparkles, Copy, Save, Trash2, Sliders 
 } from 'lucide-react';
@@ -171,7 +172,9 @@ export default function PromptsSettings() {
 
   return (
     <AppLayout title="KI-Normalisierungs-Prompts">
-      <div className="p-6 max-w-7xl mx-auto space-y-6">
+      <div className="p-6 max-w-7xl mx-auto space-y-6 pb-16">
+        <SettingsTabs />
+
         {/* Header Banner */}
         <div className="bg-gradient-to-r from-amber-500/10 via-amber-500/5 to-transparent border border-amber-500/20 rounded-xl p-5">
           <div className="flex items-start gap-4">

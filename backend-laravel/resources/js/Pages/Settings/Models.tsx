@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import AppLayout from '../../Layouts/AppLayout';
+import SettingsTabs from '../../Components/settings/SettingsTabs';
 import { Sliders, Save, Plus, X, ChevronUp, ChevronDown, Check, RotateCcw } from 'lucide-react';
 
 const DEFAULT_MODELS = [
@@ -53,8 +54,10 @@ export default function ModelsSettingsPage({ allowlist: initialAllowlist }: { al
   };
 
   return (
-    <AppLayout>
-      <div className="max-w-3xl mx-auto space-y-6 pb-16">
+    <AppLayout title="Modell-Auswahl">
+      <div className="max-w-4xl mx-auto space-y-6 pb-16">
+        <SettingsTabs />
+
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold flex items-center gap-2">

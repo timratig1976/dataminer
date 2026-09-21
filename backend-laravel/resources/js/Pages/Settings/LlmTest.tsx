@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import AppLayout from '../../Layouts/AppLayout';
+import SettingsTabs from '../../Components/settings/SettingsTabs';
 import { Zap, Play, RefreshCw, CheckCircle2, AlertCircle } from 'lucide-react';
 
 const DEFAULT_MODELS = [
@@ -51,10 +52,12 @@ export default function LlmTestPage() {
   };
 
   return (
-    <AppLayout>
-      <div className="max-w-3xl mx-auto space-y-6 pb-16">
+    <AppLayout title="LLM Playground & Testing">
+      <div className="max-w-4xl mx-auto space-y-6 pb-16">
+        <SettingsTabs />
+
         <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
+          <h1 className="text-xl font-bold flex items-center gap-2 text-slate-900">
             <Zap className="w-5 h-5 text-amber-500" />
             LLM Provider Testing
           </h1>
