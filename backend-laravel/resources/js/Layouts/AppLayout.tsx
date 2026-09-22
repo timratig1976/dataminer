@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Link, usePage } from '@inertiajs/react';
 import { 
     LayoutDashboard, Database, Settings, Sliders, Zap, Sparkles, Users, User, DatabaseZap, BrainCircuit,
-    AlertTriangle, CheckCircle2, RefreshCw, Activity, ChevronLeft, ChevronRight, ShieldAlert, LogOut
+    AlertTriangle, CheckCircle2, RefreshCw, Activity, ChevronLeft, ChevronRight, ShieldAlert, LogOut, PhoneCall
 } from 'lucide-react';
 import { apiFetch } from '../api';
 
@@ -181,13 +181,37 @@ export default function Layout({
                                 padding: isCollapsed ? '8px 0' : '6px 10px',
                                 justifyContent: isCollapsed ? 'center' : 'flex-start',
                                 gap: isCollapsed ? 0 : 8,
-                                background: url.startsWith('/raw-imports') ? 'var(--orange-soft)' : 'transparent',
-                                color: url.startsWith('/raw-imports') ? 'var(--orange)' : 'var(--text-2)',
-                                fontWeight: url.startsWith('/raw-imports') ? 600 : 400,
+                                background: url === '/raw-imports' || (url.startsWith('/raw-imports') && !url.includes('3cx')) ? 'var(--orange-soft)' : 'transparent',
+                                color: url === '/raw-imports' || (url.startsWith('/raw-imports') && !url.includes('3cx')) ? 'var(--orange)' : 'var(--text-2)',
+                                fontWeight: url === '/raw-imports' || (url.startsWith('/raw-imports') && !url.includes('3cx')) ? 600 : 400,
                             }}
                         >
                             <DatabaseZap className="w-4 h-4 shrink-0" />
                             {!isCollapsed && <span className="truncate">Raw Data</span>}
+                        </Link>
+
+                        <Link
+                            href="/raw-imports/3cx-sync"
+                            title="3CX E.164 Microservice"
+                            className="w-full flex items-center rounded text-[12.5px] text-left transition-colors cursor-pointer"
+                            style={{
+                                padding: isCollapsed ? '8px 0' : '6px 10px',
+                                justifyContent: isCollapsed ? 'center' : 'flex-start',
+                                gap: isCollapsed ? 0 : 8,
+                                background: url.includes('3cx') ? 'var(--orange-soft)' : 'transparent',
+                                color: url.includes('3cx') ? 'var(--orange)' : 'var(--text-2)',
+                                fontWeight: url.includes('3cx') ? 600 : 400,
+                            }}
+                        >
+                            <PhoneCall className="w-4 h-4 shrink-0 text-indigo-600" />
+                            {!isCollapsed && (
+                                <div className="flex items-center justify-between w-full">
+                                    <span className="truncate">3CX Microservice</span>
+                                    <span className="text-[9px] font-bold uppercase tracking-wider bg-indigo-50 text-indigo-700 px-1 rounded border border-indigo-200">
+                                        E.164
+                                    </span>
+                                </div>
+                            )}
                         </Link>
 
                         <Link
