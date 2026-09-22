@@ -4,7 +4,7 @@ import AppLayout from '@/Layouts/AppLayout';
 import EvaluationCard, { EvaluationRun } from '@/Components/EvaluationCard';
 import { 
   ArrowLeft, Sparkles, CheckCircle, RefreshCw, UploadCloud, AlertCircle, 
-  RotateCcw, ExternalLink, ShieldCheck, HelpCircle, History
+  RotateCcw, ExternalLink, ShieldCheck, HelpCircle, History, Columns, X, Eye, EyeOff
 } from 'lucide-react';
 
 interface BatchDetailProps {
@@ -53,9 +53,47 @@ export default function RawImportsShow({ batchId }: BatchDetailProps) {
   const [showPromoteModal, setShowPromoteModal] = useState(false);
   const [promoteLoading, setPromoteLoading] = useState(false);
   const [rollbackLoading, setRollbackLoading] = useState(false);
-  const [samplePercent, setSamplePercent] = useState<number>(10);
-  const [latestEvalRun, setLatestEvalRun] = useState<EvaluationRun | null>(null);
-  const [evalLoading, setEvalLoading] = useState(false);
+  const [viewMode, setViewMode] = useState<'table' | 'compare'>('table');
+  const [selectedRawCols, setSelectedRawCols] = useState<string[]>([]);
+  const [showColumnPicker, setShowColumnPicker] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+
+  // Initialisieren aller Spalten aus den Rohdaten der Zeilen
+  useEffect(() => {
+    if (rows.length > 0 && selectedRawCols.length === 0) {
+      const keys = new Set<string>();
+      rows.forEach(r => {
+        Object.keys(r.raw_data || {}).forEach(k => keys.add(k));
+      });
+      setSelectedRawCols(Array.from(keys));
+    }
+  }, [rows]);
+
+  const allAvailableCols = React.useMemo(() => {
+    const keys = new Set<string>();
+    rows.forEach(r => {
+      Object.keys(r.raw_data || {}).forEach(k => keys.add(k));
+    });
+    return Array.from(keys);
+  }, [rows]);
+
+  const removeColumn = (colToRemove: string) => {
+    setSelectedRawCols(prev => prev.filter(c => c !== colToRemove));
+  };
+
+  const toggleColumn = (col: string) => {
+    setSelectedRawCols(prev => 
+      prev.includes(col) ? prev.filter(c => c !== col) : [...prev, col]
+    );
+  };
+
+  const selectAllColumns = () => {
+    setSelectedRawCols(allAvailableCols);
+  };
+
+  const deselectAllColumns = () => {
+    setSelectedRawCols([]);
+  };
 
   const fetchBatchData = async () => {
     setLoading(true);
@@ -365,22 +403,270 @@ export default function RawImportsShow({ batchId }: BatchDetailProps) {
           </div>
         )}
 
-        {/* Side-by-Side Data Table */}
+        {/* Data Table */}
         <div className="bg-white border border-gray-200/80 rounded-xl shadow-sm overflow-hidden">
-          <div className="px-5 py-3.5 border-b border-gray-100 flex items-center justify-between">
-            <h3 className="text-xs font-semibold text-gray-700 uppercase tracking-wider">
-              Datensatz-Vorschau ({rows.length} geladene Zeilen)
-            </h3>
-            <button
-              onClick={fetchBatchData}
-              className="text-gray-400 hover:text-gray-600 p-1 rounded-md transition-colors"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-            </button>
+          <div className="px-5 py-3 border-b border-gray-100 flex flex-col md:flex-row md:items-center justify-between gap-3 bg-gray-50/50">
+            <div className="flex items-center gap-3">
+              <h3 className="text-xs font-bold text-gray-800 uppercase tracking-wider">
+                Tabellen-Ansicht ({rows.length} Zeilen)
+              </h3>
+              <div className="flex items-center bg-gray-200/70 p-0.5 rounded-lg text-xs">
+                <button
+                  type="button"
+                  onClick={() => setViewMode('table')}
+                  className={`px-2.5 py-1 rounded-md font-medium transition-all ${
+                    viewMode === 'table'
+                      ? 'bg-white text-gray-900 shadow-xs'
+                      : 'text-gray-600 hover:text-gray-900'
+                  }`}
+                >
+                  📊 Multi-Spalten Tabelle (Case-Look)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewMode('compare')}
+                  className={`px-2.5 py-1 rounded-md font-medium transition-all ${
+                    viewMode === 'compare'
+                      ? 'bg-white text-gray-900 shadow-xs'
+                      : 'text-gray-600 hover:text-gray-900'
+                  }`}
+                >
+                  🔍 Extraktions-Inspektor
+                </button>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setShowColumnPicker(!showColumnPicker)}
+                className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded-lg border transition-colors ${
+                  showColumnPicker 
+                    ? 'bg-amber-50 border-amber-300 text-amber-800' 
+                    : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
+                }`}
+                title="Spalten konfigurieren"
+              >
+                <Columns className="w-3.5 h-3.5 text-gray-500" />
+                <span>Spalten ({selectedRawCols.length}/{allAvailableCols.length})</span>
+              </button>
+
+              <input
+                type="text"
+                placeholder="In Zeilen suchen..."
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                className="text-xs rounded-lg border border-gray-200 px-2.5 py-1.5 w-48 focus:ring-1 focus:ring-amber-500 focus:outline-hidden bg-white"
+              />
+              <button
+                onClick={fetchBatchData}
+                className="text-gray-400 hover:text-gray-600 p-1.5 rounded-md hover:bg-gray-100 transition-colors"
+                title="Aktualisieren"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+              </button>
+            </div>
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse text-xs">
+          {/* Column Picker Drawer / Popover */}
+          {showColumnPicker && (
+            <div className="p-3 bg-amber-50/40 border-b border-amber-100/80 text-xs">
+              <div className="flex items-center justify-between mb-2">
+                <span className="font-semibold text-gray-700 flex items-center gap-1.5">
+                  <Columns className="w-3.5 h-3.5 text-amber-600" />
+                  Sichtbare Quell-Spalten anpassen:
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={selectAllColumns}
+                    className="text-[11px] text-amber-700 hover:underline"
+                  >
+                    Alle auswählen
+                  </button>
+                  <span className="text-gray-300">•</span>
+                  <button
+                    type="button"
+                    onClick={deselectAllColumns}
+                    className="text-[11px] text-gray-500 hover:underline"
+                  >
+                    Keine
+                  </button>
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto pr-1">
+                {allAvailableCols.map(col => {
+                  const active = selectedRawCols.includes(col);
+                  return (
+                    <button
+                      key={col}
+                      type="button"
+                      onClick={() => toggleColumn(col)}
+                      className={`px-2 py-0.5 rounded text-[11px] font-mono transition-all border flex items-center gap-1 ${
+                        active
+                          ? 'bg-amber-100 text-amber-900 border-amber-300 shadow-2xs'
+                          : 'bg-white text-gray-500 border-gray-200 hover:border-gray-300 opacity-60'
+                      }`}
+                    >
+                      {col}
+                      {active ? (
+                        <Eye className="w-2.5 h-2.5 text-amber-700" />
+                      ) : (
+                        <EyeOff className="w-2.5 h-2.5 text-gray-400" />
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {viewMode === 'table' ? (
+            <div className="overflow-x-auto max-h-[650px]">
+              <table className="w-full text-left border-collapse text-xs">
+                <thead className="bg-gray-100/90 text-gray-700 uppercase tracking-wider text-[10px] sticky top-0 z-10 border-b border-gray-200 shadow-2xs">
+                  <tr>
+                    <th className="py-2.5 px-3 w-12 text-center font-bold">#</th>
+                    {selectedRawCols.map(col => (
+                      <th key={col} className="py-2.5 px-3 font-semibold border-r border-gray-200/60 whitespace-nowrap group">
+                        <div className="flex items-center justify-between gap-1.5">
+                          <span className="font-mono text-[11px]">{col}</span>
+                          <button
+                            type="button"
+                            onClick={() => removeColumn(col)}
+                            className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-gray-200 text-gray-400 hover:text-red-500 transition-all"
+                            title={`Spalte "${col}" ausblenden`}
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        </div>
+                      </th>
+                    ))}
+                    {/* Phase 1: Company Columns */}
+                    <th className="py-2.5 px-3 font-semibold text-emerald-800 bg-emerald-100/70 border-r border-emerald-200 whitespace-nowrap">
+                      🏢 Brand / Firma
+                    </th>
+                    <th className="py-2.5 px-3 font-semibold text-emerald-800 bg-emerald-50/70 border-r border-emerald-200 whitespace-nowrap">
+                      🌐 Domain
+                    </th>
+                    <th className="py-2.5 px-3 font-semibold text-emerald-800 bg-emerald-50/70 border-r border-emerald-200 whitespace-nowrap">
+                      📍 Ort / Land
+                    </th>
+                    {/* Phase 2: Contact Columns */}
+                    <th className="py-2.5 px-3 font-semibold text-indigo-800 bg-indigo-100/70 border-r border-indigo-200 whitespace-nowrap">
+                      👤 Ansprechpartner
+                    </th>
+                    <th className="py-2.5 px-3 font-semibold text-indigo-800 bg-indigo-50/70 border-r border-indigo-200 whitespace-nowrap">
+                      💼 Position
+                    </th>
+                    <th className="py-2.5 px-3 font-semibold text-indigo-800 bg-indigo-50/70 whitespace-nowrap">
+                      ✉️ E-Mail / Kontakt
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100 font-sans">
+                  {rows
+                    .filter(r => {
+                      if (!searchQuery.trim()) return true;
+                      const q = searchQuery.toLowerCase();
+                      const rawVals = Object.values(r.raw_data || {}).join(' ').toLowerCase();
+                      return rawVals.includes(q);
+                    })
+                    .map(row => {
+                      const comp = row.normalized_data?.company_fields || {};
+                      const cont = row.normalized_data?.contact_fields || {};
+                      const hasComp = !!(comp.company_name || comp.brand_name || comp.domain);
+                      const hasCont = !!(cont.first_name || cont.last_name || cont.email);
+                      return (
+                        <tr key={row.id} className="hover:bg-amber-50/20 transition-colors">
+                          <td className="py-2 px-3 text-center text-gray-400 font-mono text-[10px]">
+                            {row.source_row_index + 1}
+                          </td>
+                          {selectedRawCols.map(col => {
+                            const val = row.raw_data?.[col];
+                            const isEmpty = val === null || val === undefined || String(val).trim() === '' || String(val).toLowerCase() === 'null';
+                            return (
+                              <td key={col} className="py-2 px-3 border-r border-gray-100 max-w-xs truncate text-[11px] text-gray-800">
+                                {isEmpty ? <span className="text-gray-300">–</span> : String(val)}
+                              </td>
+                            );
+                          })}
+                          
+                          {/* Company: Brand / Firma */}
+                          <td className="py-2 px-3 border-r border-emerald-100 bg-emerald-50/30 text-[11px]">
+                            {hasComp ? (
+                              <div className="flex flex-col">
+                                <span className="font-semibold text-emerald-950 truncate">
+                                  {comp.brand_name || comp.company_name}
+                                </span>
+                                {comp.legal_form && (
+                                  <span className="text-[9px] text-emerald-700 bg-emerald-100/60 rounded px-1 py-0.2 w-fit mt-0.5">
+                                    {comp.legal_form}
+                                  </span>
+                                )}
+                              </div>
+                            ) : (
+                              <span className="text-gray-300 italic text-[10px]">–</span>
+                            )}
+                          </td>
+
+                          {/* Company: Domain */}
+                          <td className="py-2 px-3 border-r border-emerald-100 bg-emerald-50/30 text-[11px]">
+                            {comp.domain ? (
+                              <span className="font-mono text-emerald-800 font-medium">
+                                {comp.domain}
+                              </span>
+                            ) : (
+                              <span className="text-gray-300 italic text-[10px]">–</span>
+                            )}
+                          </td>
+
+                          {/* Company: Ort / Land */}
+                          <td className="py-2 px-3 border-r border-emerald-100 bg-emerald-50/30 text-[11px] text-gray-700">
+                            {comp.city || comp.country ? (
+                              <span>{[comp.zip, comp.city, comp.country].filter(Boolean).join(' ')}</span>
+                            ) : (
+                              <span className="text-gray-300 italic text-[10px]">–</span>
+                            )}
+                          </td>
+
+                          {/* Contact: Person */}
+                          <td className="py-2 px-3 border-r border-indigo-100 bg-indigo-50/30 text-[11px]">
+                            {hasCont && (cont.first_name || cont.last_name) ? (
+                              <div className="font-semibold text-indigo-950 truncate flex items-center gap-1">
+                                {cont.salutation && <span className="text-indigo-600 font-normal text-[10px]">{cont.salutation}</span>}
+                                <span>{`${cont.first_name || ''} ${cont.last_name || ''}`.trim()}</span>
+                              </div>
+                            ) : (
+                              <span className="text-gray-300 italic text-[10px]">–</span>
+                            )}
+                          </td>
+
+                          {/* Contact: Position */}
+                          <td className="py-2 px-3 border-r border-indigo-100 bg-indigo-50/30 text-[11px] text-indigo-900 truncate max-w-[140px]">
+                            {cont.position || <span className="text-gray-300 italic text-[10px]">–</span>}
+                          </td>
+
+                          {/* Contact: Email / Kontakt */}
+                          <td className="py-2 px-3 bg-indigo-50/30 text-[11px]">
+                            {cont.email || cont.phone_direct ? (
+                              <div className="flex flex-col text-[10px]">
+                                {cont.email && <span className="text-indigo-700 font-mono">{cont.email}</span>}
+                                {cont.phone_direct && <span className="text-gray-500 font-mono">{cont.phone_direct}</span>}
+                              </div>
+                            ) : (
+                              <span className="text-gray-300 italic text-[10px]">–</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="overflow-x-auto max-h-[650px]">
+              <table className="w-full text-left border-collapse text-xs">
               <thead>
                 <tr className="bg-gray-50/60 border-b border-gray-100 text-[11px] font-medium text-gray-500">
                   <th className="py-2 px-3 w-12 text-center">#</th>
@@ -503,6 +789,7 @@ export default function RawImportsShow({ batchId }: BatchDetailProps) {
               </tbody>
             </table>
           </div>
+          )}
         </div>
       </div>
 

@@ -49,6 +49,69 @@ class RawImportNormalizerService
     }
 
     /**
+     * Helper: Extract clean brand name and legal form from company name.
+     */
+    protected function cleanBrandAndLegalForm(string $rawCompanyName): array
+    {
+        $raw = trim($rawCompanyName);
+        // Common legal forms
+        $legalForms = [
+            'GmbH & Co. KG', 'GmbH & Co. KGaA', 'GmbH & Co KG', 'GmbH', 'AG & Co. KG', 'AG', 
+            'UG (haftungsbeschränkt)', 'UG haftungsbeschränkt', 'UG', 'e.K.', 'e. K.', 'e.V.',
+            'KGaA', 'GbR', 'OHG', 'KG', 'LLC', 'Inc.', 'Ltd.', 'Corp.', 'SE & Co. KGaA', 'SE'
+        ];
+
+        $matchedForm = null;
+        $brand = $raw;
+
+        foreach ($legalForms as $form) {
+            $pattern = '/\b' . preg_quote($form, '/') . '\b/i';
+            if (preg_match($pattern, $raw)) {
+                $matchedForm = $form;
+                $brand = trim(preg_replace($pattern, '', $raw));
+                // Remove trailing dashes, commas, dots
+                $brand = trim($brand, " \t\n\r\0\x0B,-/|");
+                break;
+            }
+        }
+
+        return [
+            'brand' => !empty($brand) ? $brand : $raw,
+            'legal_form' => $matchedForm,
+        ];
+    }
+
+    /**
+     * Helper: Extract domain from URL or business email (excluding generic freemailers).
+     */
+    protected function extractCleanDomain(?string $url, ?string $email = null): ?string
+    {
+        if (!empty($url)) {
+            $cleaned = preg_replace('#^https?://#i', '', trim($url));
+            $cleaned = preg_replace('#^www\.#i', '', $cleaned);
+            $parts = explode('/', $cleaned);
+            $domain = strtolower(trim($parts[0]));
+            if (filter_var('http://' . $domain, FILTER_VALIDATE_URL) || str_contains($domain, '.')) {
+                return $domain;
+            }
+        }
+
+        if (!empty($email) && str_contains($email, '@')) {
+            $mailDomain = strtolower(trim(substr(strrchr($email, '@'), 1)));
+            $freeMailers = [
+                'gmail.com', 'googlemail.com', 'yahoo.com', 'yahoo.de', 'hotmail.com', 
+                'outlook.com', 'outlook.de', 'web.de', 'gmx.de', 'gmx.net', 't-online.de', 
+                'freenet.de', 'icloud.com', 'me.com', 'aol.com', 'mail.de'
+            ];
+            if (!in_array($mailDomain, $freeMailers) && str_contains($mailDomain, '.')) {
+                return $mailDomain;
+            }
+        }
+
+        return null;
+    }
+
+    /**
      * Fallback deterministic normalization when no LLM key is available or on error.
      */
     public function deterministicNormalize(array $rawData): array
@@ -63,14 +126,12 @@ class RawImportNormalizerService
             $k = strtolower($rawKey);
 
             // Company fields
-            if (str_contains($k, 'firma') || str_contains($k, 'unternehmensname') || str_contains($k, 'company_name') || $k === 'company' || $k === 'name') {
+            if (str_contains($k, 'firma') || str_contains($k, 'unternehmensname') || str_contains($k, 'company_name') || $k === 'company' || $k === 'name' || $k === 'organisation') {
                 $companyFields['company_name'] = $val;
-            } elseif (str_contains($k, 'domain') || str_contains($k, 'website') || str_contains($k, 'web') || str_contains($k, 'url')) {
-                $domain = preg_replace('#^https?://#i', '', $val);
-                $domain = explode('/', $domain)[0];
-                $companyFields['domain'] = strtolower($domain);
+            } elseif (str_contains($k, 'domain') || str_contains($k, 'website') || str_contains($k, 'web') || str_contains($k, 'url') || str_contains($k, 'homepage')) {
+                $companyFields['website'] = $val;
             } elseif (str_contains($k, 'telefon') || str_contains($k, 'phone') || str_contains($k, 'tel')) {
-                if (str_contains($k, 'durchwahl') || str_contains($k, 'mobil') || str_contains($k, 'direct')) {
+                if (str_contains($k, 'durchwahl') || str_contains($k, 'mobil') || str_contains($k, 'direct') || str_contains($k, 'handy')) {
                     $contactFields['phone_direct'] = $val;
                 } else {
                     $companyFields['phone'] = $val;
@@ -79,27 +140,31 @@ class RawImportNormalizerService
                 $companyFields['zip'] = $val;
             } elseif (str_contains($k, 'stadt') || str_contains($k, 'ort') || str_contains($k, 'city')) {
                 $companyFields['city'] = $val;
+            } elseif (str_contains($k, 'land') || str_contains($k, 'country')) {
+                $companyFields['country'] = $val;
             } elseif (str_contains($k, 'strasse') || str_contains($k, 'straße') || str_contains($k, 'address') || str_contains($k, 'adresse')) {
                 $companyFields['address'] = $val;
-            } elseif (str_contains($k, 'branche') || str_contains($k, 'industry') || str_contains($k, 'kategorie')) {
+            } elseif (str_contains($k, 'branche') || str_contains($k, 'industry') || str_contains($k, 'kategorie') || str_contains($k, 'sector')) {
                 $companyFields['industry'] = $val;
             } elseif (str_contains($k, 'beschreibung') || str_contains($k, 'description')) {
                 $companyFields['description'] = $val;
             // Contact fields
+            } elseif (str_contains($k, 'anrede') || str_contains($k, 'salutation')) {
+                $contactFields['salutation'] = $val;
             } elseif (str_contains($k, 'vorname') || str_contains($k, 'first_name') || str_contains($k, 'firstname')) {
                 $contactFields['first_name'] = $val;
             } elseif (str_contains($k, 'nachname') || str_contains($k, 'last_name') || str_contains($k, 'lastname')) {
                 $contactFields['last_name'] = $val;
-            } elseif (str_contains($k, 'ansprechpartner') || str_contains($k, 'kontakt') || str_contains($k, 'contact_name')) {
+            } elseif (str_contains($k, 'ansprechpartner') || str_contains($k, 'kontakt') || str_contains($k, 'contact_name') || str_contains($k, 'person')) {
                 $parts = explode(' ', $val, 2);
                 $contactFields['first_name'] = $parts[0] ?? '';
                 $contactFields['last_name'] = $parts[1] ?? '';
-            } elseif (str_contains($k, 'position') || str_contains($k, 'rolle') || str_contains($k, 'funktion') || str_contains($k, 'job')) {
+            } elseif (str_contains($k, 'position') || str_contains($k, 'rolle') || str_contains($k, 'funktion') || str_contains($k, 'job') || str_contains($k, 'titel')) {
                 $contactFields['position'] = $val;
             } elseif (str_contains($k, 'linkedin')) {
                 $contactFields['linkedin'] = $val;
             } elseif (str_contains($k, 'mail') || str_contains($k, 'email')) {
-                if (str_contains($k, 'info') || str_contains($k, 'company') || str_contains($k, 'zentral')) {
+                if (str_contains($k, 'info') || str_contains($k, 'company') || str_contains($k, 'zentral') || str_contains($k, 'office')) {
                     $companyFields['email'] = $val;
                 } else {
                     $contactFields['email'] = $val;
@@ -109,16 +174,33 @@ class RawImportNormalizerService
             }
         }
 
+        // Post-processing Company: Brand Extraction & Domain Resolver
+        if (!empty($companyFields['company_name'])) {
+            $brandInfo = $this->cleanBrandAndLegalForm($companyFields['company_name']);
+            $companyFields['brand_name'] = $brandInfo['brand'];
+            if (!empty($brandInfo['legal_form'])) {
+                $companyFields['legal_form'] = $brandInfo['legal_form'];
+            }
+        }
+
+        $detectedDomain = $this->extractCleanDomain(
+            $companyFields['website'] ?? null, 
+            $companyFields['email'] ?? ($contactFields['email'] ?? null)
+        );
+        if ($detectedDomain) {
+            $companyFields['domain'] = $detectedDomain;
+        }
+
         $hasComp = !empty($companyFields);
         $hasCont = !empty($contactFields);
-        $confidence = ($hasComp && $hasCont) ? 0.85 : (($hasComp || $hasCont) ? 0.70 : 0.40);
+        $confidence = ($hasComp && $hasCont) ? 0.90 : (($hasComp || $hasCont) ? 0.75 : 0.40);
 
         return [
             'company_fields' => $companyFields,
             'contact_fields' => $contactFields,
             'extra' => $extra,
             'confidence' => $confidence,
-            'notes' => 'Deterministisches Regel-Mapping angewendet',
+            'notes' => 'Company-First Pipeline angewendet (Brand/Domain/Contact isoliert)',
         ];
     }
 
