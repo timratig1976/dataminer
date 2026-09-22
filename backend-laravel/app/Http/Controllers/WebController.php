@@ -124,6 +124,11 @@ class WebController extends Controller
         return Inertia::render('RawImports/Index');
     }
 
+    public function threeCXSync(): Response
+    {
+        return Inertia::render('RawImports/ThreeCX');
+    }
+
     public function rawImportsShow(string $batchId): Response
     {
         return Inertia::render('RawImports/Show', [

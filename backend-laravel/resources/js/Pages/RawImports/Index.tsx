@@ -113,13 +113,21 @@ export default function RawImportsIndex() {
     <AppLayout
       title="Raw Data Manager"
       actions={
-        <button
-          onClick={() => setShowUpload(true)}
-          className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-medium shadow-sm transition-colors cursor-pointer"
-        >
-          <Plus className="w-3.5 h-3.5" />
-          <span>Neuer Batch Upload</span>
-        </button>
+        <div className="flex items-center gap-2">
+          <Link
+            href="/raw-imports/3cx-sync"
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 border border-indigo-200 text-indigo-700 hover:bg-indigo-100 rounded-lg text-xs font-medium transition-colors cursor-pointer"
+          >
+            <span>📞 3CX Telefonnummern (E.164)</span>
+          </Link>
+          <button
+            onClick={() => setShowUpload(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-medium shadow-sm transition-colors cursor-pointer"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>Neuer Raw-Upload</span>
+          </button>
+        </div>
       }
     >
       <div className="p-6 max-w-7xl mx-auto space-y-6">

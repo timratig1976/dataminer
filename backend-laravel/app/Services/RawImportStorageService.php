@@ -29,7 +29,7 @@ class RawImportStorageService
             $delimiter = "\t";
         }
 
-        $headers = str_getcsv(array_shift($lines), $delimiter);
+        $headers = str_getcsv(array_shift($lines), $delimiter, '"', '\\');
         $headers = array_map('trim', $headers);
 
         $batchId = (string) Str::uuid();
@@ -52,7 +52,7 @@ class RawImportStorageService
         foreach ($lines as $line) {
             if (empty(trim($line))) continue;
 
-            $cells = str_getcsv($line, $delimiter);
+            $cells = str_getcsv($line, $delimiter, '"', '\\');
             $rowData = [];
             foreach ($headers as $idx => $h) {
                 if (empty($h)) continue;

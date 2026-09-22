@@ -46,9 +46,19 @@ export default function RawUploadModal({ onClose, onSuccess }: RawUploadModalPro
     try {
       const res = await fetch('/api/raw-imports', {
         method: 'POST',
+        headers: {
+          'Accept': 'application/json',
+        },
         body: fd,
       });
-      const data = await res.json();
+      const text = await res.text();
+      let data: any;
+      try {
+        data = JSON.parse(text);
+      } catch (parseErr) {
+        throw new Error(`Server antwortete nicht mit JSON (${res.status}): ${text.substring(0, 120)}`);
+      }
+
       if (!res.ok) {
         throw new Error(data.message || data.error || 'Upload fehlgeschlagen');
       }

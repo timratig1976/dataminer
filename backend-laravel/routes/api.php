@@ -112,6 +112,11 @@ Route::middleware(['web', 'auth'])->group(function () {
         Route::post('/raw-imports/{batchId}/rollback', [RawImportController::class, 'rollback']);
         Route::patch('/raw-imports/rows/{rowId}', [RawImportController::class, 'updateRow']);
         Route::delete('/raw-imports/{batchId}', [RawImportController::class, 'destroy']);
+        // 3CX Phone Number E.164 Sync Service
+        Route::post('/3cx/test-connection', [\App\Http\Controllers\Api\ThreeCXController::class, 'testConnection']);
+        Route::post('/3cx/fetch-contacts', [\App\Http\Controllers\Api\ThreeCXController::class, 'fetchContacts']);
+        Route::post('/3cx/update-single', [\App\Http\Controllers\Api\ThreeCXController::class, 'updateSingle']);
+        Route::post('/3cx/batch-update', [\App\Http\Controllers\Api\ThreeCXController::class, 'batchUpdate']);
         // Prompt Management & Evaluations
         Route::get('/normalization-prompts', [NormalizationPromptController::class, 'index']);
         Route::post('/normalization-prompts', [NormalizationPromptController::class, 'store']);

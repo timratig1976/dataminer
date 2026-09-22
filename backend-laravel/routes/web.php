@@ -17,6 +17,7 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/settings/prompts', [WebController::class, 'promptsSettings'])->name('settings.prompts');
     Route::get('/settings/blacklist', [WebController::class, 'blacklistSettings'])->name('settings.blacklist');
     Route::get('/raw-imports', [WebController::class, 'rawImportsIndex'])->name('raw-imports.index');
+    Route::get('/raw-imports/3cx-sync', [WebController::class, 'threeCXSync'])->name('raw-imports.3cx');
     Route::get('/raw-imports/{batchId}', [WebController::class, 'rawImportsShow'])->name('raw-imports.show');
     Route::get('/scrapling-test', [WebController::class, 'scraplingTest'])->name('scrapling.test');
 });
