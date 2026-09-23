@@ -11,7 +11,9 @@ class WebsiteNavigationService
 
     public function __construct()
     {
-        $this->client = new Client([
+        $proxy = env('OUTBOUND_PROXY_URL') ?: env('HTTP_PROXY') ?: env('HTTPS_PROXY') ?: null;
+
+        $options = [
             'timeout' => 4,
             'connect_timeout' => 3,
             'http_errors' => false,
@@ -26,7 +28,13 @@ class WebsiteNavigationService
                 'Accept' => 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
                 'Accept-Language' => 'de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7',
             ],
-        ]);
+        ];
+
+        if ($proxy) {
+            $options['proxy'] = $proxy;
+        }
+
+        $this->client = new Client($options);
     }
 
     /**

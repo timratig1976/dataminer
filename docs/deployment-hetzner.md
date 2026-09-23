@@ -75,6 +75,9 @@ EDEN_API_KEY=dein_eden_key
 EDEN_REGION=us
 SERPER_API_KEY=dein_serper_key
 SERP_API_KEY=dein_serpapi_key
+
+# Hetzner IP-Schutz (Optional: Rotierender Web-Proxy z.B. Webshare.io oder Smartproxy)
+OUTBOUND_PROXY_URL=http://username:password@p.webshare.io:80
 ```
 
 ### C. Dateirechte absichern

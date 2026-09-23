@@ -15,6 +15,7 @@ interface SettingsData {
     has_brave_api_key: boolean;
     has_apify_api_token: boolean;
     has_firecrawl_api_key: boolean;
+    outbound_proxy_url?: string | null;
     edenApiKeyMasked?: string;
     serperApiKeyMasked?: string;
     serpApiKeyMasked?: string;
@@ -725,6 +726,45 @@ export default function SettingsPage({ settings: initialSettings }: { settings: 
                             <span>{testResults.apify.ok ? `Erfolgreich: ${testResults.apify.sample}` : (testResults.apify.error || 'Test fehlgeschlagen')}</span>
                         </div>
                     )}
+                </div>
+
+                {/* ── 6. OUTBOUND PROXY (HETZNER IP-SCHUTZ) ── */}
+                <div 
+                    className="p-5 space-y-3"
+                    style={{
+                        background: "var(--surface)",
+                        border: "1px solid var(--border)",
+                        borderRadius: "var(--r)",
+                        boxShadow: "var(--shadow-sm)",
+                    }}
+                >
+                    <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2.5">
+                            <Globe className="w-4 h-4 text-emerald-600" />
+                            <h2 className="font-semibold text-sm" style={{ color: "var(--text-1)" }}>Ausgehender Proxy (Hetzner IP-Schutz)</h2>
+                            <span className="text-[11px]" style={{ color: "var(--text-3)" }}>Schützt den Server vor Rate-Limits & Bot-Blocks</span>
+                        </div>
+                        <div>
+                            {state.outbound_proxy_url ? (
+                                <span className="status-pill status-pill-done">
+                                    <CheckCircle2 className="w-3 h-3" /> Proxy aktiv
+                                </span>
+                            ) : (
+                                <span className="status-pill status-pill-pending">
+                                    Direkte Hetzner-IP (Standard)
+                                </span>
+                            )}
+                        </div>
+                    </div>
+
+                    <div className="text-xs text-slate-600 leading-relaxed bg-slate-50 p-3 rounded-lg border border-slate-200/60">
+                        <p>
+                            Wenn du tausende Webseiten prüfst, schützt ein rotierender Proxy (z. B. Smartproxy, Webshare oder BrightData) die Hetzner-Server-IP vor Abuse-Meldungen und Cloudflare-Sperren.
+                        </p>
+                        <p className="mt-1.5 font-mono text-[11px] text-slate-700">
+                            Einstellung in der Server <code>.env</code>: <code>OUTBOUND_PROXY_URL=http://user:pass@proxy.example.com:8080</code>
+                        </p>
+                    </div>
                 </div>
             </div>
         </AppLayout>

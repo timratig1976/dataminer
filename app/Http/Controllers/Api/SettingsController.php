@@ -43,6 +43,7 @@ class SettingsController extends Controller
                 'has_brave_api_key' => !empty($settings->brave_api_key),
                 'has_apify_api_token' => !empty($settings->apify_api_token),
                 'has_firecrawl_api_key' => !empty($settings->firecrawl_api_key),
+                'outbound_proxy_url' => env('OUTBOUND_PROXY_URL') ?: env('HTTP_PROXY') ?: env('HTTPS_PROXY') ?: null,
 
                 'hasKey' => !empty($settings->eden_api_key),
                 'hasFirecrawlKey' => !empty($settings->firecrawl_api_key),
