@@ -2521,7 +2521,13 @@ export default function CaseShow({ case: c }: Props) {
 
                         <div className="flex-1 overflow-y-auto p-4 space-y-4">
                             {/* ── GMB Vorhandene Daten (falls vorhanden) ── */}
-                            {(cacheModalRow.data['Quelle'] === 'Google Maps' || cacheModalRow.data['maps_url'] || cacheModalRow.data['maps_rating'] || cacheModalRow.data['Adresse']) && (
+                            {(cacheModalRow.data['Quelle'] === 'Google Maps' || cacheModalRow.data['maps_url'] || cacheModalRow.data['maps_rating'] || cacheModalRow.data['Adresse']) && (() => {
+                                const gmbRawFields = Object.entries(cacheModalRow.data).filter(([k]) => 
+                                    ['Quelle', 'maps_url', 'maps_rating', 'maps_reviews', 'category', 'Kategorie', 'Unternehmen', 'company_name', 'Adresse', 'address', 'phone', 'Telefon', 'Bewertung', 'domain'].includes(k)
+                                );
+                                const gmbJson = Object.fromEntries(gmbRawFields);
+
+                                return (
                                 <div className="border border-amber-200 bg-amber-50/50 rounded-xl p-3.5 space-y-2.5">
                                     <div className="flex items-center justify-between">
                                         <div className="flex items-center gap-2">
@@ -2569,8 +2575,31 @@ export default function CaseShow({ case: c }: Props) {
                                             </div>
                                         </div>
                                     </div>
+
+                                    {/* Raw GMB JSON Payload */}
+                                    <div className="pt-1">
+                                        <div className="flex items-center justify-between mb-1">
+                                            <span className="text-[10.5px] font-mono font-bold text-amber-900 uppercase">
+                                                {'{ }'} GMB Raw JSON Dataset (Ursprünglicher Roh-Datensatz)
+                                            </span>
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    navigator.clipboard.writeText(JSON.stringify(gmbJson, null, 2));
+                                                    alert('GMB Rohdaten in Zwischenablage kopiert!');
+                                                }}
+                                                className="text-[10px] text-amber-800 hover:underline cursor-pointer font-medium"
+                                            >
+                                                JSON kopieren
+                                            </button>
+                                        </div>
+                                        <pre className="p-2.5 bg-slate-900 text-amber-300 rounded-lg text-[10.5px] font-mono leading-relaxed overflow-x-auto max-h-48 border border-amber-900/30">
+                                            {JSON.stringify(gmbJson, null, 2)}
+                                        </pre>
+                                    </div>
                                 </div>
-                            )}
+                                );
+                            })()}
 
                             {/* ── Gecachte Scrape / Impressum Webdaten ── */}
                             <div className="space-y-2">
