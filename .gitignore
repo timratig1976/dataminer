@@ -23,6 +23,9 @@ Homestead.yaml
 Thumbs.db
 
 # Additional DataMiner items
+/.next/
+/.turbo/
+/backend-laravel/
 /data/
 /cases/
 scrapling-service/.venv/
