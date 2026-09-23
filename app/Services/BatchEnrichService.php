@@ -69,8 +69,8 @@ class BatchEnrichService
         ];
         $contextParts[] = "## Bereits vorhandene Basisdaten (Quelle: " . ($hasExistingGmb ? "Google Maps Import" : "Tabelle") . "):\n" . implode("\n", array_filter($existingContext));
 
-        // 2. GMB Lookup: ONLY if allowMapsCrawl is enabled OR if critical data is missing and domain is completely unknown
-        if ($allowMapsCrawl || (!$domain && empty($existingPhone) && empty($existingAddress) && $companyName)) {
+        // 2. GMB Lookup: If allowMapsCrawl is enabled OR if critical data is missing (no domain OR no phone)
+        if ($allowMapsCrawl || ((!$domain || empty($existingPhone)) && $companyName)) {
             try {
                 $mapsQuery = trim("{$companyName} {$existingAddress} {$existingCity}");
                 $mapsPlaces = $this->mapsService->search($mapsQuery, limit: 1);
@@ -87,8 +87,11 @@ class BatchEnrichService
                     if (empty($existingPhone) && !empty($gmb['phone'])) {
                         $existingPhone = $gmb['phone'];
                     }
-                    if (empty($existingAddress) && !empty($gmb['address'])) {
+                    if (!empty($gmb['address'])) {
                         $existingAddress = $gmb['address'];
+                    }
+                    if (empty($existingRating) && !empty($gmb['rating'])) {
+                        $existingRating = (string) $gmb['rating'];
                     }
                     $contextParts[] = "## Google My Business Live-Lookup:\n" .
                         "- Name: " . ($gmb['name'] ?? $companyName) . "\n" .
