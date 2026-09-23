@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Link, usePage } from '@inertiajs/react';
 import { 
     LayoutDashboard, Database, Settings, Sliders, Zap, Sparkles, Users, User, DatabaseZap, BrainCircuit,
-    AlertTriangle, CheckCircle2, RefreshCw, Activity, ChevronLeft, ChevronRight, ShieldAlert, LogOut, PhoneCall
+    AlertTriangle, AlertCircle, CheckCircle2, RefreshCw, Activity, ChevronLeft, ChevronRight, ShieldAlert, LogOut, PhoneCall
 } from 'lucide-react';
 import { apiFetch } from '../api';
 
