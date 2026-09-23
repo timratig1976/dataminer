@@ -82,6 +82,7 @@ Route::middleware(['web', 'auth'])->group(function () {
     Route::middleware(['role:Super-Admin|Editor'])->group(function () {
         Route::post('/cases', [CaseController::class, 'store']);
         Route::patch('/cases/{id}', [CaseController::class, 'update']);
+        Route::post('/cases/{id}/stop', [CaseController::class, 'stopAll']);
 
         Route::post('/rows', [RowController::class, 'store']);
         Route::patch('/rows/{id}', [RowController::class, 'update']);

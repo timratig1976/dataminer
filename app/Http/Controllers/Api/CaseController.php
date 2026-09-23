@@ -148,4 +148,56 @@ class CaseController extends Controller
         $case->delete();
         return response()->json(['ok' => true]);
     }
+
+    /**
+     * Hard stop all background jobs, agent runs and enrichment tasks for a case.
+     * POST /api/cases/{id}/stop
+     */
+    public function stopAll(string $id): JsonResponse
+    {
+        $case = DataCase::find($id);
+        if (!$case) {
+            return response()->json(['error' => 'Case not found'], 404);
+        }
+
+        // 1. Cancel all running or pending Enrichment Jobs for this case
+        $stoppedJobsCount = \App\Models\EnrichmentJob::where('case_id', $case->id)
+            ->whereIn('status', ['running', 'queued', 'pending'])
+            ->update(['status' => 'cancelled']);
+
+        // 2. Cancel all active Agent Runs for this case
+        $stoppedAgentRunsCount = \App\Models\AgentRun::where('case_id', $case->id)
+            ->whereIn('status', ['running', 'queued', 'pending'])
+            ->update(['status' => 'cancelled']);
+
+        // 3. Reset any row cells stuck in 'running' back to 'idle'
+        $resetRowsCount = 0;
+        try {
+            $rows = \App\Models\Row::where('case_id', $case->id)->get();
+            foreach ($rows as $row) {
+                $statuses = $row->cell_statuses ?? [];
+                $modified = false;
+                foreach ($statuses as $colKey => $st) {
+                    if ($st === 'running') {
+                        $statuses[$colKey] = 'idle';
+                        $modified = true;
+                    }
+                }
+                if ($modified) {
+                    $row->update(['cell_statuses' => $statuses]);
+                    $resetRowsCount++;
+                }
+            }
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning("Resetting running cell statuses failed: " . $e->getMessage());
+        }
+
+        return response()->json([
+            'ok' => true,
+            'message' => 'Prozess für diesen Case sofort gestoppt.',
+            'stopped_jobs' => $stoppedJobsCount,
+            'stopped_agent_runs' => $stoppedAgentRunsCount,
+            'reset_rows' => $resetRowsCount,
+        ]);
+    }
 }
