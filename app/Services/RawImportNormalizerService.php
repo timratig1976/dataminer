@@ -11,8 +11,13 @@ use Illuminate\Support\Facades\Log;
 class RawImportNormalizerService
 {
     public function __construct(
-        protected EdenAiService $edenAi
-    ) {}
+        protected EdenAiService $edenAi,
+        protected ?ThreeCXService $threeCX = null
+    ) {
+        if (!$this->threeCX) {
+            $this->threeCX = app(ThreeCXService::class);
+        }
+    }
 
     /**
      * Deterministic schema detection based on sample raw_data keys.
@@ -120,55 +125,82 @@ class RawImportNormalizerService
         $contactFields = [];
         $extra = [];
 
+        // Helper: Check exact key match or clean key check (ignoring prefixes/suffixes like "Opt-In", "Bestellsperre", "Verantwortlicher")
         foreach ($rawData as $rawKey => $val) {
             if ($val === null || trim((string)$val) === '') continue;
             $val = trim((string)$val);
             $k = strtolower($rawKey);
 
-            // Company fields
-            if (str_contains($k, 'firma') || str_contains($k, 'unternehmensname') || str_contains($k, 'company_name') || $k === 'company' || $k === 'name' || $k === 'organisation') {
-                $companyFields['company_name'] = $val;
-            } elseif (str_contains($k, 'domain') || str_contains($k, 'website') || str_contains($k, 'web') || str_contains($k, 'url') || str_contains($k, 'homepage')) {
-                $companyFields['website'] = $val;
-            } elseif (str_contains($k, 'telefon') || str_contains($k, 'phone') || str_contains($k, 'tel')) {
-                if (str_contains($k, 'durchwahl') || str_contains($k, 'mobil') || str_contains($k, 'direct') || str_contains($k, 'handy')) {
-                    $contactFields['phone_direct'] = $val;
+            // Skip boolean / permission opt-in keys from being mistaken for contact/company fields
+            if (str_starts_with($k, 'opt-in') || str_contains($k, 'opt-in') || str_contains($k, 'sperre') || str_contains($k, 'verantwortlich') || str_contains($k, 'exporteur') || str_contains($k, 'art (')) {
+                $extra[$rawKey] = $val;
+                continue;
+            }
+
+            // 1. Contact Person specific fields (e.g. "Ansprechpartner-Vorname", "Ansprechpartner-Nachname")
+            if (str_contains($k, 'ansprechpartner') || str_contains($k, 'kontaktadresse') || str_contains($k, 'kontakt')) {
+                if (str_contains($k, 'vorname') && !isset($contactFields['first_name'])) {
+                    $contactFields['first_name'] = $val;
+                } elseif (str_contains($k, 'nachname') && !isset($contactFields['last_name'])) {
+                    $contactFields['last_name'] = $val;
+                } elseif (str_contains($k, 'titel') && !isset($contactFields['title'])) {
+                    $contactFields['title'] = $val;
+                } elseif (str_contains($k, 'anrede') && !isset($contactFields['salutation'])) {
+                    $contactFields['salutation'] = $val;
+                } elseif (str_contains($k, 'telefon') || str_contains($k, 'mobil')) {
+                    if (str_contains($k, 'mobil')) {
+                        $contactFields['mobile'] = $val;
+                    } else {
+                        $contactFields['phone_direct'] = $val;
+                    }
+                } elseif (str_contains($k, 'mail') || str_contains($k, 'email')) {
+                    $contactFields['email'] = $val;
+                } elseif ($k === 'ansprechpartner' || $k === 'kontakt') {
+                    $parts = explode(' ', $val, 2);
+                    if (empty($contactFields['first_name'])) $contactFields['first_name'] = $parts[0] ?? '';
+                    if (empty($contactFields['last_name'])) $contactFields['last_name'] = $parts[1] ?? '';
                 } else {
-                    $companyFields['phone'] = $val;
+                    $extra[$rawKey] = $val;
                 }
-            } elseif (str_contains($k, 'plz') || str_contains($k, 'zip') || str_contains($k, 'postleitzahl')) {
+                continue;
+            }
+
+            // 2. Company fields
+            if ($k === 'firma' || $k === 'company' || $k === 'firmenname' || $k === 'unternehmensname' || $k === 'company_name') {
+                $companyFields['company_name'] = $val;
+            } elseif ($k === 'firma-zusatz' || $k === 'firma zusatz') {
+                $companyFields['company_name_addon'] = $val;
+            } elseif ($k === 'website' || $k === 'domain' || $k === 'web' || $k === 'url' || $k === 'homepage') {
+                $companyFields['website'] = $val;
+            } elseif ($k === 'telefon' || $k === 'phone' || $k === 'tel' || $k === 'zentrale') {
+                $companyFields['phone'] = $val;
+            } elseif ($k === 'telefax' || $k === 'fax') {
+                $companyFields['fax'] = $val;
+            } elseif ($k === 'plz' || $k === 'postleitzahl' || $k === 'zip') {
                 $companyFields['zip'] = $val;
-            } elseif (str_contains($k, 'stadt') || str_contains($k, 'ort') || str_contains($k, 'city')) {
+            } elseif ($k === 'stadt' || $k === 'ort' || $k === 'city') {
                 $companyFields['city'] = $val;
-            } elseif (str_contains($k, 'land') || str_contains($k, 'country')) {
+            } elseif ($k === 'land' || $k === 'country') {
                 $companyFields['country'] = $val;
-            } elseif (str_contains($k, 'strasse') || str_contains($k, 'straße') || str_contains($k, 'address') || str_contains($k, 'adresse')) {
+            } elseif ($k === 'strasse' || $k === 'straße' || $k === 'address' || $k === 'adresse') {
                 $companyFields['address'] = $val;
-            } elseif (str_contains($k, 'branche') || str_contains($k, 'industry') || str_contains($k, 'kategorie') || str_contains($k, 'sector')) {
+            } elseif ($k === 'branche' || $k === 'industry' || $k === 'kategorie' || $k === 'sector') {
                 $companyFields['industry'] = $val;
-            } elseif (str_contains($k, 'beschreibung') || str_contains($k, 'description')) {
+            } elseif ($k === 'beschreibung' || $k === 'description') {
                 $companyFields['description'] = $val;
-            // Contact fields
-            } elseif (str_contains($k, 'anrede') || str_contains($k, 'salutation')) {
+            } elseif ($k === 'e-mail' || $k === 'email' || $k === 'mail') {
+                $companyFields['email'] = $val;
+            // General contact fields if not already filled
+            } elseif ($k === 'anrede' || $k === 'salutation') {
                 $contactFields['salutation'] = $val;
-            } elseif (str_contains($k, 'vorname') || str_contains($k, 'first_name') || str_contains($k, 'firstname')) {
+            } elseif ($k === 'vorname' || $k === 'first_name') {
                 $contactFields['first_name'] = $val;
-            } elseif (str_contains($k, 'nachname') || str_contains($k, 'last_name') || str_contains($k, 'lastname')) {
+            } elseif ($k === 'nachname' || $k === 'last_name') {
                 $contactFields['last_name'] = $val;
-            } elseif (str_contains($k, 'ansprechpartner') || str_contains($k, 'kontakt') || str_contains($k, 'contact_name') || str_contains($k, 'person')) {
-                $parts = explode(' ', $val, 2);
-                $contactFields['first_name'] = $parts[0] ?? '';
-                $contactFields['last_name'] = $parts[1] ?? '';
-            } elseif (str_contains($k, 'position') || str_contains($k, 'rolle') || str_contains($k, 'funktion') || str_contains($k, 'job') || str_contains($k, 'titel')) {
+            } elseif ($k === 'position' || $k === 'funktion' || $k === 'rolle' || $k === 'job') {
                 $contactFields['position'] = $val;
             } elseif (str_contains($k, 'linkedin')) {
                 $contactFields['linkedin'] = $val;
-            } elseif (str_contains($k, 'mail') || str_contains($k, 'email')) {
-                if (str_contains($k, 'info') || str_contains($k, 'company') || str_contains($k, 'zentral') || str_contains($k, 'office')) {
-                    $companyFields['email'] = $val;
-                } else {
-                    $contactFields['email'] = $val;
-                }
             } else {
                 $extra[$rawKey] = $val;
             }
@@ -191,6 +223,20 @@ class RawImportNormalizerService
             $companyFields['domain'] = $detectedDomain;
         }
 
+        // Auto-Format phone numbers to E.164 if parseable
+        if (!empty($companyFields['phone'])) {
+            $e164 = $this->threeCX?->toE164($companyFields['phone'], 'DE');
+            if ($e164) {
+                $companyFields['phone_e164'] = $e164;
+            }
+        }
+        if (!empty($contactFields['phone_direct'])) {
+            $e164 = $this->threeCX?->toE164($contactFields['phone_direct'], 'DE');
+            if ($e164) {
+                $contactFields['phone_direct_e164'] = $e164;
+            }
+        }
+
         $hasComp = !empty($companyFields);
         $hasCont = !empty($contactFields);
         $confidence = ($hasComp && $hasCont) ? 0.90 : (($hasComp || $hasCont) ? 0.75 : 0.40);
@@ -200,7 +246,7 @@ class RawImportNormalizerService
             'contact_fields' => $contactFields,
             'extra' => $extra,
             'confidence' => $confidence,
-            'notes' => 'Company-First Pipeline angewendet (Brand/Domain/Contact isoliert)',
+            'notes' => 'Company-First Pipeline angewendet (Brand/Domain/Contact/E.164 isoliert)',
         ];
     }
 
@@ -221,6 +267,10 @@ class RawImportNormalizerService
         ?string $promptId = null
     ): void {
         $batch->update(['status' => 'normalizing']);
+        $batch->appendLog('INFO', "Normalisierung gestartet ({$samplePercent}% Umfang)", [
+            'sample_percent' => $samplePercent,
+            'has_api_key' => !empty($apiKey),
+        ]);
 
         $query = RawImport::where('import_batch_id', $batch->id)
             ->whereIn('status', ['pending', 'error'])
@@ -229,6 +279,7 @@ class RawImportNormalizerService
         $totalPending = $query->count();
         if ($totalPending === 0) {
             $batch->update(['status' => 'normalized']);
+            $batch->appendLog('INFO', 'Keine ausstehenden Zeilen mehr zu normalisieren.');
             return;
         }
 
@@ -243,6 +294,7 @@ class RawImportNormalizerService
             $sampleData = $rowsToProcess->take(15)->pluck('raw_data')->toArray();
             $detectedSchema = $this->detectSchemaType($sampleData);
             $batch->update(['schema_type' => $detectedSchema]);
+            $batch->appendLog('INFO', "Schema-Typ automatisch erkannt: {$detectedSchema}");
         }
         $schemaType = $batch->schema_type ?? 'mixed';
 
@@ -255,16 +307,34 @@ class RawImportNormalizerService
             $promptModel = NormalizationPrompt::activeFor($schemaType)->first();
         }
 
-        $chunkSize = $promptModel?->max_rows_per_chunk ?? 10;
-        $chunks = $rowsToProcess->chunk($chunkSize);
+        if ($promptModel) {
+            $batch->appendLog('INFO', "Verwende Normalisierungs-Prompt: '{$promptModel->name}' (v{$promptModel->version}) mit Modell {$promptModel->model}");
+        }
 
-        foreach ($chunks as $chunk) {
+        // Process in paginated cursor chunks to keep RAM footprint low (< 64MB)
+        $chunkSize = $promptModel?->max_rows_per_chunk ?? 10;
+        $totalChunks = (int) ceil($limit / $chunkSize);
+        $chunkIndex = 1;
+        $processedRows = 0;
+
+        $query->limit($limit)->chunkById($chunkSize, function ($chunk) use (
+            $apiKey, $region, $schemaType, $promptModel, $batch, $totalPending, $totalChunks, &$chunkIndex, &$processedRows
+        ) {
             if (!empty($apiKey)) {
                 try {
                     $this->normalizeChunkWithLlm($chunk, $schemaType, $apiKey, $region, $promptModel);
-                    continue;
+                    $processedRows += $chunk->count();
+                    $batch->update(['normalized_rows' => $processedRows]);
+                    if ($chunkIndex % 5 === 0 || $chunkIndex === $totalChunks) {
+                        $batch->appendLog('SUCCESS', "Chunk {$chunkIndex}/{$totalChunks} ({$processedRows}/{$totalPending} Zeilen) via KI ({$promptModel?->model}) normalisiert.");
+                    }
+                    $chunkIndex++;
+                    return;
                 } catch (Exception $e) {
                     Log::warning("LLM Normalization failed for batch {$batch->id}, falling back to rule-based: " . $e->getMessage());
+                    $batch->appendLog('WARN', "KI-Chunk {$chunkIndex} fehlgeschlagen, wechsle auf deterministisches Regel-Mapping", [
+                        'error' => $e->getMessage(),
+                    ]);
                 }
             }
 
@@ -279,7 +349,13 @@ class RawImportNormalizerService
                     'schema_type' => $schemaType,
                 ]);
             }
-        }
+            $processedRows += $chunk->count();
+            $batch->update(['normalized_rows' => $processedRows]);
+            if ($chunkIndex % 25 === 0 || $chunkIndex === $totalChunks) {
+                $batch->appendLog('INFO', "Chunk {$chunkIndex}/{$totalChunks} ({$processedRows}/{$totalPending} Zeilen) verarbeitet.");
+            }
+            $chunkIndex++;
+        });
 
         $normalizedCount = RawImport::where('import_batch_id', $batch->id)
             ->where('status', 'normalized')
@@ -289,6 +365,8 @@ class RawImportNormalizerService
             'normalized_rows' => $normalizedCount,
             'status' => ($normalizedCount >= $batch->total_rows) ? 'normalized' : 'pending',
         ]);
+
+        $batch->appendLog('SUCCESS', "Lauf abgeschlossen: {$normalizedCount} von {$batch->total_rows} Zeilen normalisiert.");
     }
 
     protected function normalizeChunkWithLlm(

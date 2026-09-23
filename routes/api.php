@@ -116,6 +116,9 @@ Route::middleware(['web', 'auth'])->group(function () {
         Route::post('/raw-imports', [RawImportController::class, 'store']);
         Route::post('/import/raw', [RawImportController::class, 'store']); // Alias as specified in plan
         Route::post('/raw-imports/{batchId}/normalize', [RawImportController::class, 'normalize']);
+        Route::get('/raw-imports/{batchId}/logs', [RawImportController::class, 'logs']);
+        Route::post('/raw-imports/{batchId}/ai-column', [RawImportController::class, 'addAiColumn']);
+        Route::post('/raw-imports/{batchId}/format-e164', [RawImportController::class, 'formatColumnE164']);
         Route::post('/raw-imports/{batchId}/promote', [RawImportController::class, 'promote']);
         Route::post('/raw-imports/{batchId}/rollback', [RawImportController::class, 'rollback']);
         Route::patch('/raw-imports/rows/{rowId}', [RawImportController::class, 'updateRow']);

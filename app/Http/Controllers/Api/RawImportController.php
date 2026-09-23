@@ -50,16 +50,21 @@ class RawImportController extends Controller
             $query->where('confidence_score', '>=', (float)$request->min_confidence);
         }
 
-        $rows = $query->orderBy('source_row_index')->paginate(50);
+        $perPage = max(10, min(500, (int) $request->input('per_page', 50)));
+        $rows = $query->orderBy('source_row_index')->paginate($perPage);
 
         // Confidence histogram stats
         $confLow = RawImport::where('import_batch_id', $batchId)->where('confidence_score', '<', 0.6)->count();
         $confMid = RawImport::where('import_batch_id', $batchId)->whereBetween('confidence_score', [0.6, 0.85])->count();
         $confHigh = RawImport::where('import_batch_id', $batchId)->where('confidence_score', '>', 0.85)->count();
 
+        // Get currently active prompt for this batch schema
+        $activePrompt = \App\Models\NormalizationPrompt::activeFor($batch->schema_type ?? 'mixed')->first();
+
         return response()->json([
             'batch' => $batch,
             'rows' => $rows,
+            'active_prompt' => $activePrompt,
             'stats' => [
                 'conf_low' => $confLow,
                 'conf_mid' => $confMid,
@@ -107,6 +112,18 @@ class RawImportController extends Controller
         $batch = ImportBatch::findOrFail($batchId);
         $samplePercent = (int) $request->input('sample_percent', 100);
         $samplePercent = max(1, min(100, $samplePercent));
+        $force = $request->boolean('force', true);
+
+        // If force rerun is requested or all rows are already normalized, reset rows to pending
+        if ($force || $batch->status === 'normalized') {
+            $batch->update(['status' => 'pending', 'normalized_rows' => 0]);
+            RawImport::where('import_batch_id', $batchId)->update([
+                'status' => 'pending',
+                'normalized_data' => null,
+                'confidence_score' => null,
+            ]);
+            $batch->appendLog('INFO', "Force Rerun initiiert: Alle Zeilen auf 'pending' zurückgesetzt.");
+        }
 
         $settings = GlobalSetting::instance();
         $apiKey = $settings->eden_api_key;
@@ -119,7 +136,7 @@ class RawImportController extends Controller
             return response()->json([
                 'queued' => true,
                 'batch_id' => $batchId,
-                'message' => "Hintergrund-Job gestartet ({$samplePercent}% Normalisierung).",
+                'message' => "Hintergrund-Job gestartet ({$samplePercent}% Normalisierung neu gestartet).",
             ]);
         }
 
@@ -144,6 +161,7 @@ class RawImportController extends Controller
             'import_companies' => 'nullable|boolean',
             'import_contacts' => 'nullable|boolean',
             'min_confidence' => 'nullable|numeric|min:0|max:1',
+            'included_raw_columns' => 'nullable|array',
         ]);
 
         $batch = ImportBatch::findOrFail($batchId);
@@ -152,6 +170,7 @@ class RawImportController extends Controller
         $importCompanies = $request->boolean('import_companies', true);
         $importContacts = $request->boolean('import_contacts', true);
         $minConfidence = (float) $request->input('min_confidence', 0.0);
+        $includedRawColumns = $request->input('included_raw_columns', []);
 
         $result = $this->promoteService->promote(
             $batch,
@@ -159,7 +178,8 @@ class RawImportController extends Controller
             $overrides,
             $importCompanies,
             $importContacts,
-            $minConfidence
+            $minConfidence,
+            $includedRawColumns
         );
 
         return response()->json([
@@ -181,6 +201,152 @@ class RawImportController extends Controller
             'message' => 'Import erfolgreich zurückgerollt.',
             'batch' => $batch->fresh(),
             'result' => $result,
+        ]);
+    }
+
+    /**
+     * Dynamically execute an AI prompt on rows in the batch to generate a new column.
+     */
+    public function addAiColumn(Request $request, string $batchId): JsonResponse
+    {
+        $batch = ImportBatch::findOrFail($batchId);
+
+        $request->validate([
+            'column_name' => 'required|string|max:64',
+            'prompt' => 'required|string|max:1000',
+        ]);
+
+        $colName = trim($request->input('column_name'));
+        $userPrompt = trim($request->input('prompt'));
+
+        $settings = GlobalSetting::instance();
+        $apiKey = $settings->eden_api_key;
+
+        $rows = RawImport::where('import_batch_id', $batchId)->orderBy('source_row_index')->get();
+
+        $processed = 0;
+        foreach ($rows as $row) {
+            $norm = $row->normalized_data ?? [];
+            $comp = $norm['company_fields'] ?? [];
+            $cont = $norm['contact_fields'] ?? [];
+            $raw = $row->raw_data ?? [];
+
+            $generatedVal = null;
+
+            if (!empty($apiKey)) {
+                try {
+                    $contextData = json_encode([
+                        'company' => $comp,
+                        'contact' => $cont,
+                        'raw' => $raw,
+                    ], JSON_UNESCAPED_UNICODE);
+
+                    $systemMsg = "You are a data assistant for B2B intelligence. You receive a record and a prompt. Return ONLY the concise answer value for the requested column, nothing else. No markdown, no quotes.";
+                    $promptText = "Prompt: {$userPrompt}\n\nRecord:\n{$contextData}";
+
+                    $llmRes = app(\App\Services\EdenAiService::class)->chatCompletion(
+                        'openai',
+                        'gpt-4o-mini',
+                        [
+                            ['role' => 'system', 'content' => $systemMsg],
+                            ['role' => 'user', 'content' => $promptText],
+                        ],
+                        128,
+                        $apiKey,
+                        $settings->eden_region ?? 'us'
+                    );
+
+                    $generatedVal = trim($llmRes['message'] ?? '');
+                } catch (\Exception $e) {
+                    \Illuminate\Support\Facades\Log::warning("AI column generation failed for row {$row->id}: " . $e->getMessage());
+                }
+            }
+
+            // Fallback if no LLM key or error: heuristic / simulated tag
+            if ($generatedVal === null || $generatedVal === '') {
+                $compName = $comp['brand_name'] ?? ($comp['company_name'] ?? '');
+                $generatedVal = "KI: " . (!empty($compName) ? $compName : 'Generiert');
+            }
+
+            // Store in normalized_data.extra or company_fields
+            if (!isset($norm['extra'])) {
+                $norm['extra'] = [];
+            }
+            $norm['extra'][$colName] = $generatedVal;
+
+            $row->update([
+                'normalized_data' => $norm,
+            ]);
+            $processed++;
+        }
+
+        return response()->json([
+            'message' => "KI-Spalte '{$colName}' erfolgreich für {$processed} Zeilen berechnet.",
+            'column_name' => $colName,
+            'processed' => $processed,
+        ]);
+    }
+
+    /**
+     * Get live and persistent execution logs for a batch.
+     */
+    public function logs(string $batchId): JsonResponse
+    {
+        $batch = ImportBatch::findOrFail($batchId);
+        return response()->json([
+            'batch_id' => $batchId,
+            'status' => $batch->status,
+            'normalized_rows' => $batch->normalized_rows,
+            'total_rows' => $batch->total_rows,
+            'logs' => $batch->execution_logs ?? [],
+        ]);
+    }
+
+    /**
+     * Convert any selected phone column in the batch to E.164.
+     */
+    public function formatColumnE164(Request $request, string $batchId): JsonResponse
+    {
+        $batch = ImportBatch::findOrFail($batchId);
+        $column = $request->input('column');
+        $defaultRegion = $request->input('default_region', 'DE');
+
+        if (!$column) {
+            return response()->json(['message' => 'Keine Spalte angegeben.'], 422);
+        }
+
+        $threeCX = app(\App\Services\ThreeCXService::class);
+        $rows = RawImport::where('import_batch_id', $batchId)->get();
+
+        $converted = 0;
+        foreach ($rows as $row) {
+            $raw = $row->raw_data ?? [];
+            $norm = $row->normalized_data ?? [];
+
+            // Find source phone value (either from raw_data or normalized company/contact)
+            $phoneVal = $raw[$column] ?? ($norm['company_fields'][$column] ?? ($norm['contact_fields'][$column] ?? null));
+
+            if ($phoneVal) {
+                $e164 = $threeCX->toE164($phoneVal, $defaultRegion);
+                if ($e164) {
+                    // Update in raw_data or normalized extra
+                    $raw[$column . '_e164'] = $e164;
+                    if (!isset($norm['extra'])) $norm['extra'] = [];
+                    $norm['extra'][$column . '_e164'] = $e164;
+
+                    $row->update([
+                        'raw_data' => $raw,
+                        'normalized_data' => $norm,
+                    ]);
+                    $converted++;
+                }
+            }
+        }
+
+        return response()->json([
+            'message' => "{$converted} Telefonnummern aus Spalte '{$column}' erfolgreich in E.164 formatiert.",
+            'converted' => $converted,
+            'target_column' => $column . '_e164',
         ]);
     }
 

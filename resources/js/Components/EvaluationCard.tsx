@@ -68,7 +68,7 @@ export default function EvaluationCard({
     <div className="bg-white border border-gray-200/90 rounded-xl shadow-xs overflow-hidden">
       <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
         <div className="flex items-center gap-2">
-          <span className="p-1.5 bg-amber-100 text-amber-700 rounded-md">
+          <span className="p-1.5 bg-gray-100 text-gray-700 rounded-md">
             <Sparkles className="w-4 h-4" />
           </span>
           <div>
@@ -80,23 +80,6 @@ export default function EvaluationCard({
               {run.duration_ms && ` • Dauer: ${(run.duration_ms / 1000).toFixed(1)}s`}
             </p>
           </div>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <button
-            onClick={onOpenPromptEditor}
-            className="px-2.5 py-1 text-xs text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-md transition-colors"
-          >
-            Prompt anpassen
-          </button>
-          <button
-            onClick={onRunFullNormalize}
-            disabled={fullNormalizeLoading}
-            className="flex items-center gap-1 px-3 py-1 text-xs font-medium text-white bg-amber-600 hover:bg-amber-700 rounded-md shadow-xs transition-colors disabled:opacity-50"
-          >
-            <span>{fullNormalizeLoading ? 'Läuft…' : 'Alle 100% normalisieren'}</span>
-            <ArrowRight className="w-3.5 h-3.5" />
-          </button>
         </div>
       </div>
 

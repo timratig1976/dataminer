@@ -15,7 +15,7 @@ class NormalizeBatchJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    public int $timeout = 600;
+    public int $timeout = 7200; // 2 hours max for huge 100k batches
     public int $tries = 2;
 
     public function __construct(

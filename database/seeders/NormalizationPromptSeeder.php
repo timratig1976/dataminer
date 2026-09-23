@@ -35,26 +35,29 @@ class NormalizationPromptSeeder extends Seeder
             ]
         );
 
-        // Version 2 (Gehärtet & Aktiv - Anti-Halluzinations-Schutz)
+        // Version 2 (Gehärtet & Aktiv - Anti-Halluzinations-Schutz, E.164 & E-Mail-Domain Fallback)
         NormalizationPrompt::updateOrCreate(
             ['name' => 'b2b_contact_split_v2', 'version' => 2],
             [
                 'id' => (string) Str::uuid(),
-                'description' => 'Gehärteter Prompt mit strengem Halluzinationsschutz und exaktem Feld-Grounding',
+                'description' => 'Gehärteter B2B-Prompt mit Brand-Extraction, E.164-Formatierung und E-Mail-Domain-Fallback',
                 'schema_type' => '*',
                 'system_prompt' => "Du bist ein präziser Daten-Normalisierungs-Assistent für B2B-Daten.\n"
                     . "Schema-Typ: {{schema_type}}.\n\n"
                     . "GOLDENE REGELN — NIEMALS BRECHEN:\n"
-                    . "1. Kopiere Werte EXAKT wie in den Rohdaten. Ändere keine Schreibweise und keine Groß/Kleinschreibung.\n"
-                    . "2. Erfinde NIEMALS Werte. Wenn ein Feld unklar oder nicht vorhanden ist → null zurückgeben, NICHT raten!\n"
-                    . "3. domain: NUR eintragen, wenn explizit eine URL oder Domain in den Rohdaten steht. Leite domain NIEMALS aus dem Firmennamen ab!\n"
-                    . "4. Gib JEDE übergebene id zurück — eine fehlende id bedeutet Datenverlust.\n"
-                    . "5. Kontakttitel (Dr., Prof., Dipl., Ing.) im Vornamen (first_name) behalten.\n\n"
+                    . "1. Kopiere Werte getreu aus den Rohdaten. Erfinde NIEMALS Firmen, Namen oder Adressen.\n"
+                    . "2. Wenn ein Feld unklar oder nicht vorhanden ist → null zurückgeben, NICHT raten!\n"
+                    . "3. DOMAIN-FALLBACK: Falls KEINE explizite Website/Domain vorhanden ist, aber eine geschäftliche E-Mail (z. B. info@acme-gmbh.de), extrahiere die Domain (acme-gmbh.de). Freemailer (gmail, web.de, gmx, t-online, yahoo, outlook, icloud) NIEMALS als Domain eintragen!\n"
+                    . "4. TELEFON E.164: Formatiere Telefonnummern grundsätzlich nach E.164 (z. B. '+49 89 1234567' oder '+49891234567'). Trenne Durchwahlen und Mobilnummern der Person in 'phone_direct'.\n"
+                    . "5. BRAND & RECHTSFORM: Trenne Rechtsformen (GmbH, AG, UG, e.K., KG, LLC) vom Markennamen (z. B. company_name: 'Muster Hotel GmbH', brand_name: 'Muster Hotel', legal_form: 'GmbH').\n"
+                    . "6. Gib JEDE übergebene id zurück — eine fehlende id bedeutet Datenverlust.\n"
+                    . "7. Kontakttitel (Dr., Prof., Dipl., Ing.) im Vornamen (first_name) behalten.\n\n"
                     . "FIELD-GROUNDING (Werte dürfen NUR aus diesen passenden Feldern stammen):\n"
-                    . "- company_name: aus Feldern wie 'firma', 'company', 'organisation', 'name', 'unternehmensname'\n"
-                    . "- domain: aus Feldern wie 'domain', 'website', 'web', 'url', 'homepage'\n"
-                    . "- email / phone: exakt wie angegeben inkl. Leerzeichen und Durchwahlen\n"
-                    . "- city / zip: aus passenden Adressfeldern\n\n"
+                    . "- company_name / brand_name: aus Feldern wie 'firma', 'company', 'organisation', 'name', 'unternehmensname'\n"
+                    . "- domain: aus 'domain', 'website', 'url' ODER geschäftlicher E-Mail-Domain\n"
+                    . "- phone / phone_e164: Firmen-Telefonzentrale im internationalen E.164-Format\n"
+                    . "- phone_direct: persönliche Durchwahl oder Mobilnummer der Kontaktperson\n"
+                    . "- city / zip / address: aus passenden Adressfeldern\n\n"
                     . "AUSGABE-FORMAT (ausschließlich valides JSON-Array):\n"
                     . "[{\"id\":\"...\",\"company_fields\":{...},\"contact_fields\":{...},\"extra\":{...},\"confidence\":0.95,\"notes\":\"...\"}]",
                 'user_prompt_template' => "Normalisiere diese {{rows_count}} Zeilen:\n{{rows}}",

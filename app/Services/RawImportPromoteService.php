@@ -28,7 +28,8 @@ class RawImportPromoteService
         array $columnOverrides = [],
         bool $importCompanies = true,
         bool $importContacts = true,
-        float $minConfidence = 0.0
+        float $minConfidence = 0.0,
+        array $includedRawColumns = []
     ): array {
         $case = DataCase::findOrFail($caseId);
 
@@ -58,6 +59,7 @@ class RawImportPromoteService
             $norm = $rawRow->normalized_data ?? [];
             $compData = $norm['company_fields'] ?? [];
             $contData = $norm['contact_fields'] ?? [];
+            $raw = $rawRow->raw_data ?? [];
 
             // Apply overrides if provided
             foreach ($columnOverrides as $target => $sourceVal) {
@@ -65,10 +67,26 @@ class RawImportPromoteService
                 if (isset($contData[$target])) $contData[$target] = $sourceVal;
             }
 
+            // Include explicit raw columns requested by user
+            $selectedRawData = [];
+            if (!empty($includedRawColumns)) {
+                foreach ($includedRawColumns as $colKey) {
+                    if (isset($raw[$colKey])) {
+                        $selectedRawData[$colKey] = $raw[$colKey];
+                    }
+                }
+            } else {
+                // Default: Include all extra columns from normalization
+                $selectedRawData = $norm['extra'] ?? [];
+            }
+
             $companyRowId = null;
 
             // 1. Create Company Row if we have company data
             if ($importCompanies && !empty($compData)) {
+                // Merge extra AI columns & selected raw data into company row
+                $finalCompData = array_merge($compData, $selectedRawData);
+
                 $dedupeKey = !empty($compData['domain']) ? strtolower($compData['domain']) : (!empty($compData['company_name']) ? strtolower($compData['company_name']) : null);
 
                 if ($dedupeKey && isset($companyCache[$dedupeKey])) {
@@ -79,7 +97,7 @@ class RawImportPromoteService
                         'id' => $companyRowId,
                         'case_id' => $caseId,
                         'row_index' => $currentRowIndex++,
-                        'data' => $compData,
+                        'data' => $finalCompData,
                         'cell_statuses' => [],
                         'cell_errors' => [],
                         'import_batch_id' => $batch->id,

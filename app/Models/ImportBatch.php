@@ -21,7 +21,28 @@ class ImportBatch extends Model
         'normalized_rows',
         'promoted_rows',
         'schema_type',
+        'execution_logs',
     ];
+
+    protected $casts = [
+        'execution_logs' => 'array',
+    ];
+
+    public function appendLog(string $level, string $message, array $context = []): void
+    {
+        $logs = $this->execution_logs ?? [];
+        $logs[] = [
+            'timestamp' => now()->toIso8601String(),
+            'level' => strtoupper($level), // INFO, WARN, ERROR, SUCCESS
+            'message' => $message,
+            'context' => $context,
+        ];
+        // Keep last 300 log entries
+        if (count($logs) > 300) {
+            $logs = array_slice($logs, -300);
+        }
+        $this->update(['execution_logs' => $logs]);
+    }
 
     protected static function booted(): void
     {
