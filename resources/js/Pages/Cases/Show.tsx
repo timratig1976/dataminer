@@ -2520,33 +2520,93 @@ export default function CaseShow({ case: c }: Props) {
                             </button>
                         </div>
 
-                        <div className="flex-1 overflow-y-auto p-4 space-y-3">
-                            {cacheModalLoading ? (
-                                <div className="p-12 text-center text-xs text-slate-400 flex items-center justify-center gap-2">
-                                    <RefreshCw className="w-4 h-4 animate-spin text-emerald-600" />
-                                    Lade PostgreSQL Cache-Einträge…
-                                </div>
-                            ) : cacheModalEntries.length === 0 ? (
-                                <div className="p-8 text-center text-xs rounded-lg bg-slate-50 border text-slate-500" style={{ borderColor: 'var(--border-xs)' }}>
-                                    Kein direkter PostgreSQL-Cache-Eintrag für diese Domain gefunden.
-                                </div>
-                            ) : (
-                                cacheModalEntries.map((entry, idx) => (
-                                    <div key={idx} className="border rounded-lg overflow-hidden shadow-xs" style={{ borderColor: 'var(--border)' }}>
-                                        <div className="p-2.5 bg-slate-50 border-b flex items-center justify-between text-xs" style={{ borderColor: 'var(--border-xs)' }}>
-                                            <div className="font-mono text-[11px] truncate flex-1 pr-2" style={{ color: 'var(--text-1)' }}>
-                                                🔗 {entry.url}
-                                            </div>
-                                            <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full shrink-0">
-                                                ⚡ $0 Re-use (Gecacht: {new Date(entry.fetchedAt).toLocaleDateString('de-DE')})
+                        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                            {/* ── GMB Vorhandene Daten (falls vorhanden) ── */}
+                            {(cacheModalRow.data['Quelle'] === 'Google Maps' || cacheModalRow.data['maps_url'] || cacheModalRow.data['maps_rating'] || cacheModalRow.data['Adresse']) && (
+                                <div className="border border-amber-200 bg-amber-50/50 rounded-xl p-3.5 space-y-2.5">
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-2">
+                                            <span className="text-base">📍</span>
+                                            <span className="font-bold text-xs text-amber-900">Google Maps / GMB Daten (aus Discovery)</span>
+                                            <span className="text-[10px] bg-amber-100 text-amber-800 font-semibold px-2 py-0.5 rounded-full border border-amber-200">
+                                                gmb:existing
                                             </span>
                                         </div>
-                                        <div className="p-3 bg-white text-[11px] font-mono leading-relaxed overflow-y-auto max-h-56 whitespace-pre-wrap select-text text-slate-700">
-                                            {entry.markdown}
+                                        {cacheModalRow.data['maps_url'] && (
+                                            <a 
+                                                href={cacheModalRow.data['maps_url']} 
+                                                target="_blank" 
+                                                rel="noreferrer"
+                                                className="text-[11px] text-amber-800 hover:text-amber-950 font-semibold underline flex items-center gap-1"
+                                            >
+                                                Auf Maps öffnen ↗
+                                            </a>
+                                        )}
+                                    </div>
+
+                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs pt-1">
+                                        <div className="p-2 bg-white rounded-lg border border-amber-200/70">
+                                            <div className="text-[10px] text-slate-400 font-semibold uppercase">Name / Titel</div>
+                                            <div className="font-semibold text-slate-800 truncate" title={cacheModalRow.data['Unternehmen'] || cacheModalRow.data['company_name']}>
+                                                {cacheModalRow.data['Unternehmen'] || cacheModalRow.data['company_name'] || '—'}
+                                            </div>
+                                        </div>
+                                        <div className="p-2 bg-white rounded-lg border border-amber-200/70">
+                                            <div className="text-[10px] text-slate-400 font-semibold uppercase">Adresse (GMB)</div>
+                                            <div className="font-semibold text-slate-800 truncate" title={cacheModalRow.data['Adresse'] || cacheModalRow.data['address']}>
+                                                {cacheModalRow.data['Adresse'] || cacheModalRow.data['address'] || '—'}
+                                            </div>
+                                        </div>
+                                        <div className="p-2 bg-white rounded-lg border border-amber-200/70">
+                                            <div className="text-[10px] text-slate-400 font-semibold uppercase">Telefon</div>
+                                            <div className="font-semibold text-slate-800 truncate">
+                                                {cacheModalRow.data['phone'] || '—'}
+                                            </div>
+                                        </div>
+                                        <div className="p-2 bg-white rounded-lg border border-amber-200/70">
+                                            <div className="text-[10px] text-slate-400 font-semibold uppercase">Bewertung & Typ</div>
+                                            <div className="font-semibold text-slate-800 truncate">
+                                                ⭐ {cacheModalRow.data['maps_rating'] || cacheModalRow.data['Bewertung'] || '—'} · {cacheModalRow.data['Kategorie'] || cacheModalRow.data['category'] || 'Ort'}
+                                            </div>
                                         </div>
                                     </div>
-                                ))
+                                </div>
                             )}
+
+                            {/* ── Gecachte Scrape / Impressum Webdaten ── */}
+                            <div className="space-y-2">
+                                <div className="text-xs font-bold uppercase tracking-wider text-slate-600 flex items-center gap-1.5">
+                                    <span>🌐</span>
+                                    <span>Gecachte Web-Scrapes & Impressum (PostgreSQL scrape_cache)</span>
+                                </div>
+
+                                {cacheModalLoading ? (
+                                    <div className="p-12 text-center text-xs text-slate-400 flex items-center justify-center gap-2">
+                                        <RefreshCw className="w-4 h-4 animate-spin text-emerald-600" />
+                                        Lade PostgreSQL Cache-Einträge…
+                                    </div>
+                                ) : cacheModalEntries.length === 0 ? (
+                                    <div className="p-6 text-center text-xs rounded-lg bg-slate-50 border text-slate-500" style={{ borderColor: 'var(--border-xs)' }}>
+                                        Keine gecachten Web-Scrapes für diese Domain im Cache vorhanden.
+                                    </div>
+                                ) : (
+                                    cacheModalEntries.map((entry, idx) => (
+                                        <div key={idx} className="border rounded-lg overflow-hidden shadow-xs" style={{ borderColor: 'var(--border)' }}>
+                                            <div className="p-2.5 bg-slate-50 border-b flex items-center justify-between text-xs" style={{ borderColor: 'var(--border-xs)' }}>
+                                                <div className="font-mono text-[11px] truncate flex-1 pr-2" style={{ color: 'var(--text-1)' }}>
+                                                    🔗 {entry.url}
+                                                </div>
+                                                <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full shrink-0">
+                                                    ⚡ $0 Re-use (Gecacht: {new Date(entry.fetchedAt).toLocaleDateString('de-DE')})
+                                                </span>
+                                            </div>
+                                            <div className="p-3 bg-white text-[11px] font-mono leading-relaxed overflow-y-auto max-h-56 whitespace-pre-wrap select-text text-slate-700">
+                                                {entry.markdown}
+                                            </div>
+                                        </div>
+                                    ))
+                                )}
+                            </div>
                         </div>
                     </div>
                 </div>
