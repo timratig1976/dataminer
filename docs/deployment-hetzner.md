@@ -123,7 +123,7 @@ php artisan optimize:clear
 php artisan config:cache
 php artisan route:cache
 php artisan view:cache
-pm2 restart dataminer-worker 2>/dev/null || true
+pm2 restart dataminer-worker --update-env 2>/dev/null || true
 EOF
 ```
 
@@ -143,7 +143,7 @@ php artisan optimize:clear
 php artisan config:cache
 php artisan route:cache
 php artisan view:cache
-pm2 restart dataminer-worker 2>/dev/null || true
+pm2 restart dataminer-worker --update-env 2>/dev/null || true
 ```
 
 ---

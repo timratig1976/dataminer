@@ -55,8 +55,8 @@ php artisan config:cache
 php artisan route:cache
 php artisan view:cache
 
-# Queue-Worker neu starten, falls PM2 läuft
-pm2 restart dataminer-worker 2>/dev/null || true
+# Queue-Worker neu starten, falls PM2 läuft (inkl. Aktualisierung der Umgebungsvariablen)
+pm2 restart dataminer-worker --update-env 2>/dev/null || true
 
 echo "✅ Server-Aktualisierung erfolgreich abgeschlossen!"
 EOF
