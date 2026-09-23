@@ -97,6 +97,10 @@ npm run build
 ### Schritt 2: Code per rsync synchronisieren (auf deinem Mac)
 Führe diesen Befehl im Hauptverzeichnis des Projekts aus:
 ```bash
+# 1. Frontend-Assets lokal bauen
+npm run build
+
+# 2. Dateien zum Hetzner Server synchronisieren
 rsync -avz --progress -e "ssh -p 222" \
   --exclude='node_modules' \
   --exclude='.git' \
@@ -105,7 +109,7 @@ rsync -avz --progress -e "ssh -p 222" \
   --exclude='storage/framework/cache/*' \
   --exclude='storage/framework/sessions/*' \
   --exclude='storage/framework/views/*' \
-  backend-laravel/ viminb@dedi4509.your-server.de:/usr/www/users/viminb/dataminer/
+  ./ viminb@dedi4509.your-server.de:/usr/www/users/viminb/dataminer/
 ```
 
 ### Schritt 3: Migrationen & Caches auf dem Server aktualisieren
@@ -119,7 +123,52 @@ php artisan optimize:clear
 php artisan config:cache
 php artisan route:cache
 php artisan view:cache
+pm2 restart dataminer-worker 2>/dev/null || true
 EOF
+```
+
+---
+
+## 3b. Alternative: Deployment direkt via Git auf dem Server (in offener SSH-Session)
+
+Falls der Server als Git-Repository eingerichtet ist oder du direkt in der SSH-Konsole arbeitest, kannst du das Update direkt auf dem Server durchführen:
+
+```bash
+cd /usr/www/users/viminb/dataminer
+git pull origin main
+composer install --no-dev --optimize-autoloader --no-interaction
+npm run build
+php artisan migrate --force
+php artisan optimize:clear
+php artisan config:cache
+php artisan route:cache
+php artisan view:cache
+pm2 restart dataminer-worker 2>/dev/null || true
+```
+
+---
+
+## 3c. E-Mail Konfiguration (SMTP) auf dem Server prüfen
+
+Stelle sicher, dass in der `.env` auf dem Server (`/usr/www/users/viminb/dataminer/.env`) die Mailer-Konfiguration hinterlegt ist:
+
+```env
+MAIL_MAILER=smtp
+MAIL_HOST=mail.your-server.de
+MAIL_PORT=587
+MAIL_USERNAME=apps@viminds.com
+MAIL_PASSWORD="s1+BeT/F:jTD"
+MAIL_ENCRYPTION=tls
+MAIL_FROM_ADDRESS=apps@viminds.com
+MAIL_FROM_NAME="DataMiner"
+```
+
+*Hinweis: Wenn Sonderzeichen (`+`, `/`, `:`) im Passwort enthalten sind, das Passwort immer in Anführungszeichen setzen.*
+
+Nach Änderungen an der `.env` immer den Konfigurations-Cache leeren:
+```bash
+php artisan config:clear
+php artisan config:cache
 ```
 
 ---
