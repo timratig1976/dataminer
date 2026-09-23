@@ -141,8 +141,14 @@ class BatchEnrichService
             } else {
                 try {
                     $scraped = $this->edenAi->scrapeUrl($apiKey, $base);
-                    if (!empty($scraped['markdown'])) {
-                        $rawMarkdown = $scraped['markdown'];
+                    $md = $scraped['markdown'] ?? '';
+                    $isJunk = strlen($md) < 80 
+                        || str_contains($md, 'does not exist') 
+                        || str_contains($md, '404 Not Found') 
+                        || str_contains($md, 'Seite nicht gefunden');
+
+                    if (!empty($md) && !$isJunk) {
+                        $rawMarkdown = $md;
                         $sourceOrigin = 'live:scrape';
 
                         ScrapeCache::updateOrCreate(

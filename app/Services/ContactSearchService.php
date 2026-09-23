@@ -68,7 +68,12 @@ class ContactSearchService
                 // Try guessing /impressum first
                 $scraped = $this->edenAi->scrapeUrl($apiKey, "{$base}/impressum");
                 $md = $scraped['markdown'] ?? '';
-                if (!empty($md) && strlen($md) > 100 && !str_contains($md, 'does not exist') && !str_contains($md, '404')) {
+                $isGarbage = strlen($md) < 80 
+                    || str_contains($md, 'does not exist') 
+                    || str_contains($md, '404 Not Found') 
+                    || str_contains($md, 'Seite nicht gefunden');
+
+                if (!empty($md) && !$isGarbage) {
                     $rawText = $md;
                     $sourceOrigin = 'live:scrape_impressum';
                     ScrapeCache::updateOrCreate(
@@ -89,8 +94,13 @@ class ContactSearchService
 
                     if ($foundUrl) {
                         $scraped = $this->edenAi->scrapeUrl($apiKey, $foundUrl);
-                        if (!empty($scraped['markdown']) && strlen($scraped['markdown']) > 80) {
-                            $rawText = $scraped['markdown'];
+                        $foundMd = $scraped['markdown'] ?? '';
+                        $isFoundGarbage = strlen($foundMd) < 80 
+                            || str_contains($foundMd, 'does not exist') 
+                            || str_contains($foundMd, '404 Not Found');
+
+                        if (!empty($foundMd) && !$isFoundGarbage) {
+                            $rawText = $foundMd;
                             $sourceOrigin = 'live:search_impressum';
                             ScrapeCache::updateOrCreate(
                                 ['url' => $foundUrl],
