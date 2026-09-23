@@ -1,71 +1,28 @@
 {
-  "name": "dataminer-next",
-  "version": "0.1.0",
-  "private": true,
-  "scripts": {
-    "dev": "next dev",
-    "dev:infisical": "infisical run -- npm run dev",
-    "scrapling": "cd scrapling-service && .venv/bin/uvicorn main:app --host 127.0.0.1 --port 8001 --reload",
-    "build": "next build",
-    "start": "next start",
-    "db:generate": "drizzle-kit generate",
-    "db:push": "drizzle-kit push",
-    "db:studio": "drizzle-kit studio",
-    "db:migrate-sqlite": "tsx scripts/migrate-sqlite-to-pg.mts",
-    "lint": "eslint",
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage"
-  },
-  "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.30.0",
-    "@radix-ui/react-dialog": "^1.1.15",
-    "@radix-ui/react-dropdown-menu": "^2.1.16",
-    "@radix-ui/react-popover": "^1.1.15",
-    "@radix-ui/react-select": "^2.2.6",
-    "@radix-ui/react-tooltip": "^1.2.8",
-    "@tanstack/react-table": "^8.21.3",
-    "@tanstack/react-virtual": "^3.14.13",
-    "@types/cheerio": "^0.22.35",
-    "better-sqlite3": "^12.9.0",
-    "cheerio": "^1.2.0",
-    "class-variance-authority": "^0.7.1",
-    "clsx": "^2.1.1",
-    "cmdk": "^1.1.1",
-    "drizzle-orm": "^0.45.2",
-    "lucide-react": "^1.14.0",
-    "next": "16.2.5",
-    "papaparse": "^5.7.0",
-    "playwright": "^1.60.0",
-    "postgres": "^3.4.9",
-    "psl": "^1.15.0",
-    "react": "19.2.4",
-    "react-dom": "19.2.4",
-    "tailwind-merge": "^3.5.0",
-    "xlsx": "^0.18.5"
-  },
-  "devDependencies": {
-    "@tailwindcss/postcss": "^4",
-    "@types/better-sqlite3": "^7.6.13",
-    "@types/node": "^20",
-    "@types/papaparse": "^5.5.2",
-    "@types/psl": "^1.1.3",
-    "@types/react": "^19",
-    "@types/react-dom": "^19",
-    "@vitest/coverage-v8": "^4.1.6",
-    "babel-plugin-react-compiler": "1.0.0",
-    "drizzle-kit": "^0.31.10",
-    "eslint": "^9",
-    "eslint-config-next": "16.2.5",
-    "tailwindcss": "^4",
-    "tsx": "^4.23.13",
-    "typescript": "^5",
-    "vitest": "^4.1.6"
-  },
-  "allowScripts": {
-    "better-sqlite3@12.10.0": true,
-    "esbuild@0.18.20": true,
-    "esbuild@0.25.12": true,
-    "esbuild@0.28.2": true
-  }
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "dev": "vite",
+        "build": "vite build"
+    },
+    "devDependencies": {
+        "@inertiajs/react": "^2.0.0",
+        "@tailwindcss/vite": "^4.0.0",
+        "@types/react": "^19.0.0",
+        "@types/react-dom": "^19.0.0",
+        "@vitejs/plugin-react": "^4.7.0",
+        "autoprefixer": "^10.4.20",
+        "laravel-vite-plugin": "^1.2.0",
+        "postcss": "^8.4.49",
+        "react": "^19.0.0",
+        "react-dom": "^19.0.0",
+        "tailwindcss": "^3.4.17",
+        "typescript": "^5.7.0",
+        "vite": "^6.0.0"
+    },
+    "dependencies": {
+        "@tanstack/react-table": "^8.21.2",
+        "@tanstack/react-virtual": "^3.13.2",
+        "lucide-react": "^0.475.0"
+    }
 }

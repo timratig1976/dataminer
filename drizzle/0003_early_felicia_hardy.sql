@@ -1,1 +1,0 @@
-ALTER TABLE "settings" ADD COLUMN "model_allowlist" jsonb DEFAULT '[]'::jsonb;

@@ -1,157 +1,59 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
 
-## Getting Started
+<p align="center">
+<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
+<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
+<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
+<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
+</p>
 
-### Database (PostgreSQL)
+## About Laravel
 
-DataMiner uses PostgreSQL via Drizzle ORM. Locally with Homebrew:
+Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
 
-```bash
-brew services start postgresql@17
-createdb dataminer
-cp .env.example .env.local   # adjust DATABASE_URL if needed
-```
+- [Simple, fast routing engine](https://laravel.com/docs/routing).
+- [Powerful dependency injection container](https://laravel.com/docs/container).
+- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
+- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
+- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
+- [Robust background job processing](https://laravel.com/docs/queues).
+- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
 
-Schema is auto-created on first request. Drizzle helpers:
+Laravel is accessible, powerful, and provides tools required for large, robust applications.
 
-```bash
-npm run db:generate        # generate SQL migrations after schema changes (lib/db/schema.ts)
-npm run db:push            # push schema directly (dev)
-npm run db:studio          # browse data (drizzle-studio)
-npm run db:migrate-sqlite  # one-shot import from legacy data/dataminer.db
-```
+## Learning Laravel
 
-### Run the dev server
+Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework. You can also check out [Laravel Learn](https://laravel.com/learn), where you will be guided through building a modern Laravel application.
 
-Run the development server:
+If you don't feel like reading, [Laracasts](https://laracasts.com) can help. Laracasts contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+## Laravel Sponsors
 
-### LLM provider: Eden AI only
+We would like to extend our thanks to the following sponsors for funding Laravel development. If you are interested in becoming a sponsor, please visit the [Laravel Partners program](https://partners.laravel.com).
 
-All LLM calls (chat, Firecrawl web search/scrape) go through the Eden AI gateway
-with model IDs in `provider/model` format (e.g. `openai/gpt-4o-mini`, `anthropic/claude-sonnet-4-5`).
-**One single API key** — enter it via *Globale Einstellungen* (sidebar → 🔑) or set `EDEN_API_KEY`.
+### Premium Partners
 
-Key resolution order: case-level key → global settings key (encrypted in DB) → `EDEN_API_KEY` env.
+- **[Vehikl](https://vehikl.com)**
+- **[Tighten Co.](https://tighten.co)**
+- **[Kirschbaum Development Group](https://kirschbaumdevelopment.com)**
+- **[64 Robots](https://64robots.com)**
+- **[Curotec](https://www.curotec.com/services/technologies/laravel)**
+- **[DevSquad](https://devsquad.com/hire-laravel-developers)**
+- **[Redberry](https://redberry.international/laravel-development)**
+- **[Active Logic](https://activelogic.com)**
 
-### Run with Infisical secrets
+## Contributing
 
-If you use Infisical, configure these secret names in your Infisical project/environment:
+Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
 
-- `EDEN_API_KEY`
-- `API_KEY_ENCRYPTION_KEY`
+## Code of Conduct
 
-Then run:
+In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
 
-```bash
-npm run dev:infisical
-```
+## Security Vulnerabilities
 
-If this is a new machine/session, login and link first:
+If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
 
-```bash
-infisical login
-infisical init
-```
+## License
 
-### LLM smoke test
-
-Use this route to quickly validate model availability + key wiring (Eden AI):
-
-```bash
-curl -s http://localhost:3000/api/llm/smoke | jq
-```
-
-Optional: test with a specific case (uses case-level keys first, env fallback otherwise):
-
-```bash
-curl -s -X POST http://localhost:3000/api/llm/smoke \
-  -H 'Content-Type: application/json' \
-  -d '{"caseId":"<CASE_ID>"}' | jq
-```
-
-### Compare up to 3 models for one task
-
-The prompt editor can compare up to 3 models on the same row and suggest a recommended model.
-There is also an API route:
-
-```bash
-curl -s -X POST http://localhost:3000/api/llm/compare \
-  -H 'Content-Type: application/json' \
-  -d '{"caseId":"<CASE_ID>","rowId":"<ROW_ID>","column":{"id":"tmp","name":"Test","prompt":"Return the official domain for {company_name}","outputKey":"official_domain","model":"openai/gpt-4o-mini"},"models":["openai/gpt-4o-mini","meta/llama3.3-70b","mistral/mistral-small-latest"]}' | jq
-```
-
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
-
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
-
-### Lead Discovery (Web + Google Maps)
-
-The **"Leads entdecken"** button (under *Daten hochladen & Spalten zuordnen* in a case) opens an interactive discovery panel. It follows a *load many results first, enrich later* workflow:
-
-1. Pick a source — Web (Firecrawl/Eden, SerpApi, Brave, DuckDuckGo, Scrapling) or **Google Maps** (SerpApi structured, or free Scrapling stealth scrape).
-2. Search up to 100 results per query. Duplicates (domain already in the case) and directories (gelbeseiten etc.) are flagged automatically.
-3. Tick the leads you want, then **übernehmen** → they are appended as rows with seed fields (`company_name`, `source_url`, `source_domain`, `source_title`, `source_snippet`, `search_query`, `search_source`). Maps hits additionally carry `address`, `phone`, `maps_rating`, `maps_reviews`, `category`.
-4. Optionally pre-scrape top pages into the cache (needs an Eden key) so later enrichment doesn't re-pay Firecrawl.
-
-Two discovery modes:
-- **Neue Suche** — a single query.
-- **Bestehende erweitern** — build queries from existing rows via a template (e.g. `{industry_keywords} {city} Anbieter`, with `{a|b}` fallbacks), so you can grow a table of companies iteratively.
-
-Endpoints:
-```bash
-# Preview search (writes nothing). source: auto|firecrawl|serpapi|brave|duckduckgo|scrapling|maps-serpapi|maps-scrapling
-curl -s -X POST http://localhost:3000/api/discovery/search \
-  -H 'Content-Type: application/json' \
-  -d '{"query":"Heizung Potsdam","source":"firecrawl","limit":30,"caseId":"<CASE_ID>"}' | jq
-
-# Append accepted leads to a case (extendQueries runs a batch server-side)
-curl -s -X POST http://localhost:3000/api/cases/<CASE_ID>/discover \
-  -H 'Content-Type: application/json' \
-  -d '{"hits":[...],"extractNames":true,"scrapePages":false}' | jq
-```
-
-Google Maps via the free Scraper needs the sidecar running (`npm run scrapling`) — it exposes `POST /maps/search`.
-
-### Apollo.io contacts (MCP)
-
-Add the **"Apollo Contacts"** preset column. It is a deterministic tool column (no LLM): for each row it looks up decision makers by `company_name` + `official_domain` via Apollo.io.
-
-- Transport is MCP-first (`@thevgergroup/apollo-io-mcp` spawned as a stdio child) with automatic **REST fallback** if the MCP server can't start. Force with `APOLLO_TRANSPORT=rest`.
-- Only the **0-credit search** endpoint is used — no reveal/enrich — and results are cached 30 days in SQLite, so re-runs are free.
-- A per-run budget guard (`APOLLO_MAX_LOOKUPS_RUN`) stops runaway lookups.
-
-```bash
-# transport health + tools list
-curl -s http://localhost:3000/api/apollo/smoke | jq
-# transport health + a real test search
-curl -s -X POST http://localhost:3000/api/apollo/smoke \
-  -H 'Content-Type: application/json' \
-  -d '{"domain":"apollo.io","limit":3}' | jq
-```
-
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
