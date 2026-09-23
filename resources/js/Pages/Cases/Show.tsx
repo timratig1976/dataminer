@@ -1583,11 +1583,28 @@ export default function CaseShow({ case: c }: Props) {
                                                             const isBatchContact = col.colDef.tool === "batch_contact";
                                                             const hasDomain = !!r.data["domain"];
                                                             const isDone = status === "done";
+                                                            const isError = status === "error" || !!r.cell_errors?.[col.key];
+                                                            const errorMsg = r.cell_errors?.[col.key] || "Fehler bei der Ausführung";
 
                                                             if (isRunning) {
                                                                 return (
                                                                     <div className="flex items-center gap-1 text-orange-600 font-medium">
                                                                         <RefreshCw className="w-3 h-3 animate-spin" /> läuft...
+                                                                    </div>
+                                                                );
+                                                            }
+
+                                                            // ── Error State (Klickbar für Detail-Fehlermeldung) ──
+                                                            if (isError) {
+                                                                return (
+                                                                    <div 
+                                                                        className="flex items-center gap-1 text-rose-700 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded cursor-pointer hover:bg-rose-100 transition-colors"
+                                                                        title={`${errorMsg} (Klicken für Details)`}
+                                                                    >
+                                                                        <AlertCircle className="w-3 h-3 text-rose-600 shrink-0" />
+                                                                        <span className="text-[10.5px] font-semibold truncate max-w-[120px]">
+                                                                            Fehler: {errorMsg}
+                                                                        </span>
                                                                     </div>
                                                                 );
                                                             }
@@ -1682,6 +1699,20 @@ export default function CaseShow({ case: c }: Props) {
                                                             }
 
                                                             // ── Generic AI Column ──
+                                                            if (isError) {
+                                                                return (
+                                                                    <div 
+                                                                        className="flex items-center gap-1 text-rose-700 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded cursor-pointer hover:bg-rose-100 transition-colors"
+                                                                        title={`${errorMsg} (Klicken für Details)`}
+                                                                    >
+                                                                        <AlertCircle className="w-3 h-3 text-rose-600 shrink-0" />
+                                                                        <span className="text-[10.5px] font-semibold truncate max-w-[120px]">
+                                                                            Fehler: {errorMsg}
+                                                                        </span>
+                                                                    </div>
+                                                                );
+                                                            }
+
                                                             return (
                                                                 <div className="flex items-center justify-between gap-1.5 group/cell">
                                                                     <span className="truncate">

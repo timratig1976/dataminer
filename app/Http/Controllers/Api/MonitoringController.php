@@ -5,6 +5,8 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\AgentRun;
 use App\Models\DataCase;
+use App\Models\EnrichmentJob;
+use App\Models\CaseLog;
 use App\Models\Row;
 use Illuminate\Http\JsonResponse;
 
@@ -17,6 +19,7 @@ class MonitoringController extends Controller
     public function overview(): JsonResponse
     {
         $runs = AgentRun::orderByDesc('updated_at')->get();
+        $enrichmentJobs = EnrichmentJob::orderByDesc('updated_at')->limit(30)->get();
         $cases = DataCase::withCount('rows')->get()->keyBy('id');
 
         $activeRuns = [];
@@ -68,17 +71,57 @@ class MonitoringController extends Controller
             ];
         }
 
+        // Add Enrichment Jobs to running counts & jobs list
+        $runningJobs = 0;
+        $formattedJobs = [];
+        foreach ($enrichmentJobs as $ej) {
+            if ($ej->status === 'running' || $ej->status === 'queued') {
+                $runningJobs++;
+            }
+            $case = $cases[$ej->case_id] ?? null;
+            $formattedJobs[] = [
+                'id' => $ej->id,
+                'case_id' => $ej->case_id,
+                'case_name' => $case ? $case->name : 'Case #' . substr($ej->case_id, 0, 8),
+                'tool' => $ej->tool,
+                'status' => $ej->status,
+                'total_rows' => $ej->total_rows,
+                'processed_rows' => $ej->processed_rows,
+                'failed_rows' => $ej->failed_rows,
+                'error' => $ej->error,
+                'created_at' => $ej->created_at ? $ej->created_at->toIso8601String() : null,
+                'updated_at' => $ej->updated_at ? $ej->updated_at->toIso8601String() : null,
+            ];
+        }
+
+        // Fetch recent CaseLogs across all cases for global visibility
+        $recentLogs = CaseLog::orderByDesc('created_at')
+            ->limit(50)
+            ->get()
+            ->map(function ($log) use ($cases) {
+                $case = $cases[$log->case_id] ?? null;
+                return [
+                    'id' => $log->id,
+                    'case_id' => $log->case_id,
+                    'case_name' => $case ? $case->name : 'Case #' . substr($log->case_id, 0, 8),
+                    'message' => $log->message,
+                    'created_at' => $log->created_at ? $log->created_at->toIso8601String() : null,
+                ];
+            });
+
         return response()->json([
             'metrics' => [
                 'total_cases' => $cases->count(),
-                'total_runs' => $runs->count(),
-                'running_runs' => $runningRuns,
+                'total_runs' => $runs->count() + $enrichmentJobs->count(),
+                'running_runs' => $runningRuns + $runningJobs,
                 'completed_runs' => $completedRuns,
                 'total_rows_discovered' => $totalRowsDiscovered,
                 'total_cost_usd' => round($totalCostUsd, 4),
                 'total_tokens' => $totalTokens,
             ],
             'runs' => $activeRuns,
+            'enrichment_jobs' => $formattedJobs,
+            'recent_logs' => $recentLogs,
         ]);
     }
 }
