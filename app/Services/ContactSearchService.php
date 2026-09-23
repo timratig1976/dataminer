@@ -62,71 +62,77 @@ class ContactSearchService
             }
         }
 
-        // 3. Fallback: Search for exact Impressum URL if guessing {$base}/impressum fails
+        // 3. Fallback: Find exact Impressum URL via Navigation Links or Search
         if (!$rawText) {
             try {
-                // Pre-check HTTP status code (HEAD request) in <300ms to avoid scraping dead 404 URLs
-                $guessedUrl = "{$base}/impressum";
-                $isGuessedLive = false;
+                $targetImpressumUrl = null;
+
+                // A. Direct Homepage Link Inspection (Scan Menu & Footer for exact case-sensitive link)
                 try {
-                    $check = (new \GuzzleHttp\Client(['timeout' => 3, 'http_errors' => false, 'allow_redirects' => true]))->head($guessedUrl);
-                    $isGuessedLive = ($check->getStatusCode() >= 200 && $check->getStatusCode() < 300);
-                } catch (\Throwable $e) {}
-
-                $scraped = null;
-                if ($isGuessedLive) {
-                    $scraped = $this->edenAi->scrapeUrl($apiKey, $guessedUrl);
-                }
-
-                $md = $scraped['markdown'] ?? '';
-                $isGarbage = strlen($md) < 80 
-                    || str_contains($md, 'does not exist') 
-                    || str_contains($md, '404 Not Found') 
-                    || str_contains($md, 'Seite nicht gefunden');
-
-                if (!empty($md) && !$isGarbage) {
-                    $rawText = $md;
-                    $sourceOrigin = 'live:scrape_impressum';
-                    ScrapeCache::updateOrCreate(
-                        ['url' => "{$base}/impressum"],
-                        ['markdown' => $rawText, 'title' => $scraped['title'] ?? null, 'fetched_at' => now()]
-                    );
-                } else {
-                    // Smart search for the actual Impressum URL (e.g. /Impressum/mobile/, /rechtliches/impressum)
-                    $searchRes = $this->searchService->search("{$companyName} {$domain} Impressum", 3);
-                    $foundUrl = null;
-                    foreach ($searchRes['results'] ?? [] as $sr) {
-                        $u = $sr['url'] ?? '';
-                        if (str_contains($u, $domain) && (stripos($u, 'impressum') !== false || stripos($u, 'legal') !== false || stripos($u, 'kontakt') !== false)) {
-                            // Check that found URL is actually accessible (not 404)
-                            try {
-                                $uCheck = (new \GuzzleHttp\Client(['timeout' => 3, 'http_errors' => false, 'allow_redirects' => true]))->head($u);
-                                if ($uCheck->getStatusCode() >= 200 && $uCheck->getStatusCode() < 400) {
-                                    $foundUrl = $u;
+                    $homeRes = (new \GuzzleHttp\Client(['timeout' => 4, 'http_errors' => false, 'allow_redirects' => true]))->get($base);
+                    if ($homeRes->getStatusCode() === 200) {
+                        $html = (string) $homeRes->getBody();
+                        if (preg_match_all('/<a[^>]+href=[\x22\x27]([^\x22\x27#]+)[\x22\x27][^>]*>(.*?)<\/a>/is', $html, $matches, PREG_SET_ORDER)) {
+                            foreach ($matches as $m) {
+                                $href = trim($m[1]);
+                                $text = strip_tags($m[2]);
+                                if (stripos($href, 'impressum') !== false || stripos($text, 'impressum') !== false || stripos($href, 'legal') !== false) {
+                                    if (str_starts_with($href, 'http')) {
+                                        $targetImpressumUrl = $href;
+                                    } elseif (str_starts_with($href, '/')) {
+                                        $targetImpressumUrl = rtrim($base, '/') . $href;
+                                    } else {
+                                        $targetImpressumUrl = rtrim($base, '/') . '/' . $href;
+                                    }
                                     break;
                                 }
-                            } catch (\Throwable $e) {
-                                $foundUrl = $u;
-                                break;
                             }
                         }
                     }
+                } catch (\Throwable $e) {}
 
-                    if ($foundUrl) {
-                        $scraped = $this->edenAi->scrapeUrl($apiKey, $foundUrl);
-                        $foundMd = $scraped['markdown'] ?? '';
-                        $isFoundGarbage = strlen($foundMd) < 80 
-                            || str_contains($foundMd, 'does not exist') 
-                            || str_contains($foundMd, '404 Not Found');
+                // B. If not found in menu, try common permutations with fast HEAD pre-check
+                if (!$targetImpressumUrl) {
+                    $candidates = ["{$base}/impressum", "{$base}/Impressum", "{$base}/de/impressum", "{$base}/kontakt"];
+                    foreach ($candidates as $cand) {
+                        try {
+                            $check = (new \GuzzleHttp\Client(['timeout' => 2.5, 'http_errors' => false, 'allow_redirects' => true]))->head($cand);
+                            if ($check->getStatusCode() >= 200 && $check->getStatusCode() < 300) {
+                                $targetImpressumUrl = $cand;
+                                break;
+                            }
+                        } catch (\Throwable $e) {}
+                    }
+                }
 
-                        if (!empty($foundMd) && !$isFoundGarbage) {
-                            $rawText = $foundMd;
-                            $sourceOrigin = 'live:search_impressum';
-                            ScrapeCache::updateOrCreate(
-                                ['url' => $foundUrl],
-                                ['markdown' => $rawText, 'title' => $scraped['title'] ?? null, 'fetched_at' => now()]
-                            );
+                // C. Fallback: Search via Google if still unknown
+                if (!$targetImpressumUrl) {
+                    $searchRes = $this->searchService->search("{$companyName} {$domain} Impressum", 3);
+                    foreach ($searchRes['results'] ?? [] as $sr) {
+                        $u = $sr['url'] ?? '';
+                        if (str_contains($u, $domain) && (stripos($u, 'impressum') !== false || stripos($u, 'legal') !== false)) {
+                            $targetImpressumUrl = $u;
+                            break;
                         }
+                    }
+                }
+
+                // Scrape the verified Impressum URL
+                if ($targetImpressumUrl) {
+                    $scraped = $this->edenAi->scrapeUrl($apiKey, $targetImpressumUrl);
+                    $foundMd = $scraped['markdown'] ?? '';
+                    $isFoundGarbage = strlen($foundMd) < 80 
+                        || str_contains($foundMd, 'does not exist') 
+                        || str_contains($foundMd, '404 Not Found')
+                        || str_contains($foundMd, 'Seite nicht gefunden');
+
+                    if (!empty($foundMd) && !$isFoundGarbage) {
+                        $rawText = $foundMd;
+                        $sourceOrigin = 'live:verified_impressum';
+                        ScrapeCache::updateOrCreate(
+                            ['url' => $targetImpressumUrl],
+                            ['markdown' => $rawText, 'title' => $scraped['title'] ?? null, 'fetched_at' => now()]
+                        );
                     }
                 }
             } catch (Exception $e) {
