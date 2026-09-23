@@ -187,18 +187,35 @@ class BatchEnrichService
             $fields[$field] = ($val === null || $val === 'null' || $val === '') ? null : (string) $val;
         }
 
-        // Keep original GMB data if LLM returned null
-        if (empty($fields['address']) && !empty($rowData['address'])) {
-            $fields['address'] = $rowData['address'];
+        // Keep original GMB data if LLM returned null, and support German aliases
+        if (empty($fields['address'])) {
+            $fields['address'] = $rowData['address'] ?? $rowData['Adresse'] ?? null;
         }
-        if (empty($fields['phone']) && !empty($rowData['phone'])) {
-            $fields['phone'] = $rowData['phone'];
+        if (empty($fields['phone'])) {
+            $fields['phone'] = $rowData['phone'] ?? $rowData['Telefon'] ?? null;
         }
-        if (empty($fields['company_name']) && !empty($rowData['company_name'])) {
-            $fields['company_name'] = $rowData['company_name'];
+        if (empty($fields['company_name'])) {
+            $fields['company_name'] = $rowData['company_name'] ?? $rowData['Unternehmen'] ?? null;
         }
         if (empty($fields['domain']) && $domain) {
             $fields['domain'] = $domain;
+        }
+        if (empty($fields['zip']) && !empty($rowData['PLZ'])) {
+            $fields['zip'] = $rowData['PLZ'];
+        }
+        if (empty($fields['city']) && !empty($rowData['Stadt'])) {
+            $fields['city'] = $rowData['Stadt'];
+        }
+        if (empty($fields['industry']) && !empty($rowData['Kategorie'])) {
+            $fields['industry'] = $rowData['Kategorie'];
+        }
+
+        // Auto-extract ZIP and City if address contains German postal code pattern e.g. "Straße 12, 17489 Greifswald"
+        if ((empty($fields['zip']) || empty($fields['city'])) && !empty($fields['address'])) {
+            if (preg_match('/\b(\d{5})\s+([A-Za-zäöüÄÖÜß\-\.\s]+?)(?:,|$)/u', $fields['address'], $m)) {
+                if (empty($fields['zip'])) $fields['zip'] = $m[1];
+                if (empty($fields['city'])) $fields['city'] = trim($m[2]);
+            }
         }
 
         return [

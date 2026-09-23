@@ -98,11 +98,22 @@ class DiscoveryService
             $address = $p['address'] ?? '';
             $mapsUrl = $p['mapsUrl'] ?? '';
 
+            // Parse ZIP and City from address if present (e.g. "Tolstoistraße 12, 17491 Greifswald")
+            $zip = '';
+            $city = '';
+            if (!empty($address) && preg_match('/\b(\d{5})\s+([A-Za-zäöüÄÖÜß\-\.\s]+?)(?:,|$)/u', $address, $m)) {
+                $zip = $m[1];
+                $city = trim($m[2]);
+            }
+
             $newRows[] = [
                 'company_name' => $name,
                 'domain' => $domain ?? '',
                 'address' => $address,
+                'zip' => $zip,
+                'city' => $city,
                 'phone' => $p['phone'] ?? '',
+                'industry' => $p['category'] ?? '',
                 'category' => $p['category'] ?? '',
                 'maps_rating' => !empty($p['rating']) ? (string) $p['rating'] : '',
                 'maps_reviews' => !empty($p['reviews']) ? (string) $p['reviews'] : '',
