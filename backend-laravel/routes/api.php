@@ -68,6 +68,13 @@ Route::middleware(['web', 'auth'])->group(function () {
     Route::post('/blacklist', [\App\Http\Controllers\Api\BlacklistController::class, 'store']);
     Route::delete('/blacklist/{id}', [\App\Http\Controllers\Api\BlacklistController::class, 'destroy']);
 
+    // Communication & Email Templates
+    Route::get('/communication', [\App\Http\Controllers\Api\CommunicationController::class, 'index']);
+    Route::post('/communication/branding', [\App\Http\Controllers\Api\CommunicationController::class, 'saveBranding']);
+    Route::post('/communication/templates/{key}', [\App\Http\Controllers\Api\CommunicationController::class, 'saveTemplate']);
+    Route::post('/communication/preview', [\App\Http\Controllers\Api\CommunicationController::class, 'preview']);
+    Route::post('/communication/send-test', [\App\Http\Controllers\Api\CommunicationController::class, 'sendTest']);
+
     // Single Crawl / Search Step Test
     Route::post('/run/test-step', [\App\Http\Controllers\Api\CrawlStepTestController::class, 'testStep']);
 

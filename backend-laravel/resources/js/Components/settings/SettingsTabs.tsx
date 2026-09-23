@@ -1,12 +1,13 @@
 import React from 'react';
 import { Link, usePage } from '@inertiajs/react';
-import { Key, Sliders, ShieldAlert, Sparkles, Zap, BrainCircuit } from 'lucide-react';
+import { Key, Sliders, ShieldAlert, Sparkles, Zap, BrainCircuit, Mail } from 'lucide-react';
 
 export default function SettingsTabs() {
     const { url } = usePage();
 
     const tabs = [
         { href: '/settings', label: 'API & Keys', icon: <Key className="w-3.5 h-3.5" /> },
+        { href: '/settings/communication', label: 'E-Mail & Branding', icon: <Mail className="w-3.5 h-3.5" /> },
         { href: '/settings/models', label: 'Modell-Auswahl', icon: <Sliders className="w-3.5 h-3.5" /> },
         { href: '/settings/blacklist', label: 'Domain-Blacklist', icon: <ShieldAlert className="w-3.5 h-3.5" /> },
         { href: '/settings/prompts', label: 'Normalisierung', icon: <BrainCircuit className="w-3.5 h-3.5" /> },

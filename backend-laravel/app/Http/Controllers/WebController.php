@@ -119,6 +119,11 @@ class WebController extends Controller
         return Inertia::render('Settings/Blacklist');
     }
 
+    public function communicationSettings(): Response
+    {
+        return Inertia::render('Settings/Communication');
+    }
+
     public function rawImportsIndex(): Response
     {
         return Inertia::render('RawImports/Index');

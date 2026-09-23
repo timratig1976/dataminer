@@ -48,4 +48,25 @@ class User extends Authenticatable
             'password' => 'hashed',
         ];
     }
+
+    /**
+     * Send password reset notification using custom branded template.
+     */
+    public function sendPasswordResetNotification($token): void
+    {
+        $resetUrl = url(route('password.reset', [
+            'token' => $token,
+            'email' => $this->getEmailForPasswordReset(),
+        ], false));
+
+        \Illuminate\Support\Facades\Mail::to($this->email)->send(
+            new \App\Mail\TemplateMailable(
+                templateKey: 'password_reset',
+                templateVariables: [
+                    'reset_url' => $resetUrl,
+                    'email' => $this->email,
+                ]
+            )
+        );
+    }
 }

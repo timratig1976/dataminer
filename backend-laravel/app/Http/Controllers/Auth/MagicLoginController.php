@@ -42,6 +42,21 @@ class MagicLoginController extends Controller
 
         $magicUrl = url("/magic-login/{$token}");
 
+        // Real branded email dispatch via TemplateMailable
+        try {
+            \Illuminate\Support\Facades\Mail::to($user->email)->send(
+                new \App\Mail\TemplateMailable(
+                    templateKey: 'magic_link',
+                    templateVariables: [
+                        'magic_link_url' => $magicUrl,
+                        'email' => $user->email,
+                    ]
+                )
+            );
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning("[MagicLogin] Mail dispatch failed: " . $e->getMessage());
+        }
+
         UserAudit::create([
             'id' => (string) Str::uuid(),
             'user_id' => $user->id,

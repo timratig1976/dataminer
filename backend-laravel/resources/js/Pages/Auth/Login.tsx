@@ -1,15 +1,19 @@
 import React, { useState } from 'react';
-import { useForm, Link } from '@inertiajs/react';
-import { Database, Lock, Mail, Key, Sparkles } from 'lucide-react';
+import { useForm, Link, usePage } from '@inertiajs/react';
+import { Database, Lock, Mail, Key, Sparkles, Eye, EyeOff } from 'lucide-react';
 import { apiFetch } from '../../api';
 
 export default function Login() {
+    const { props } = usePage<{ branding?: { company_name: string; logo_url: string; logo_icon_url: string; primary_color: string } }>();
+    const branding = props.branding;
+
     const { data, setData, post, processing, errors } = useForm({
         email: 'admin@dataminer.local',
         password: 'password',
         remember: true,
     });
 
+    const [showPassword, setShowPassword] = useState(false);
     const [magicLinkLoading, setMagicLinkLoading] = useState(false);
     const [magicLinkSent, setMagicLinkSent] = useState(false);
     const [magicLinkUrl, setMagicLinkUrl] = useState<string | null>(null);
@@ -59,13 +63,23 @@ export default function Login() {
             >
                 {/* Logo & Title */}
                 <div className="flex flex-col items-center mb-6">
-                    <div
-                        className="w-10 h-10 rounded flex items-center justify-center text-white text-base font-bold shadow-sm mb-3"
-                        style={{ background: "var(--orange)" }}
-                    >
-                        D
-                    </div>
-                    <h1 className="text-base font-semibold" style={{ color: "var(--text-1)" }}>DataMiner 100k</h1>
+                    {branding?.logo_url ? (
+                        <img
+                            src={branding.logo_url}
+                            alt={branding.company_name || 'Logo'}
+                            className="h-10 max-w-[200px] object-contain mb-3"
+                        />
+                    ) : (
+                        <div
+                            className="w-10 h-10 rounded flex items-center justify-center text-white text-base font-bold shadow-sm mb-3"
+                            style={{ background: branding?.primary_color || "var(--orange)" }}
+                        >
+                            {(branding?.company_name || 'D').charAt(0).toUpperCase()}
+                        </div>
+                    )}
+                    <h1 className="text-base font-semibold" style={{ color: "var(--text-1)" }}>
+                        {branding?.company_name || 'DataMiner'} 100k
+                    </h1>
                     <p className="text-xs" style={{ color: "var(--text-3)" }}>High-Performance Lead Engine</p>
                 </div>
 
@@ -104,10 +118,10 @@ export default function Login() {
                         <div className="relative">
                             <Lock className="w-3.5 h-3.5 absolute left-2.5 top-2.5" style={{ color: "var(--text-3)" }} />
                             <input
-                                type="password"
+                                type={showPassword ? "text" : "password"}
                                 value={data.password}
                                 onChange={(e) => setData('password', e.target.value)}
-                                className="w-full pl-8 pr-3 py-1.5 text-xs rounded border focus:outline-none transition-colors"
+                                className="w-full pl-8 pr-9 py-1.5 text-xs rounded border focus:outline-none transition-colors"
                                 style={{
                                     background: "var(--bg)",
                                     borderColor: "var(--border)",
@@ -115,6 +129,15 @@ export default function Login() {
                                 }}
                                 required
                             />
+                            <button
+                                type="button"
+                                onClick={() => setShowPassword(v => !v)}
+                                className="absolute right-2.5 top-2 text-slate-400 hover:text-slate-600 focus:outline-none cursor-pointer"
+                                tabIndex={-1}
+                                title={showPassword ? "Passwort verbergen" : "Passwort anzeigen"}
+                            >
+                                {showPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                            </button>
                         </div>
                         {errors.password && <div className="text-xs mt-1" style={{ color: "var(--danger)" }}>{errors.password}</div>}
                     </div>

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import AppLayout from '../../Layouts/AppLayout';
 import { 
-    User, Lock, Key, Shield, CheckCircle2, AlertCircle, Copy, Save, LogOut 
+    User, Lock, Key, Shield, CheckCircle2, AlertCircle, Copy, Save, LogOut, Eye, EyeOff 
 } from 'lucide-react';
 import { apiFetch } from '../../api';
 import { router } from '@inertiajs/react';
@@ -21,6 +21,8 @@ export default function AccountSettings() {
     const [currentPassword, setCurrentPassword] = useState('');
     const [newPassword, setNewPassword] = useState('');
     const [newPasswordConfirmation, setNewPasswordConfirmation] = useState('');
+    const [showCurrentPassword, setShowCurrentPassword] = useState(false);
+    const [showNewPassword, setShowNewPassword] = useState(false);
     const [passwordSaving, setPasswordSaving] = useState(false);
     const [passwordError, setPasswordError] = useState<string | null>(null);
     const [passwordSuccess, setPasswordSuccess] = useState<string | null>(null);
@@ -223,41 +225,74 @@ export default function AccountSettings() {
                     <form onSubmit={handlePasswordChange} className="space-y-4 text-xs">
                         <div className="space-y-1 max-w-md">
                             <label className="font-medium text-slate-700">Aktuelles Passwort</label>
-                            <input
-                                type="password"
-                                required
-                                value={currentPassword}
-                                onChange={e => setCurrentPassword(e.target.value)}
-                                placeholder="••••••••"
-                                className="w-full p-2 rounded-lg border focus:outline-orange-500"
-                            />
+                            <div className="relative">
+                                <input
+                                    type={showCurrentPassword ? "text" : "password"}
+                                    required
+                                    value={currentPassword}
+                                    onChange={e => setCurrentPassword(e.target.value)}
+                                    placeholder="••••••••"
+                                    className="w-full p-2 pr-9 rounded-lg border focus:outline-orange-500 font-mono text-xs"
+                                />
+                                <button
+                                    type="button"
+                                    onClick={() => setShowCurrentPassword(v => !v)}
+                                    className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 focus:outline-none cursor-pointer"
+                                    tabIndex={-1}
+                                    title={showCurrentPassword ? "Passwort verbergen" : "Passwort anzeigen"}
+                                >
+                                    {showCurrentPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                                </button>
+                            </div>
                         </div>
 
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-2xl">
                             <div className="space-y-1">
                                 <label className="font-medium text-slate-700">Neues Passwort (mind. 8 Zeichen)</label>
-                                <input
-                                    type="password"
-                                    required
-                                    minLength={8}
-                                    value={newPassword}
-                                    onChange={e => setNewPassword(e.target.value)}
-                                    placeholder="••••••••"
-                                    className="w-full p-2 rounded-lg border focus:outline-orange-500"
-                                />
+                                <div className="relative">
+                                    <input
+                                        type={showNewPassword ? "text" : "password"}
+                                        required
+                                        minLength={8}
+                                        value={newPassword}
+                                        onChange={e => setNewPassword(e.target.value)}
+                                        placeholder="••••••••"
+                                        className="w-full p-2 pr-9 rounded-lg border focus:outline-orange-500 font-mono text-xs"
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowNewPassword(v => !v)}
+                                        className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 focus:outline-none cursor-pointer"
+                                        tabIndex={-1}
+                                        title={showNewPassword ? "Passwort verbergen" : "Passwort anzeigen"}
+                                    >
+                                        {showNewPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                                    </button>
+                                </div>
                             </div>
 
                             <div className="space-y-1">
                                 <label className="font-medium text-slate-700">Neues Passwort bestätigen</label>
-                                <input
-                                    type="password"
-                                    required
-                                    minLength={8}
-                                    value={newPasswordConfirmation}
-                                    onChange={e => setNewPasswordConfirmation(e.target.value)}
-                                    placeholder="••••••••"
-                                    className="w-full p-2 rounded-lg border focus:outline-orange-500"
-                                />
+                                <div className="relative">
+                                    <input
+                                        type={showNewPassword ? "text" : "password"}
+                                        required
+                                        minLength={8}
+                                        value={newPasswordConfirmation}
+                                        onChange={e => setNewPasswordConfirmation(e.target.value)}
+                                        placeholder="••••••••"
+                                        className="w-full p-2 pr-9 rounded-lg border focus:outline-orange-500 font-mono text-xs"
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowNewPassword(v => !v)}
+                                        className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 focus:outline-none cursor-pointer"
+                                        tabIndex={-1}
+                                        title={showNewPassword ? "Passwort verbergen" : "Passwort anzeigen"}
+                                    >
+                                        {showNewPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                                    </button>
+                                </div>
                             </div>
                         </div>
 

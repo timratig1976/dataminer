@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Services\EmailTemplateService;
 use Illuminate\Http\Request;
 use Inertia\Middleware;
 
@@ -37,6 +38,12 @@ class HandleInertiaRequests extends Middleware
     {
         $user = $request->user();
 
+        // Cached or lightweight branding resolution
+        $branding = null;
+        try {
+            $branding = app(EmailTemplateService::class)->getBranding();
+        } catch (\Throwable $e) {}
+
         return [
             ...parent::share($request),
             'auth' => [
@@ -47,6 +54,12 @@ class HandleInertiaRequests extends Middleware
                     'roles' => $user->roles->pluck('name'),
                 ] : null,
             ],
+            'branding' => $branding ? [
+                'company_name' => $branding['company_name'] ?? 'DataMiner',
+                'logo_url' => $branding['logo_url'] ?? '',
+                'logo_icon_url' => $branding['logo_icon_url'] ?? '',
+                'primary_color' => $branding['primary_color'] ?? '#ea580c',
+            ] : null,
         ];
     }
 }

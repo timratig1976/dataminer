@@ -199,6 +199,22 @@ class UserManagementController extends Controller
 
         $inviteUrl = url("/invitations/{$token}");
 
+        // Real branded email dispatch via TemplateMailable
+        try {
+            \Illuminate\Support\Facades\Mail::to($invitation->email)->send(
+                new \App\Mail\TemplateMailable(
+                    templateKey: 'invitation',
+                    templateVariables: [
+                        'invite_url' => $inviteUrl,
+                        'role' => $invitation->role,
+                        'email' => $invitation->email,
+                    ]
+                )
+            );
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning("[UserInvitation] Mail dispatch failed: " . $e->getMessage());
+        }
+
         UserAudit::create([
             'id' => (string) Str::uuid(),
             'user_id' => $request->user()?->id,

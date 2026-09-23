@@ -23,12 +23,16 @@ class GlobalSetting extends Model
         'firecrawl_api_key',
         'planner_system_prompt',
         'custom_templates',
+        'email_branding',
+        'email_templates',
     ];
 
     protected $casts = [
         'model_allowlist' => 'array',
         'catalog_domains' => 'array',
         'custom_templates' => 'array',
+        'email_branding' => 'array',
+        'email_templates' => 'array',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
         // API-Keys werden verschlüsselt gespeichert (APP_KEY wird als Schlüssel verwendet)

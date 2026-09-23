@@ -27,7 +27,8 @@ export default function Layout({
     title?: React.ReactNode;
     actions?: React.ReactNode;
 }) {
-    const { url } = usePage();
+    const { url, props } = usePage<{ branding?: { company_name: string; logo_url: string; logo_icon_url: string; primary_color: string } }>();
+    const branding = props.branding;
     const [recentCases, setRecentCases] = useState<SidebarCase[]>([]);
     const [healthData, setHealthData] = useState<ApiHealthData | null>(null);
     const [showHealthPopover, setShowHealthPopover] = useState(false);
@@ -98,32 +99,49 @@ export default function Layout({
                         <button
                             onClick={toggleSidebar}
                             title="Sidebar ausklappen"
-                            className="flex items-center justify-center gap-1.5 p-1.5 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer group"
+                            className="flex items-center justify-center p-1 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer group"
                         >
-                            <div
-                                className="w-6 h-6 rounded flex items-center justify-center text-white text-[11px] font-bold shadow-sm shrink-0"
-                                style={{ background: 'var(--orange)' }}
-                            >
-                                D
-                            </div>
-                            <ChevronRight className="w-3.5 h-3.5 text-slate-400 group-hover:text-slate-700 transition-transform group-hover:translate-x-0.5" />
+                            {branding?.logo_icon_url ? (
+                                <img
+                                    src={branding.logo_icon_url}
+                                    alt={branding.company_name || 'Logo'}
+                                    className="w-7 h-7 object-contain rounded shrink-0 shadow-sm"
+                                />
+                            ) : (
+                                <div
+                                    className="w-6 h-6 rounded flex items-center justify-center text-white text-[11px] font-bold shadow-sm shrink-0"
+                                    style={{ background: branding?.primary_color || 'var(--orange)' }}
+                                >
+                                    {(branding?.company_name || 'D').charAt(0).toUpperCase()}
+                                </div>
+                            )}
                         </button>
                     ) : (
                         <>
                             <Link
                                 href="/"
-                                className="flex items-center gap-2.5 hover:opacity-85 transition-opacity text-left cursor-pointer overflow-hidden"
-                                title="DataMiner"
+                                className="flex items-center gap-2 hover:opacity-85 transition-opacity text-left cursor-pointer overflow-hidden min-w-0"
+                                title={branding?.company_name || "DataMiner"}
                             >
-                                <div
-                                    className="w-6 h-6 rounded flex items-center justify-center text-white text-[11px] font-bold shadow-sm shrink-0"
-                                    style={{ background: 'var(--orange)' }}
-                                >
-                                    D
-                                </div>
-                                <span className="font-semibold text-[13.5px] tracking-tight truncate" style={{ color: 'var(--text-1)' }}>
-                                    DataMiner
-                                </span>
+                                {branding?.logo_url ? (
+                                    <img
+                                        src={branding.logo_url}
+                                        alt={branding.company_name || 'Logo'}
+                                        className="h-7 max-w-[130px] object-contain shrink-0"
+                                    />
+                                ) : (
+                                    <>
+                                        <div
+                                            className="w-6 h-6 rounded flex items-center justify-center text-white text-[11px] font-bold shadow-sm shrink-0"
+                                            style={{ background: branding?.primary_color || 'var(--orange)' }}
+                                        >
+                                            {(branding?.company_name || 'D').charAt(0).toUpperCase()}
+                                        </div>
+                                        <span className="font-semibold text-[13.5px] tracking-tight truncate" style={{ color: 'var(--text-1)' }}>
+                                            {branding?.company_name || 'DataMiner'}
+                                        </span>
+                                    </>
+                                )}
                             </Link>
                             <button
                                 onClick={toggleSidebar}
