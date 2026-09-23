@@ -342,8 +342,16 @@ export function AgentGoalModal({ caseId, rowsCount, onClose, onImported, externa
     await _startPlan(finalDescription);
   };
 
-  const handleStart = () => {
+  const handleStart = async () => {
     setPaused(false); // kick off the step loop
+    // Also trigger backend background queue dispatch in case browser is closed
+    if (run?.id) {
+      apiFetch(`/api/cases/${caseId}/agent/${run.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ auto_start: true }),
+      }).catch(console.error);
+    }
   };
 
   const handlePause = () => {
@@ -417,12 +425,23 @@ export function AgentGoalModal({ caseId, rowsCount, onClose, onImported, externa
         subIndustryScreen ? (
           /* ── Sub-industry selection screen ── */
           <div className="px-6 py-5 flex-1 overflow-y-auto space-y-4">
+              <div className="bg-amber-50/80 border border-amber-200/80 rounded-xl p-3.5 space-y-1.5">
+                <div className="text-xs font-bold text-amber-900 flex items-center gap-1.5">
+                  <span>💡</span>
+                  <span>Generischer Begriff erkannt — automatische Aufteilung & Orts-Kombination</span>
+                </div>
+                <div className="text-[11.5px] text-amber-800 leading-relaxed">
+                  Oberbegriffe wie <em>„{description.trim()}“</em> existieren auf Google Maps nicht als direkte Kategorie und liefern kaum Treffer. 
+                  Wir haben den Begriff in <strong>konkrete Sub-Branchen</strong> zerlegt und kombinieren diese mit den Städten {subGeography ? <>in <strong>{subGeography}</strong></> : ""}, damit du pro Ort das Maximum an echten Leads erhältst.
+                </div>
+              </div>
+
               <div>
                 <div className="text-sm font-semibold text-gray-800 mb-1">
                   🏭 Welche Sub-Branchen sollen gesucht werden?
                 </div>
                 <div className="text-xs text-gray-500">
-                  Dein Begriff umfasst mehrere Branchen. Wähle aus, in welchen{subGeography ? <> in <strong>{subGeography}</strong></> : ""} die KI suchen soll. Klicke auf <span className="font-medium">▶</span> um tiefer in eine Branche einzutauchen.
+                  Wähle die passenden Kategorien aus, entferne irrelevante oder füge eigene hinzu. Klicke auf <span className="font-medium">▶</span> um noch tiefer einzutauchen.
                 </div>
               </div>
 

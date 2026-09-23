@@ -25,6 +25,23 @@ class AgentRunController extends Controller
     public function indexForCase(string $id): JsonResponse
     {
         $runs = AgentRun::where('case_id', $id)->orderByDesc('created_at')->get();
+
+        // Exclude runs that were never fired / cancelled without executing any step
+        $runs = $runs->filter(function ($run) {
+            $state = $run->state ?? [];
+            $currentStep = $state['current_step_index'] ?? 0;
+            $rowsAdded = $state['rows_added'] ?? ($state['uniqueCount'] ?? 0);
+            
+            // If it's pending without steps or cancelled with 0 steps executed, don't show
+            if ($run->status === 'pending' && $currentStep === 0) {
+                return false;
+            }
+            if ($run->status === 'cancelled' && $currentStep === 0 && $rowsAdded === 0) {
+                return false;
+            }
+            return true;
+        })->values();
+
         $formatted = $runs->map(function ($run) {
             $state = $run->state ?? [];
             return array_merge($run->toArray(), $state, [
@@ -57,8 +74,11 @@ class AgentRunController extends Controller
 
         $run = $this->agentRunner->startRun($caseId, $description, $targetCount, $sourceMode);
 
-        // Dispatch background queue job so search runs automatically without browser
-        \App\Jobs\ProcessAgentDiscoveryRun::dispatch($run->id);
+        // If the client requested auto_start = true, dispatch background job.
+        // By default (plan-review phase), the run is kept pending and only plans steps until user explicitly confirms/starts it!
+        if ($request->boolean('auto_start', false)) {
+            \App\Jobs\ProcessAgentDiscoveryRun::dispatch($run->id);
+        }
 
         // Merge state properties into response so React hooks (useAgentRun / AgentGoalModal)
         // receive plan, stepResults, uniqueCount, etc. directly at top-level

@@ -79,7 +79,10 @@ class CellRunController extends Controller
                     searchLinkedIn: !empty($column['batchContactsLinkedIn'])
                 );
 
+                $row->refresh();
                 $data = $row->data ?? [];
+                $statuses = $row->cell_statuses ?? [];
+
                 if (!empty($result['contacts'])) {
                     $data["_contacts_json_{$outputKey}"] = json_encode($result['contacts']);
                     $summary = count($result['contacts']) . ' Kontakte gefunden';
@@ -139,7 +142,10 @@ class CellRunController extends Controller
                     crawlSources: $crawlSources
                 );
 
+                $row->refresh();
                 $data = array_merge($row->data ?? [], $result['fields'] ?? []);
+                $statuses = $row->cell_statuses ?? [];
+
                 $filled = count(array_filter($result['fields'] ?? []));
                 $summary = "{$filled}/" . count($fields) . " Felder angereichert";
                 $data[$outputKey] = $summary;
@@ -257,7 +263,10 @@ class CellRunController extends Controller
                 );
 
                 $val = trim($chat['raw'] ?? '');
+
+                $row->refresh();
                 $data = $row->data ?? [];
+                $statuses = $row->cell_statuses ?? [];
 
                 if (($column['outputMode'] ?? '') === 'json') {
                     $cleaned = preg_replace('/^```(?:json)?\s*/i', '', trim($val));
@@ -299,6 +308,8 @@ class CellRunController extends Controller
                 ]);
             }
         } catch (Exception $e) {
+            $row->refresh();
+            $statuses = $row->cell_statuses ?? [];
             $statuses[$outputKey] = 'error';
             $errors = $row->cell_errors ?? [];
             $errors[$outputKey] = $e->getMessage();

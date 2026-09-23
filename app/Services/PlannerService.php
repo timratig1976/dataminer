@@ -88,11 +88,14 @@ Known business directories (DE): gelbeseiten.de, wlw.de, branchenverzeichnis.de,
    the duplicates make catalog steps wasteful. If Maps already covers the area well,
    skip catalogs entirely.
 
-3. GEOGRAPHY IS YOUR JOB. You know all cities, districts, and regions worldwide.
-   - Specific city → plan steps only for that city (1–3 Maps steps).
-   - Region/state/country → create one google_maps step for EVERY significant city in that
-     region. Do NOT cherry-pick 3–5 cities. A German state like MV has ~15–20 relevant cities;
-     NRW has 50+. Cover them all. Never invent cities that don't exist.
+3. GEOGRAPHY & QUERY FORMULATION (CRUCIAL):
+   - CRITICAL: Never use abstract umbrella terms like "Tourismus Gastgewerbe", "Handwerk" or "Dienstleistungen" as mapQuery on Google Maps!
+     Google Maps does not have a category named "Tourismus Gastgewerbe". A search for "Tourismus Gastgewerbe Rostock" returns only 2-3 tourism offices or marketing associations!
+   - ALWAYS split umbrella terms into concrete sub-categories that Google Maps places actually have:
+     e.g. for "Tourismus/Gastgewerbe": "Restaurants", "Hotels", "Ferienwohnungen", "Cafés", "Pensionen", "Gasthäuser".
+     e.g. for "Handwerk": "Dachdecker", "Elektriker", "Maler", "Sanitär Heizung", "Tischler".
+   - Specific city → plan steps only for that city across multiple concrete sub-categories.
+   - Region/state/country → combine the largest cities in that region with concrete business categories (e.g. "Restaurants Rostock", "Hotels Schwerin", "Ferienwohnungen Rügen"). Cover concrete locations. Never invent cities that don't exist.
 
 4. RESPECT maxResults STRICTLY.
    - Sum of all estimatedHits MUST be ≤ maxResults × 1.3.
@@ -144,6 +147,72 @@ PROMPT;
         ?string $caseId = null
     ): array
     {
+        // ── 0. Deterministic Plan Generation for Explicit Sub-Industry & City Inputs ──
+        // If the user selected specific sub-branches and cities in the Sub-Industry modal,
+        // we can construct the steps directly, cleanly and instantly without LLM token truncation.
+        if (preg_match('/Sub-Branchen:\s*(.+?)\.\s*Städte:\s*(.+?)\./s', $userGoal, $matches)) {
+            $rawBranches = $matches[1];
+            $rawCities = $matches[2];
+
+            // Parse branches (e.g. "Hotellerie", "Gastronomie", "Restaurant")
+            preg_match_all('/"([^"]+)"/', $rawBranches, $bMatches);
+            $branches = !empty($bMatches[1]) ? $bMatches[1] : array_map('trim', explode(',', $rawBranches));
+            
+            // Clean up any trailing region suffix (e.g. "Gastronomie MV" -> "Gastronomie")
+            $branches = array_map(function ($b) {
+                return trim(preg_replace('/\b(MV|Mecklenburg-Vorpommern|NRW|Bayern|Deutschland)\b/i', '', $b));
+            }, array_filter($branches));
+            $branches = array_values(array_unique(array_filter($branches)));
+
+            // Parse cities
+            $cities = array_values(array_unique(array_filter(array_map('trim', explode(',', $rawCities)))));
+
+            if (!empty($branches) && !empty($cities)) {
+                $steps = [];
+                $stepIndex = 1;
+                $totalEstimated = 0;
+                $maxSteps = 2000; // Increased to 2,000 so full combinations (e.g. 20 branches x 70 cities = 1,400) are fully planned
+
+                // Interleave cities and branches: loop cities primarily, or round-robin across branches,
+                // so EVERY selected branch is included across all selected cities!
+                $branchCount = count($branches);
+                $cityCount = count($cities);
+
+                for ($cIdx = 0; $cIdx < $cityCount; $cIdx++) {
+                    $city = $cities[$cIdx];
+                    for ($bIdx = 0; $bIdx < $branchCount; $bIdx++) {
+                        $branch = $branches[$bIdx];
+
+                        $estimatedHits = in_array(strtolower($city), ['rostock', 'schwerin', 'neubrandenburg', 'stralsund', 'greifswald']) ? 25 : 15;
+                        $steps[] = [
+                            'id' => 'step_' . $stepIndex++,
+                            'type' => 'google_maps',
+                            'label' => "{$branch} in {$city}",
+                            'mapQuery' => $branch,
+                            'location' => "{$city}, Mecklenburg-Vorpommern",
+                            'source' => 'auto',
+                            'estimatedHits' => $estimatedHits,
+                            'priority' => 1,
+                        ];
+                        $totalEstimated += $estimatedHits;
+
+                        if (count($steps) >= $maxSteps) {
+                            break 2;
+                        }
+                    }
+                }
+
+                if (!empty($steps)) {
+                    return [
+                        'goal' => "Gezielte Suche für " . count($branches) . " Branchen in " . count($cities) . " Städten (" . count($steps) . " Schritte)",
+                        'steps' => $steps,
+                        'estimatedRows' => min($maxResults, $totalEstimated),
+                        'warnings' => [],
+                    ];
+                }
+            }
+        }
+
         $settings = GlobalSetting::instance();
         $apiKey = $settings->eden_api_key ?: env('EDEN_API_KEY');
 
@@ -151,8 +220,8 @@ PROMPT;
             return $this->fallbackPlan($userGoal, $maxResults);
         }
 
-        $region = $settings->eden_region ?: 'eu';
-        $model = $region === 'eu' ? 'mistral/mistral-small-latest' : 'openai/gpt-4o-mini';
+        $region = $settings->eden_region ?: 'us';
+        $model = $region === 'eu' ? 'mistral/mistral-large-latest' : 'openai/gpt-4o';
 
         $systemPrompt = $promptOverride ?: ($settings->planner_system_prompt ?: $this->buildDefaultSystemPrompt());
         
@@ -177,7 +246,7 @@ PROMPT;
                 model: $model,
                 system: $systemPrompt,
                 prompt: $userPrompt,
-                maxTokens: 1500,
+                maxTokens: 3500,
                 temperature: 0.1,
                 region: $region
             );

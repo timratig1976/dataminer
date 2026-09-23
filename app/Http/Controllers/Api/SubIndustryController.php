@@ -50,8 +50,8 @@ class SubIndustryController extends Controller
             . "}";
 
         try {
-            $region = $global->eden_region ?: 'eu';
-            $defaultModel = $region === 'eu' ? 'mistral/mistral-small-latest' : 'openai/gpt-4o-mini';
+            $region = $global->eden_region ?: 'us';
+            $defaultModel = $region === 'eu' ? 'mistral/mistral-large-latest' : 'openai/gpt-4o';
             $model = $request->input('model', $defaultModel);
 
             $resp = $edenAi->chatCompletion(
@@ -59,10 +59,12 @@ class SubIndustryController extends Controller
                 model: $model,
                 system: $systemPrompt,
                 prompt: "Analyse: {$prompt}",
+                maxTokens: 3000,
+                temperature: 0.1,
                 region: $region
             );
 
-            $raw = trim(preg_replace('/^```(?:json)?\n?/i', '', preg_replace('/\n?```$/i', '', $resp['raw'] ?? '')));
+            $raw = trim(preg_replace('/^```(?:json)?\s*/i', '', preg_replace('/\s*```$/', '', $resp['raw'] ?? '')));
             $parsed = json_decode($raw, true) ?? [];
 
             $suggestions = array_map(function ($s) {

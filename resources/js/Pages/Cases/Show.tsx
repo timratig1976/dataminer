@@ -4,7 +4,7 @@ import {
     ArrowLeft, Play, Download, Sparkles, RefreshCw, ChevronLeft, 
     ChevronRight, AlertCircle, Plus, Target, Upload, Database, Sliders, 
     Building2, UserCheck, Users, Globe, ExternalLink, Flame, RotateCcw, GripVertical, 
-    Search, FileText, CheckCircle2, Clock, Trash2, Loader2, Edit2, Check, X, Square, OctagonAlert
+    Search, FileText, CheckCircle2, Clock, Trash2, Loader2, Edit2, Check, X, Square, OctagonAlert, ChevronDown
 } from 'lucide-react';
 import { Link } from '@inertiajs/react';
 import { AgentGoalModal } from '../../Components/AgentGoalModal';
@@ -160,6 +160,7 @@ export default function CaseShow({ case: c }: Props) {
     const [runningPhase, setRunningPhase] = useState<string | null>(null);
     const [statusMsg, setStatusMsg] = useState<string | null>(null);
     const [stoppingProcess, setStoppingProcess] = useState(false);
+    const [showRunMenu, setShowRunMenu] = useState(false);
 
     // Row selection for bulk actions
     const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
@@ -215,22 +216,45 @@ export default function CaseShow({ case: c }: Props) {
 
     const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
-    const loadPage = useCallback((p: number) => {
-        setLoading(true);
-        setError(null);
+    const loadPage = useCallback((p: number, silent: boolean = false) => {
+        if (!silent) {
+            setLoading(true);
+            setError(null);
+        }
         apiFetch(`/api/rows?caseId=${caseData.id}&limit=${PAGE_SIZE}&page=${p}`)
             .then(res => {
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
                 return res.json();
             })
             .then(data => {
-                setRows(data.rows ?? []);
+                const incoming: any[] = data.rows ?? [];
+                if (!silent) {
+                    setRows(incoming);
+                } else {
+                    setRows(prev => {
+                        if (prev.length === 0) return incoming;
+                        const map = new Map(incoming.map(r => [r.id, r]));
+                        return prev.map(r => {
+                            const inc = map.get(r.id);
+                            if (!inc) return r;
+                            return {
+                                ...r,
+                                ...inc,
+                                data: { ...(r.data || {}), ...(inc.data || {}) },
+                                cell_statuses: { ...(r.cell_statuses || {}), ...(inc.cell_statuses || {}) },
+                                cell_errors: { ...(r.cell_errors || {}), ...(inc.cell_errors || {}) },
+                            };
+                        });
+                    });
+                }
                 setTotal(data.total ?? 0);
-                setLoading(false);
+                if (!silent) setLoading(false);
             })
             .catch(err => {
-                setError(err.message ?? 'Fehler beim Laden der Zeilen.');
-                setLoading(false);
+                if (!silent) {
+                    setError(err.message ?? 'Fehler beim Laden der Zeilen.');
+                    setLoading(false);
+                }
             });
     }, [caseData.id]);
 
@@ -248,6 +272,24 @@ export default function CaseShow({ case: c }: Props) {
     };
 
     useEffect(() => { loadPage(page); }, [page, loadPage]);
+
+    // Live-Polling: While activeTab === "Firmen" and any cell is running (or worker is active), poll quietly every 2.5s
+    useEffect(() => {
+        if (activeTab !== "Firmen") return;
+
+        const hasRunningRows = rows.some(r => {
+            const statuses = Object.values(r.cell_statuses || {});
+            return statuses.includes('running');
+        });
+
+        // If any cell in this table is running or we have running cells locally, poll every 2.5s
+        if (hasRunningRows || runningCells.size > 0 || runningPhase !== null) {
+            const timer = setInterval(() => {
+                loadPage(page, true);
+            }, 2500);
+            return () => clearInterval(timer);
+        }
+    }, [activeTab, rows, runningCells.size, runningPhase, page, loadPage]);
 
     // Tab Data Fetching
     useEffect(() => {
@@ -326,7 +368,16 @@ export default function CaseShow({ case: c }: Props) {
 
             const data = await res.json();
             if (res.ok && data.row) {
-                setRows(prev => prev.map(r => r.id === rowId ? data.row : r));
+                setRows(prev => prev.map(r => {
+                    if (r.id !== rowId) return r;
+                    return {
+                        ...r,
+                        ...data.row,
+                        data: { ...(r.data || {}), ...(data.row.data || {}) },
+                        cell_statuses: { ...(r.cell_statuses || {}), ...(data.row.cell_statuses || {}) },
+                        cell_errors: { ...(r.cell_errors || {}), ...(data.row.cell_errors || {}) },
+                    };
+                }));
             } else {
                 throw new Error(data.error || 'Fehler beim Ausführen der Zelle');
             }
@@ -367,6 +418,35 @@ export default function CaseShow({ case: c }: Props) {
         }
     };
 
+    // Run full table (excluding completed rows)
+    const runFullTable = async (mode: 'empty_only' | 'all_force' = 'empty_only') => {
+        const confirmMsg = mode === 'empty_only'
+            ? 'Möchtest du die gesamte Tabelle starten? Alle noch nicht fertigen Zeilen werden angereichert (bereits fertige Zeilen werden übersprungen).'
+            : 'Möchtest du die gesamte Tabelle inklusive aller bereits fertigen Zeilen neu anreichern?';
+        
+        if (!confirm(confirmMsg)) return;
+
+        try {
+            setStatusMsg('Tabelle wird an die Worker-Queue übergeben...');
+            const res = await apiFetch('/api/run/table', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    caseId: caseData.id,
+                    runMode: mode,
+                }),
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Fehler beim Starten der Tabelle');
+            setStatusMsg(data.message || 'Ausführung gestartet');
+            setTimeout(() => setStatusMsg(null), 6000);
+            loadPage(page);
+        } catch (e: any) {
+            alert('Fehler: ' + e.message);
+            setStatusMsg(null);
+        }
+    };
+
     // Bulk actions on selected rows
     const deleteSelectedRows = async () => {
         if (selectedRows.size === 0) return;
@@ -394,9 +474,17 @@ export default function CaseShow({ case: c }: Props) {
             alert('Keine KI-Spalten vorhanden.');
             return;
         }
+
+        // Sort columns: run company enrichment (Firmendaten) first so domain/phone are available for contact search
+        const sortedCols = [...targetCols].sort((a, b) => {
+            const aIsCompany = a.tool === 'batch_company' || a.columnGroup === 'company' ? 0 : 1;
+            const bIsCompany = b.tool === 'batch_company' || b.columnGroup === 'company' ? 0 : 1;
+            return aIsCompany - bIsCompany;
+        });
+
         for (const rId of selectedRows) {
-            for (const col of targetCols) {
-                runCell(rId, col);
+            for (const col of sortedCols) {
+                await runCell(rId, col);
             }
         }
     };
@@ -930,6 +1018,96 @@ export default function CaseShow({ case: c }: Props) {
                                 >
                                     Dedupe
                                 </button>
+
+                                {/* Run Table / Phase Dropdown (Fulltable, Firmendaten first, Kontakte manually) */}
+                                <div style={{ position: "relative" }}>
+                                    <div style={{ display: "inline-flex", borderRadius: 4, overflow: "hidden", border: "1px solid var(--orange-mid)" }}>
+                                        <button
+                                            onClick={() => runFullTable('empty_only')}
+                                            title="Gesamte Tabelle anreichern (bereits fertige Zeilen werden übersprungen)"
+                                            className="btn-v2 btn-v2-ai"
+                                            style={{
+                                                padding: "3px 10px",
+                                                fontSize: 11.5,
+                                                fontWeight: 600,
+                                                display: "inline-flex",
+                                                alignItems: "center",
+                                                gap: 5,
+                                                borderRadius: 0,
+                                                border: "none",
+                                                borderRight: "1px solid rgba(255,255,255,0.2)"
+                                            }}
+                                        >
+                                            <Play style={{ width: 11, height: 11, fill: "currentColor" }} />
+                                            <span>Tabelle ausführen (offene)</span>
+                                        </button>
+                                        <button
+                                            onClick={() => setShowRunMenu(v => !v)}
+                                            title="Weitere Start-Optionen (z. B. nur Firmendaten oder nur Kontakte)"
+                                            className="btn-v2 btn-v2-ai"
+                                            style={{
+                                                padding: "3px 6px",
+                                                fontSize: 11.5,
+                                                borderRadius: 0,
+                                                border: "none"
+                                            }}
+                                        >
+                                            <ChevronDown style={{ width: 12, height: 12 }} />
+                                        </button>
+                                    </div>
+
+                                    {showRunMenu && (
+                                        <div 
+                                            style={{
+                                                position: "absolute",
+                                                top: "calc(100% + 4px)",
+                                                right: 0,
+                                                width: 250,
+                                                background: "var(--surface)",
+                                                border: "1px solid var(--border)",
+                                                borderRadius: 6,
+                                                boxShadow: "var(--shadow-md)",
+                                                zIndex: 60,
+                                                padding: 4
+                                            }}
+                                        >
+                                            <button
+                                                onClick={() => { setShowRunMenu(false); runFullTable('empty_only'); }}
+                                                className="w-full text-left px-3 py-2 text-xs rounded hover:bg-slate-50 flex items-start gap-2.5 transition-colors cursor-pointer"
+                                            >
+                                                <Play className="w-3.5 h-3.5 text-purple-600 mt-0.5 shrink-0" />
+                                                <div>
+                                                    <div className="font-semibold text-slate-800">Gesamte Tabelle (Alle KI-Spalten)</div>
+                                                    <div className="text-[10.5px] text-slate-500">Reichert Firmendaten & Entscheider für alle unfertigen Zeilen an.</div>
+                                                </div>
+                                            </button>
+
+                                            <div className="h-px bg-slate-100 my-1" />
+
+                                            <button
+                                                onClick={() => { setShowRunMenu(false); runPhase('company'); }}
+                                                className="w-full text-left px-3 py-2 text-xs rounded hover:bg-slate-50 flex items-start gap-2.5 transition-colors cursor-pointer"
+                                            >
+                                                <Building2 className="w-3.5 h-3.5 text-blue-600 mt-0.5 shrink-0" />
+                                                <div>
+                                                    <div className="font-semibold text-slate-800">1. Nur Firmendaten (Schnell)</div>
+                                                    <div className="text-[10.5px] text-slate-500">Holt erst Domain, Adresse & Telefon für alle Zeilen (ohne zeitaufwendige Kontaktsuche).</div>
+                                                </div>
+                                            </button>
+
+                                            <button
+                                                onClick={() => { setShowRunMenu(false); runPhase('contact'); }}
+                                                className="w-full text-left px-3 py-2 text-xs rounded hover:bg-slate-50 flex items-start gap-2.5 transition-colors cursor-pointer"
+                                            >
+                                                <Users className="w-3.5 h-3.5 text-emerald-600 mt-0.5 shrink-0" />
+                                                <div>
+                                                    <div className="font-semibold text-slate-800">2. Nur Entscheider & Kontakte</div>
+                                                    <div className="text-[10.5px] text-slate-500">Sucht Geschäftsführer & Impressum für Firmen mit gefundener Domain.</div>
+                                                </div>
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
 
                                 {/* Hard Stop Button for entire table process */}
                                 <button
@@ -1914,12 +2092,26 @@ export default function CaseShow({ case: c }: Props) {
 
                         {agentRunsLoading ? (
                             <div className="p-12 text-center text-xs text-slate-400">Lade Suchen...</div>
-                        ) : agentRuns.length === 0 ? (
+                        ) : agentRuns.filter(r => {
+                            const steps = r.state?.current_step_index ?? r.current_step_index ?? 0;
+                            const added = r.uniqueCount ?? r.state?.rows_added ?? r.state?.uniqueCount ?? 0;
+                            if (r.status === 'pending' && steps === 0) return false;
+                            if (r.status === 'cancelled' && steps === 0 && added === 0) return false;
+                            return true;
+                        }).length === 0 ? (
                             <div className="p-12 text-center text-xs text-slate-400 border rounded-lg bg-slate-50">
                                 Bislang keine Discovery-Läufe in diesem Case. Klicke auf "+ Neue Suche starten", um Leads zu finden.
                             </div>
                         ) : (
-                            agentRuns.map((run) => {
+                            agentRuns
+                                .filter(r => {
+                                    const steps = r.state?.current_step_index ?? r.current_step_index ?? 0;
+                                    const added = r.uniqueCount ?? r.state?.rows_added ?? r.state?.uniqueCount ?? 0;
+                                    if (r.status === 'pending' && steps === 0) return false;
+                                    if (r.status === 'cancelled' && steps === 0 && added === 0) return false;
+                                    return true;
+                                })
+                                .map((run) => {
                                 const goalText = typeof run.goal === 'object' && run.goal !== null
                                     ? (run.goal.description || JSON.stringify(run.goal))
                                     : String(run.goal || '–');
@@ -1961,12 +2153,6 @@ export default function CaseShow({ case: c }: Props) {
                                                 <span className="text-[11px] text-slate-400 font-mono block">
                                                     {new Date(run.created_at).toLocaleString('de-DE')}
                                                 </span>
-                                                <button
-                                                    onClick={() => setShowAgentModal(true)}
-                                                    className="mt-1 text-xs text-blue-600 hover:text-blue-800 font-medium cursor-pointer"
-                                                >
-                                                    Im Modal öffnen ↗
-                                                </button>
                                             </div>
                                         </div>
 
@@ -2017,10 +2203,10 @@ export default function CaseShow({ case: c }: Props) {
 
                                         {/* Recent activity log */}
                                         {logs.length > 0 && (
-                                            <div className="text-[11px] bg-slate-900 text-slate-300 rounded-md p-2 font-mono max-h-20 overflow-y-auto">
-                                                <div className="text-[10px] text-slate-500 mb-1">Letzte Aktivität:</div>
+                                            <div className="text-[11px] bg-slate-50 text-slate-700 border border-slate-200 rounded-md p-2.5 font-mono max-h-20 overflow-y-auto">
+                                                <div className="text-[10px] text-slate-400 font-medium mb-1">Letzte Aktivität:</div>
                                                 {logs.slice(-3).map((l: any, i: number) => (
-                                                    <div key={i} className="truncate">
+                                                    <div key={i} className="truncate text-slate-600">
                                                         {typeof l === 'object' && l !== null ? l.message : String(l)}
                                                     </div>
                                                 ))}

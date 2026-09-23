@@ -15,7 +15,7 @@ class ProcessAgentDiscoveryRun implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    public int $timeout = 600; // 10 minutes max per job
+    public int $timeout = 3600; // 60 minutes max per job
     public int $tries = 1;
 
     public function __construct(

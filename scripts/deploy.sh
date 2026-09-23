@@ -27,6 +27,7 @@ rsync -avz --progress -e "ssh -p $REMOTE_PORT" \
   --exclude='node_modules' \
   --exclude='.git' \
   --exclude='.env' \
+  --exclude='public/hot' \
   --exclude='storage/logs/*' \
   --exclude='storage/framework/cache/*' \
   --exclude='storage/framework/sessions/*' \
