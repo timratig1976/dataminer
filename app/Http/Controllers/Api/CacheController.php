@@ -24,7 +24,8 @@ class CacheController extends Controller
         $cleanDomain = preg_replace('/\/.*$/', '', $cleanDomain);
         $cleanDomain = preg_replace('/^www\./', '', $cleanDomain);
 
-        $entries = ScrapeCache::where('url', 'ILIKE', "%{$cleanDomain}%")->get();
+        // Compatible with both SQLite and PostgreSQL (LOWER(...) LIKE ...)
+        $entries = ScrapeCache::whereRaw('LOWER(url) LIKE ?', ["%{$cleanDomain}%"])->get();
 
         return response()->json([
             'domain' => $cleanDomain,
