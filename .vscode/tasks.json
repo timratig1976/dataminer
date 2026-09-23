@@ -4,10 +4,17 @@
 		{
 			"label": "Dev Server starten",
 			"type": "shell",
-			"command": "npm run dev",
+			"command": "php artisan serve --port=8000",
 			"isBackground": true,
 			"problemMatcher": [],
 			"group": "build"
+		},
+		{
+			"label": "Vite Dev Server",
+			"type": "shell",
+			"command": "npm run dev",
+			"isBackground": true,
+			"problemMatcher": []
 		}
 	]
 }
