@@ -4,7 +4,7 @@ import {
     ArrowLeft, Play, Download, Sparkles, RefreshCw, ChevronLeft, 
     ChevronRight, AlertCircle, Plus, Target, Upload, Database, Sliders, 
     Building2, UserCheck, Users, Globe, ExternalLink, Flame, RotateCcw, GripVertical, 
-    Search, FileText, CheckCircle2, Clock, Trash2, Loader2, Edit2, Check, X
+    Search, FileText, CheckCircle2, Clock, Trash2, Loader2, Edit2, Check, X, Square, OctagonAlert
 } from 'lucide-react';
 import { Link } from '@inertiajs/react';
 import { AgentGoalModal } from '../../Components/AgentGoalModal';
@@ -160,6 +160,7 @@ export default function CaseShow({ case: c }: Props) {
     const [runningCells, setRunningCells] = useState<Set<string>>(new Set());
     const [runningPhase, setRunningPhase] = useState<string | null>(null);
     const [statusMsg, setStatusMsg] = useState<string | null>(null);
+    const [stoppingProcess, setStoppingProcess] = useState(false);
 
     // Row selection for bulk actions
     const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
@@ -414,6 +415,42 @@ export default function CaseShow({ case: c }: Props) {
             }
         } catch (err: any) {
             alert('Fehler beim Deduplizieren: ' + err.message);
+        }
+    };
+
+    // Hard stop for all processes in this case
+    const handleHardStop = async () => {
+        if (!confirm('Möchtest du wirklich alle laufenden Hintergrund-Prozesse, Queue-Jobs und KI-Anfragen für diesen Case sofort hart abbrechen?')) {
+            return;
+        }
+
+        setStoppingProcess(true);
+        setStatusMsg('Stoppe alle laufenden Prozesse im Case...');
+
+        try {
+            const res = await apiFetch(`/api/cases/${caseData.id}/stop`, { method: 'POST' });
+            const data = await res.json();
+
+            // Clear local running states
+            setRunningCells(new Set());
+            setRunningPhase(null);
+            setRows(prev => prev.map(r => {
+                const statuses = { ...(r.cell_statuses || {}) };
+                Object.keys(statuses).forEach(k => {
+                    if (statuses[k] === 'running') statuses[k] = 'idle';
+                });
+                return { ...r, cell_statuses: statuses };
+            }));
+
+            setStatusMsg(data.message || 'Alle Prozesse gestoppt.');
+            setTimeout(() => setStatusMsg(null), 5000);
+            loadPage(page);
+            refreshCase();
+        } catch (e: any) {
+            alert('Fehler beim Stoppen: ' + e.message);
+            setStatusMsg(null);
+        } finally {
+            setStoppingProcess(false);
         }
     };
 
@@ -893,6 +930,32 @@ export default function CaseShow({ case: c }: Props) {
                                     style={{ padding: "3px 7px", fontSize: 11.5 }}
                                 >
                                     Dedupe
+                                </button>
+
+                                {/* Hard Stop Button for entire table process */}
+                                <button
+                                    onClick={handleHardStop}
+                                    disabled={stoppingProcess}
+                                    title="Alle laufenden KI-Jobs & Queue-Hintergrundprozesse für diesen Case sofort hart abbrechen"
+                                    className="btn-v2"
+                                    style={{
+                                        padding: "3px 9px",
+                                        fontSize: 11.5,
+                                        color: "#b91c1c",
+                                        background: "#fef2f2",
+                                        borderColor: "#fecaca",
+                                        fontWeight: 600,
+                                        display: "inline-flex",
+                                        alignItems: "center",
+                                        gap: 4
+                                    }}
+                                >
+                                    {stoppingProcess ? (
+                                        <RefreshCw style={{ width: 11, height: 11 }} className="animate-spin" />
+                                    ) : (
+                                        <Square style={{ width: 10, height: 10, fill: "currentColor" }} />
+                                    )}
+                                    <span>Stop</span>
                                 </button>
 
                                 {/* Spalten Dropdown Toggle */}
