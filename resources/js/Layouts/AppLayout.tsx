@@ -483,6 +483,13 @@ export default function Layout({
                                     );
                                 })}
                             </div>
+
+                            {/* Discrete Version indicator */}
+                            <div className="text-center pt-1 pb-0.5">
+                                <span className="text-[10px] font-mono text-slate-400 select-none tracking-tight opacity-75 hover:opacity-100 transition-opacity" title="DataMiner Build 2.4.1">
+                                    v2.4.1
+                                </span>
+                            </div>
                         </div>
                     )}
                 </div>
