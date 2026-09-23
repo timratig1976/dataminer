@@ -2511,7 +2511,7 @@ export default function CaseShow({ case: c }: Props) {
                                     ⚡ Gecachte Scrape-Daten für {cacheModalRow.data['company_name'] || cacheModalRow.data['domain'] || 'Zeile'}
                                 </h3>
                                 <div className="text-[11.5px] mt-0.5" style={{ color: 'var(--text-3)' }}>
-                                    Domain: <code className="bg-slate-100 px-1.5 py-0.5 rounded font-mono text-slate-800">{cacheModalRow.data['domain'] || 'keine Domain'}</code> · Kosten dieser Daten: <span className="font-semibold text-emerald-600">$0,00 (aus PostgreSQL scrape_cache)</span>
+                                    Domain: <code className="bg-slate-100 px-1.5 py-0.5 rounded font-mono text-slate-800">{cacheModalRow.data['domain'] || 'keine Domain'}</code>
                                 </div>
                             </div>
                             <button onClick={() => setCacheModalRow(null)} className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer">
@@ -2528,12 +2528,12 @@ export default function CaseShow({ case: c }: Props) {
                                 const gmbJson = Object.fromEntries(gmbRawFields);
 
                                 return (
-                                <div className="border border-amber-200 bg-amber-50/50 rounded-xl p-3.5 space-y-2.5">
+                                <div className="border rounded-xl p-3.5 space-y-3 bg-white" style={{ borderColor: 'var(--border)' }}>
                                     <div className="flex items-center justify-between">
                                         <div className="flex items-center gap-2">
-                                            <span className="text-base">📍</span>
-                                            <span className="font-bold text-xs text-amber-900">Google Maps / GMB Daten (aus Discovery)</span>
-                                            <span className="text-[10px] bg-amber-100 text-amber-800 font-semibold px-2 py-0.5 rounded-full border border-amber-200">
+                                            <span className="text-sm">📍</span>
+                                            <span className="font-semibold text-xs text-slate-800">Google Maps / GMB Daten (aus Discovery)</span>
+                                            <span className="text-[10px] bg-slate-100 text-slate-600 font-medium px-2 py-0.5 rounded border" style={{ borderColor: 'var(--border-xs)' }}>
                                                 gmb:existing
                                             </span>
                                         </div>
@@ -2542,45 +2542,45 @@ export default function CaseShow({ case: c }: Props) {
                                                 href={cacheModalRow.data['maps_url']} 
                                                 target="_blank" 
                                                 rel="noreferrer"
-                                                className="text-[11px] text-amber-800 hover:text-amber-950 font-semibold underline flex items-center gap-1"
+                                                className="text-[11px] text-orange-600 hover:text-orange-700 font-medium hover:underline flex items-center gap-1"
                                             >
                                                 Auf Maps öffnen ↗
                                             </a>
                                         )}
                                     </div>
 
-                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs pt-1">
-                                        <div className="p-2 bg-white rounded-lg border border-amber-200/70">
-                                            <div className="text-[10px] text-slate-400 font-semibold uppercase">Name / Titel</div>
-                                            <div className="font-semibold text-slate-800 truncate" title={cacheModalRow.data['Unternehmen'] || cacheModalRow.data['company_name']}>
+                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+                                        <div className="p-2.5 rounded-lg border bg-slate-50/50" style={{ borderColor: 'var(--border-xs)' }}>
+                                            <div className="text-[10px] text-slate-400 font-medium uppercase tracking-wider">Name / Titel</div>
+                                            <div className="font-semibold text-slate-800 truncate mt-0.5" title={cacheModalRow.data['Unternehmen'] || cacheModalRow.data['company_name']}>
                                                 {cacheModalRow.data['Unternehmen'] || cacheModalRow.data['company_name'] || '—'}
                                             </div>
                                         </div>
-                                        <div className="p-2 bg-white rounded-lg border border-amber-200/70">
-                                            <div className="text-[10px] text-slate-400 font-semibold uppercase">Adresse (GMB)</div>
-                                            <div className="font-semibold text-slate-800 truncate" title={cacheModalRow.data['Adresse'] || cacheModalRow.data['address']}>
+                                        <div className="p-2.5 rounded-lg border bg-slate-50/50" style={{ borderColor: 'var(--border-xs)' }}>
+                                            <div className="text-[10px] text-slate-400 font-medium uppercase tracking-wider">Adresse (GMB)</div>
+                                            <div className="font-semibold text-slate-800 truncate mt-0.5" title={cacheModalRow.data['Adresse'] || cacheModalRow.data['address']}>
                                                 {cacheModalRow.data['Adresse'] || cacheModalRow.data['address'] || '—'}
                                             </div>
                                         </div>
-                                        <div className="p-2 bg-white rounded-lg border border-amber-200/70">
-                                            <div className="text-[10px] text-slate-400 font-semibold uppercase">Telefon</div>
-                                            <div className="font-semibold text-slate-800 truncate">
+                                        <div className="p-2.5 rounded-lg border bg-slate-50/50" style={{ borderColor: 'var(--border-xs)' }}>
+                                            <div className="text-[10px] text-slate-400 font-medium uppercase tracking-wider">Telefon</div>
+                                            <div className="font-semibold text-slate-800 truncate mt-0.5">
                                                 {cacheModalRow.data['phone'] || '—'}
                                             </div>
                                         </div>
-                                        <div className="p-2 bg-white rounded-lg border border-amber-200/70">
-                                            <div className="text-[10px] text-slate-400 font-semibold uppercase">Bewertung & Typ</div>
-                                            <div className="font-semibold text-slate-800 truncate">
-                                                ⭐ {cacheModalRow.data['maps_rating'] || cacheModalRow.data['Bewertung'] || '—'} · {cacheModalRow.data['Kategorie'] || cacheModalRow.data['category'] || 'Ort'}
+                                        <div className="p-2.5 rounded-lg border bg-slate-50/50" style={{ borderColor: 'var(--border-xs)' }}>
+                                            <div className="text-[10px] text-slate-400 font-medium uppercase tracking-wider">Bewertung & Typ</div>
+                                            <div className="font-semibold text-slate-800 truncate mt-0.5">
+                                                ★ {cacheModalRow.data['maps_rating'] || cacheModalRow.data['Bewertung'] || '—'} · {cacheModalRow.data['Kategorie'] || cacheModalRow.data['category'] || 'Ort'}
                                             </div>
                                         </div>
                                     </div>
 
                                     {/* Raw GMB JSON Payload */}
-                                    <div className="pt-1">
-                                        <div className="flex items-center justify-between mb-1">
-                                            <span className="text-[10.5px] font-mono font-bold text-amber-900 uppercase">
-                                                {'{ }'} GMB Raw JSON Dataset (Ursprünglicher Roh-Datensatz)
+                                    <div className="border rounded-lg overflow-hidden" style={{ borderColor: 'var(--border-xs)' }}>
+                                        <div className="p-2 bg-slate-50 border-b flex items-center justify-between text-xs" style={{ borderColor: 'var(--border-xs)' }}>
+                                            <span className="text-[10.5px] font-mono font-medium text-slate-600">
+                                                {'{ }'} Ursprünglicher GMB Datensatz (JSON)
                                             </span>
                                             <button
                                                 type="button"
@@ -2588,12 +2588,12 @@ export default function CaseShow({ case: c }: Props) {
                                                     navigator.clipboard.writeText(JSON.stringify(gmbJson, null, 2));
                                                     alert('GMB Rohdaten in Zwischenablage kopiert!');
                                                 }}
-                                                className="text-[10px] text-amber-800 hover:underline cursor-pointer font-medium"
+                                                className="text-[10.5px] text-orange-600 hover:text-orange-700 hover:underline cursor-pointer font-medium"
                                             >
                                                 JSON kopieren
                                             </button>
                                         </div>
-                                        <pre className="p-2.5 bg-slate-900 text-amber-300 rounded-lg text-[10.5px] font-mono leading-relaxed overflow-x-auto max-h-48 border border-amber-900/30">
+                                        <pre className="p-3 bg-white text-slate-700 text-[11px] font-mono leading-relaxed overflow-x-auto max-h-48 whitespace-pre-wrap select-text">
                                             {JSON.stringify(gmbJson, null, 2)}
                                         </pre>
                                     </div>
@@ -2603,9 +2603,9 @@ export default function CaseShow({ case: c }: Props) {
 
                             {/* ── Gecachte Scrape / Impressum Webdaten ── */}
                             <div className="space-y-2">
-                                <div className="text-xs font-bold uppercase tracking-wider text-slate-600 flex items-center gap-1.5">
+                                <div className="text-xs font-semibold text-slate-700 flex items-center gap-1.5">
                                     <span>🌐</span>
-                                    <span>Gecachte Web-Scrapes & Impressum (PostgreSQL scrape_cache)</span>
+                                    <span>Gecachte Web-Scrapes & Impressum</span>
                                 </div>
 
                                 {cacheModalLoading ? (
