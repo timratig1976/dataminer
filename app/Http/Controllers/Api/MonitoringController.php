@@ -109,6 +109,44 @@ class MonitoringController extends Controller
                 ];
             });
 
+        // Add Worker & Queue Status check (PM2 on server or DB queue count)
+        $workerInfo = [
+            'pm2_detected' => false,
+            'workers' => [],
+            'queue_driver' => config('queue.default', 'database'),
+            'pending_jobs' => 0,
+            'failed_jobs' => 0,
+        ];
+
+        try {
+            $workerInfo['pending_jobs'] = \Illuminate\Support\Facades\DB::table('jobs')->count();
+            $workerInfo['failed_jobs'] = \Illuminate\Support\Facades\DB::table('failed_jobs')->count();
+        } catch (\Throwable $e) {}
+
+        // Check PM2 status
+        try {
+            $pm2Output = shell_exec('pm2 jlist 2>/dev/null');
+            if ($pm2Output) {
+                $pm2Data = json_decode($pm2Output, true);
+                if (is_array($pm2Data)) {
+                    $workerInfo['pm2_detected'] = true;
+                    foreach ($pm2Data as $proc) {
+                        $name = $proc['name'] ?? 'worker';
+                        $pm2Env = $proc['pm2_env'] ?? [];
+                        $workerInfo['workers'][] = [
+                            'name' => $name,
+                            'status' => $pm2Env['status'] ?? ($proc['status'] ?? 'unknown'),
+                            'pid' => $proc['pid'] ?? null,
+                            'uptime' => $pm2Env['pm_uptime'] ?? null,
+                            'restarts' => $pm2Env['restart_time'] ?? 0,
+                            'memory_mb' => round(($proc['monit']['memory'] ?? 0) / 1024 / 1024, 1),
+                            'cpu_percent' => $proc['monit']['cpu'] ?? 0,
+                        ];
+                    }
+                }
+            }
+        } catch (\Throwable $e) {}
+
         return response()->json([
             'metrics' => [
                 'total_cases' => $cases->count(),
@@ -122,6 +160,7 @@ class MonitoringController extends Controller
             'runs' => $activeRuns,
             'enrichment_jobs' => $formattedJobs,
             'recent_logs' => $recentLogs,
+            'worker_info' => $workerInfo,
         ]);
     }
 }

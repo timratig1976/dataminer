@@ -56,11 +56,27 @@ interface CaseLogItem {
     created_at: string | null;
 }
 
+interface WorkerInfo {
+    pm2_detected: boolean;
+    workers: Array<{
+        name: string;
+        status: string;
+        pid: number | null;
+        memory_mb: number;
+        cpu_percent: number;
+        restarts: number;
+    }>;
+    queue_driver: string;
+    pending_jobs: number;
+    failed_jobs: number;
+}
+
 export default function MonitoringPage() {
     const [metrics, setMetrics] = useState<RunnerMetric | null>(null);
     const [runs, setRuns] = useState<RunnerItem[]>([]);
     const [jobs, setJobs] = useState<EnrichmentJobItem[]>([]);
     const [logs, setLogs] = useState<CaseLogItem[]>([]);
+    const [workerInfo, setWorkerInfo] = useState<WorkerInfo | null>(null);
     const [loading, setLoading] = useState(true);
 
     const loadData = async () => {
@@ -71,6 +87,7 @@ export default function MonitoringPage() {
             if (Array.isArray(data.runs)) setRuns(data.runs);
             if (Array.isArray(data.enrichment_jobs)) setJobs(data.enrichment_jobs);
             if (Array.isArray(data.recent_logs)) setLogs(data.recent_logs);
+            if (data.worker_info) setWorkerInfo(data.worker_info);
         } catch (e) {
             console.error(e);
         } finally {
@@ -126,7 +143,13 @@ export default function MonitoringPage() {
                                     <span className="text-[11px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 font-medium">Leerlauf</span>
                                 )}
                             </div>
-                            <div className="text-[11px] text-slate-500">{metrics.total_runs} Durchläufe erfasst</div>
+                            <div className="text-[11px] text-slate-500">
+                                {workerInfo?.pm2_detected ? (
+                                    <span className="text-emerald-600 font-medium">● PM2 Worker aktiv ({workerInfo.workers.length} Prozesse)</span>
+                                ) : (
+                                    <span>Queue: {workerInfo?.queue_driver || 'database'} ({workerInfo?.pending_jobs || 0} wartend)</span>
+                                )}
+                            </div>
                         </div>
 
                         <div className="p-4 rounded-xl border bg-white shadow-xs space-y-1" style={{ borderColor: 'var(--border)' }}>

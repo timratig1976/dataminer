@@ -98,23 +98,22 @@ const COL_LABELS: Record<string, string> = {
 };
 
 const DEFAULT_BASE_KEYS = [
-    'domain',
-    '_scrape_cached_ts',
     'company_name',
+    'domain',
+    'maps_url',
+    '_scrape_cached_ts',
     'industry',
     'address',
     'zip',
     'city',
-    'description',
     'phone',
-    'email',
     'company_email',
-    'employees',
-    'founded',
     'maps_rating',
     'category',
     'maps_reviews',
-    'maps_url',
+    'description',
+    'employees',
+    'founded',
 ];
 
 export default function CaseShow({ case: c }: Props) {
