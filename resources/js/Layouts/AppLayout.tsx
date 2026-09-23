@@ -361,33 +361,128 @@ export default function Layout({
                             )}
                         </>
                     ) : (
-                        <div className="grid grid-cols-2 gap-1.5">
-                            {bottomNav.map((item, idx) => {
-                                const active = url === item.href || (item.href === '/settings' && url.startsWith('/settings') && !url.startsWith('/settings/users'));
-                                return (
-                                    <Link
-                                        key={idx}
-                                        href={item.href}
-                                        title={item.title}
-                                        className="flex items-center gap-2 py-2 px-2.5 rounded-lg transition-all cursor-pointer group"
-                                        style={{
-                                            color: active ? 'var(--orange)' : 'var(--text-2)',
-                                            background: active ? 'var(--orange-soft)' : 'transparent',
-                                            border: active ? '1px solid rgba(234, 88, 12, 0.2)' : '1px solid transparent',
-                                        }}
+                        <div className="space-y-1.5">
+                            {/* API Status / Health Badge above Settings & Users */}
+                            {healthData && (
+                                <div className="relative">
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowHealthPopover(!showHealthPopover)}
+                                        className={`w-full flex items-center justify-between gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-colors cursor-pointer ${
+                                            healthData.has_flaw
+                                                ? 'bg-rose-50 border-rose-200 text-rose-700 hover:bg-rose-100'
+                                                : 'bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100'
+                                        }`}
+                                        title="API Quota & Verbindungsstatus"
                                     >
-                                        <div className="transition-transform group-hover:scale-110">
-                                            {item.icon}
+                                        <div className="flex items-center gap-1.5 truncate">
+                                            {healthData.has_flaw ? (
+                                                <AlertCircle className="w-3.5 h-3.5 shrink-0 text-rose-600 animate-pulse" />
+                                            ) : (
+                                                <CheckCircle2 className="w-3.5 h-3.5 shrink-0 text-emerald-600" />
+                                            )}
+                                            <span className="truncate text-[11px] font-semibold">
+                                                {healthData.has_flaw ? `${healthData.flaws.length} API Warnung(en)` : 'APIs bereit'}
+                                            </span>
                                         </div>
-                                        <span
-                                            className="text-[11px] leading-tight font-medium truncate"
-                                            style={{ color: active ? 'var(--orange)' : 'var(--text-1)' }}
-                                        >
-                                            {item.label}
+                                        <span className="text-[9.5px] uppercase font-bold tracking-wider px-1 py-0.2 rounded bg-white/70">
+                                            Status
                                         </span>
-                                    </Link>
-                                );
-                            })}
+                                    </button>
+
+                                    {/* Health Popover from Sidebar */}
+                                    {showHealthPopover && (
+                                        <>
+                                            <div
+                                                className="fixed inset-0 z-40"
+                                                onClick={() => setShowHealthPopover(false)}
+                                            />
+                                            <div
+                                                className="absolute left-full bottom-0 ml-2 w-80 rounded-xl shadow-xl z-50 p-3 space-y-2.5 animate-in fade-in slide-in-from-left-2 duration-150"
+                                                style={{
+                                                    background: 'var(--surface)',
+                                                    border: '1px solid var(--border)',
+                                                }}
+                                            >
+                                                <div className="flex items-center justify-between pb-1.5 border-b" style={{ borderColor: 'var(--border-xs)' }}>
+                                                    <span className="font-semibold text-xs text-slate-800">API Status & Quotas</span>
+                                                    <Link
+                                                        href="/settings"
+                                                        onClick={() => setShowHealthPopover(false)}
+                                                        className="text-[11px] text-orange-600 hover:underline font-medium"
+                                                    >
+                                                        Keys verwalten →
+                                                    </Link>
+                                                </div>
+
+                                                <div className="space-y-1.5">
+                                                    {Object.entries(healthData.statuses).map(([prov, item]: [string, any]) => {
+                                                        const isErr = item.status === 'exhausted' || item.status === 'error';
+                                                        const isOk = item.status === 'ok';
+                                                        const nameMap: Record<string, string> = {
+                                                            eden: 'Eden AI (LLM)',
+                                                            serpapi: 'SerpAPI (Maps)',
+                                                            serper: 'Serper.dev (Google)',
+                                                            apify: 'Apify (GMB Deep)',
+                                                            firecrawl: 'Firecrawl (Scrape)',
+                                                        };
+                                                        return (
+                                                            <div key={prov} className="flex items-start justify-between gap-2 p-1.5 rounded-lg bg-slate-50 border border-slate-100">
+                                                                <div>
+                                                                    <div className="font-medium text-[11px] text-slate-800">{nameMap[prov] || prov}</div>
+                                                                    <div className={`text-[10px] ${isErr ? 'text-rose-600 font-semibold' : isOk ? 'text-emerald-600' : 'text-slate-400'}`}>
+                                                                        {item.message}
+                                                                    </div>
+                                                                </div>
+                                                                <span className={`text-[9.5px] px-1.5 py-0.5 rounded font-semibold uppercase ${
+                                                                    isErr ? 'bg-rose-100 text-rose-700' : isOk ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-600'
+                                                                }`}>
+                                                                    {item.status === 'exhausted' ? 'Leer' : item.status === 'error' ? 'Fehler' : item.status === 'ok' ? 'Aktiv' : 'Fehlt'}
+                                                                </span>
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+
+                                                {healthData.has_flaw && (
+                                                    <div className="p-2 bg-amber-50 border border-amber-200 rounded-md text-[10.5px] text-amber-800 leading-relaxed">
+                                                        💡 <strong>Auswirkung:</strong> Wenn SerpAPI oder Apify aufgebraucht sind, greift Google Maps auf Basisergebnisse zurück.
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </>
+                                    )}
+                                </div>
+                            )}
+
+                            <div className="grid grid-cols-2 gap-1.5">
+                                {bottomNav.map((item, idx) => {
+                                    const active = url === item.href || (item.href === '/settings' && url.startsWith('/settings') && !url.startsWith('/settings/users'));
+                                    return (
+                                        <Link
+                                            key={idx}
+                                            href={item.href}
+                                            title={item.title}
+                                            className="flex items-center gap-2 py-2 px-2.5 rounded-lg transition-all cursor-pointer group"
+                                            style={{
+                                                color: active ? 'var(--orange)' : 'var(--text-2)',
+                                                background: active ? 'var(--orange-soft)' : 'transparent',
+                                                border: active ? '1px solid rgba(234, 88, 12, 0.2)' : '1px solid transparent',
+                                            }}
+                                        >
+                                            <div className="transition-transform group-hover:scale-110">
+                                                {item.icon}
+                                            </div>
+                                            <span
+                                                className="text-[11px] leading-tight font-medium truncate"
+                                                style={{ color: active ? 'var(--orange)' : 'var(--text-1)' }}
+                                            >
+                                                {item.label}
+                                            </span>
+                                        </Link>
+                                    );
+                                })}
+                            </div>
                         </div>
                     )}
                 </div>

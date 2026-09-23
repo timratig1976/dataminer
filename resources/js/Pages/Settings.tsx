@@ -1,9 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import AppLayout from '../Layouts/AppLayout';
 import SettingsTabs from '../Components/settings/SettingsTabs';
 import { 
     Key, Globe, CheckCircle2, Trash2, 
-    Save, RefreshCw, Sparkles, Sliders, Flame, Search
+    Save, RefreshCw, Sparkles, Sliders, Flame, Search, Coins, AlertTriangle
 } from 'lucide-react';
 import { apiFetch } from '../api';
 
@@ -37,6 +37,8 @@ interface TestResult {
 
 export default function SettingsPage({ settings: initialSettings }: { settings: SettingsData }) {
     const [state, setState] = useState<SettingsData>(initialSettings);
+    const [healthData, setHealthData] = useState<any>(null);
+    const [loadingHealth, setLoadingHealth] = useState(false);
 
     // ── Inputs ──
     const [edenApiKey, setEdenApiKey] = useState('');
@@ -53,6 +55,25 @@ export default function SettingsPage({ settings: initialSettings }: { settings: 
     const [testingProvider, setTestingProvider] = useState<string | null>(null);
     const [testResults, setTestResults] = useState<Record<string, TestResult>>({});
 
+    const fetchHealth = async () => {
+        setLoadingHealth(true);
+        try {
+            const res = await apiFetch('/api/settings/health');
+            if (res.ok) {
+                const data = await res.json();
+                setHealthData(data);
+            }
+        } catch (e) {
+            console.error('Health check failed', e);
+        } finally {
+            setLoadingHealth(false);
+        }
+    };
+
+    useEffect(() => {
+        fetchHealth();
+    }, []);
+
     const refreshSettings = async () => {
         try {
             const res = await apiFetch('/api/settings');
@@ -60,6 +81,7 @@ export default function SettingsPage({ settings: initialSettings }: { settings: 
             if (data.settings) {
                 setState(data.settings);
             }
+            fetchHealth();
         } catch (e) {
             console.error('Failed to reload settings', e);
         }
@@ -321,7 +343,14 @@ export default function SettingsPage({ settings: initialSettings }: { settings: 
                             <h2 className="font-semibold text-sm" style={{ color: "var(--text-1)" }}>Firecrawl</h2>
                             <span className="text-[11px]" style={{ color: "var(--text-3)" }}>Web-Scraper & Web-Search API</span>
                         </div>
-                        <div>
+                        <div className="flex items-center gap-2">
+                            {healthData?.statuses?.firecrawl?.credits_remaining !== undefined && (
+                                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                    <Coins className="w-3 h-3 text-emerald-600" />
+                                    {healthData.statuses.firecrawl.credits_remaining} / {healthData.statuses.firecrawl.credits_total} Credits
+                                    {healthData.statuses.firecrawl.billing_renewal && ` (bis ${healthData.statuses.firecrawl.billing_renewal})`}
+                                </span>
+                            )}
                             {state.has_firecrawl_api_key ? (
                                 <span className="status-pill status-pill-done">
                                     <CheckCircle2 className="w-3 h-3" /> In DB ({state.firecrawlApiKeyMasked})
@@ -514,9 +543,15 @@ export default function SettingsPage({ settings: initialSettings }: { settings: 
                         <div className="flex items-center gap-2.5">
                             <Globe className="w-4 h-4" style={{ color: "var(--orange)" }} />
                             <h2 className="font-semibold text-sm" style={{ color: "var(--text-1)" }}>SerpApi</h2>
-                            <span className="text-[11px]" style={{ color: "var(--text-3)" }}>Google Maps structured (100 free/Monat)</span>
+                            <span className="text-[11px]" style={{ color: "var(--text-3)" }}>Google Maps structured</span>
                         </div>
-                        <div>
+                        <div className="flex items-center gap-2">
+                            {healthData?.statuses?.serpapi?.limit !== undefined && (
+                                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                    <Coins className="w-3 h-3 text-emerald-600" />
+                                    {healthData.statuses.serpapi.limit} Searches übrig
+                                </span>
+                            )}
                             {state.has_serp_api_key ? (
                                 <span className="status-pill status-pill-done">
                                     <CheckCircle2 className="w-3 h-3" /> In DB ({state.serpApiKeyMasked})
@@ -607,9 +642,15 @@ export default function SettingsPage({ settings: initialSettings }: { settings: 
                         <div className="flex items-center gap-2.5">
                             <Globe className="w-4 h-4" style={{ color: "var(--orange)" }} />
                             <h2 className="font-semibold text-sm" style={{ color: "var(--text-1)" }}>Apify</h2>
-                            <span className="text-[11px]" style={{ color: "var(--text-3)" }}>Maps Scraper & GBP Profile Enricher ($5 free/Monat)</span>
+                            <span className="text-[11px]" style={{ color: "var(--text-3)" }}>Maps Scraper & GBP Profile Enricher</span>
                         </div>
-                        <div>
+                        <div className="flex items-center gap-2">
+                            {healthData?.statuses?.apify?.limit !== undefined && (
+                                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                    <Coins className="w-3 h-3 text-emerald-600" />
+                                    ${Number(healthData.statuses.apify.limit).toFixed(2)} Guthaben
+                                </span>
+                            )}
                             {state.has_apify_api_token ? (
                                 <span className="status-pill status-pill-done">
                                     <CheckCircle2 className="w-3 h-3" /> In DB ({state.apifyApiTokenMasked})

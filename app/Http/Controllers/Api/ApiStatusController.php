@@ -132,7 +132,45 @@ class ApiStatusController extends Controller
         if (!$fcKey) {
             $statuses['firecrawl'] = ['configured' => false, 'status' => 'missing', 'message' => 'Key nicht hinterlegt'];
         } else {
-            $statuses['firecrawl'] = ['configured' => true, 'status' => 'ok', 'message' => 'Bereit'];
+            try {
+                $fcRes = Http::timeout(5)
+                    ->withHeaders(['Authorization' => "Bearer {$fcKey}"])
+                    ->get('https://api.firecrawl.dev/v1/team/credit-usage');
+
+                if ($fcRes->successful()) {
+                    $fcData = $fcRes->json('data') ?? [];
+                    $remaining = $fcData['remaining_credits'] ?? 0;
+                    $total = $fcData['plan_credits'] ?? 1000;
+                    $periodEnd = isset($fcData['billing_period_end']) ? date('d.m.Y', strtotime($fcData['billing_period_end'])) : null;
+
+                    if ($remaining <= 0) {
+                        $statuses['firecrawl'] = [
+                            'configured' => true,
+                            'status' => 'exhausted',
+                            'message' => "Credits aufgebraucht (0 / {$total})",
+                            'limit' => 0,
+                            'credits_remaining' => 0,
+                            'credits_total' => $total,
+                            'billing_renewal' => $periodEnd,
+                        ];
+                    } else {
+                        $renewalText = $periodEnd ? " (bis {$periodEnd})" : '';
+                        $statuses['firecrawl'] = [
+                            'configured' => true,
+                            'status' => 'ok',
+                            'message' => "{$remaining} / {$total} Credits übrig{$renewalText}",
+                            'limit' => $remaining,
+                            'credits_remaining' => $remaining,
+                            'credits_total' => $total,
+                            'billing_renewal' => $periodEnd,
+                        ];
+                    }
+                } else {
+                    $statuses['firecrawl'] = ['configured' => true, 'status' => 'error', 'message' => 'Key ungültig oder abgelaufen'];
+                }
+            } catch (\Throwable $e) {
+                $statuses['firecrawl'] = ['configured' => true, 'status' => 'error', 'message' => 'Verbindung fehlgeschlagen'];
+            }
         }
 
         $flaws = [];
