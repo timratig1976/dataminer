@@ -293,8 +293,7 @@ export default function Layout({
 
                 {/* Bottom navigation links */}
                 <div
-                    className={isCollapsed ? "px-2 py-2 flex flex-col items-center shrink-0 relative" : "px-2 pt-2 pb-1 flex flex-col gap-0.5 shrink-0"}
-                    style={{ borderTop: '1px solid var(--border-xs)' }}
+                    className={isCollapsed ? "px-2 py-2 flex flex-col items-center shrink-0 relative" : "px-2 pb-2 flex flex-col gap-0.5 shrink-0"}
                 >
                     {isCollapsed ? (
                         <>
@@ -362,42 +361,34 @@ export default function Layout({
                             )}
                         </>
                     ) : (
-                        <>
-                            <div
-                                className="text-[9.5px] font-semibold tracking-wider uppercase px-2 mb-1"
-                                style={{ color: 'var(--text-3)' }}
-                            >
-                                Administration
-                            </div>
-                            <div className="grid grid-cols-2 gap-1.5">
-                                {bottomNav.map((item, idx) => {
-                                    const active = url === item.href || (item.href === '/settings' && url.startsWith('/settings') && !url.startsWith('/settings/users'));
-                                    return (
-                                        <Link
-                                            key={idx}
-                                            href={item.href}
-                                            title={item.title}
-                                            className="flex items-center gap-2 py-2 px-2.5 rounded-lg transition-all cursor-pointer group"
-                                            style={{
-                                                color: active ? 'var(--orange)' : 'var(--text-2)',
-                                                background: active ? 'var(--orange-soft)' : 'transparent',
-                                                border: active ? '1px solid rgba(234, 88, 12, 0.2)' : '1px solid transparent',
-                                            }}
+                        <div className="grid grid-cols-2 gap-1.5">
+                            {bottomNav.map((item, idx) => {
+                                const active = url === item.href || (item.href === '/settings' && url.startsWith('/settings') && !url.startsWith('/settings/users'));
+                                return (
+                                    <Link
+                                        key={idx}
+                                        href={item.href}
+                                        title={item.title}
+                                        className="flex items-center gap-2 py-2 px-2.5 rounded-lg transition-all cursor-pointer group"
+                                        style={{
+                                            color: active ? 'var(--orange)' : 'var(--text-2)',
+                                            background: active ? 'var(--orange-soft)' : 'transparent',
+                                            border: active ? '1px solid rgba(234, 88, 12, 0.2)' : '1px solid transparent',
+                                        }}
+                                    >
+                                        <div className="transition-transform group-hover:scale-110">
+                                            {item.icon}
+                                        </div>
+                                        <span
+                                            className="text-[11px] leading-tight font-medium truncate"
+                                            style={{ color: active ? 'var(--orange)' : 'var(--text-1)' }}
                                         >
-                                            <div className="transition-transform group-hover:scale-110">
-                                                {item.icon}
-                                            </div>
-                                            <span
-                                                className="text-[11px] leading-tight font-medium truncate"
-                                                style={{ color: active ? 'var(--orange)' : 'var(--text-1)' }}
-                                            >
-                                                {item.label}
-                                            </span>
-                                        </Link>
-                                    );
-                                })}
-                            </div>
-                        </>
+                                            {item.label}
+                                        </span>
+                                    </Link>
+                                );
+                            })}
+                        </div>
                     )}
                 </div>
             </nav>
