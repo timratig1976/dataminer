@@ -11,6 +11,7 @@ interface Branding {
     company_name: string;
     from_name: string;
     logo_url: string;
+    logo_icon_url?: string;
     primary_color: string;
     background_color: string;
     card_color: string;
@@ -26,6 +27,7 @@ interface Template {
     subject: string;
     html: string;
     text: string;
+    footer?: string;
     available_placeholders: string[];
 }
 
@@ -37,10 +39,14 @@ export default function CommunicationSettings() {
     const [testEmail, setTestEmail] = useState('');
     const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
+    const [logoFile, setLogoFile] = useState<File | null>(null);
+    const [logoIconFile, setLogoIconFile] = useState<File | null>(null);
+
     const [branding, setBranding] = useState<Branding>({
         company_name: 'DataMiner',
         from_name: 'DataMiner',
         logo_url: '',
+        logo_icon_url: '',
         primary_color: '#ea580c',
         background_color: '#f8fafc',
         card_color: '#ffffff',
@@ -114,15 +120,36 @@ export default function CommunicationSettings() {
         setSavingBranding(true);
         setMessage(null);
         try {
-            const res = await apiFetch('/api/communication/branding', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(branding)
-            });
+            let res;
+            if (logoFile || logoIconFile) {
+                const formData = new FormData();
+                Object.entries(branding).forEach(([k, v]) => formData.append(k, String(v || '')));
+                if (logoFile) formData.append('logo_file', logoFile);
+                if (logoIconFile) formData.append('logo_icon_file', logoIconFile);
+                res = await apiFetch('/api/communication/branding', {
+                    method: 'POST',
+                    body: formData,
+                });
+            } else {
+                res = await apiFetch('/api/communication/branding', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(branding)
+                });
+            }
             const data = await res.json();
             if (res.ok) {
                 setMessage({ type: 'success', text: data.message });
-                fetchPreview();
+                if (data.branding) {
+                    setBranding(b => ({
+                        ...b,
+                        logo_url: data.branding.logo_url ?? b.logo_url,
+                        logo_icon_url: data.branding.logo_icon_url ?? b.logo_icon_url,
+                    }));
+                }
+                setLogoFile(null);
+                setLogoIconFile(null);
+                fetchPreview(data.branding);
             } else {
                 setMessage({ type: 'error', text: data.error || 'Fehler beim Speichern' });
             }
@@ -253,7 +280,7 @@ export default function CommunicationSettings() {
                                             type="text"
                                             value={branding.company_name}
                                             onChange={e => setBranding(b => ({ ...b, company_name: e.target.value }))}
-                                            className="w-full border border-slate-200 rounded-lg p-2 focus:outline-orange-500"
+                                            className="w-full border border-slate-200 rounded-lg p-2.5 focus:outline-orange-500"
                                             required
                                         />
                                     </div>
@@ -263,21 +290,104 @@ export default function CommunicationSettings() {
                                             type="text"
                                             value={branding.from_name}
                                             onChange={e => setBranding(b => ({ ...b, from_name: e.target.value }))}
-                                            className="w-full border border-slate-200 rounded-lg p-2 focus:outline-orange-500"
+                                            className="w-full border border-slate-200 rounded-lg p-2.5 focus:outline-orange-500"
                                             required
                                         />
                                     </div>
                                 </div>
 
-                                <div>
-                                    <label className="block text-[11px] font-medium text-slate-600 mb-1">Logo URL (optional)</label>
-                                    <input
-                                        type="url"
-                                        value={branding.logo_url}
-                                        onChange={e => setBranding(b => ({ ...b, logo_url: e.target.value }))}
-                                        placeholder="https://deine-domain.de/logo.png"
-                                        className="w-full border border-slate-200 rounded-lg p-2 focus:outline-orange-500 font-mono text-[11px]"
-                                    />
+                                {/* 1. Haupt-Logo (mit Text für Header & E-Mails) */}
+                                <div className="space-y-2 p-3 bg-slate-50/70 border border-slate-200/80 rounded-xl">
+                                    <div className="flex items-center justify-between">
+                                        <label className="block text-[11px] font-semibold text-slate-700">1. Haupt-Logo (mit Text für Header & E-Mails)</label>
+                                        <span className="text-[10px] text-slate-400">Volles Logo</span>
+                                    </div>
+                                    
+                                    {branding.logo_url && (
+                                        <div className="flex items-center gap-3 p-2 bg-white rounded-lg border border-slate-200">
+                                            <img src={branding.logo_url} alt="Haupt-Logo" className="max-h-10 max-w-[160px] object-contain" />
+                                            <button
+                                                type="button"
+                                                onClick={() => setBranding(b => ({ ...b, logo_url: '' }))}
+                                                className="text-[11px] text-rose-600 hover:underline cursor-pointer ml-auto"
+                                            >
+                                                Entfernen
+                                            </button>
+                                        </div>
+                                    )}
+
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
+                                        <div>
+                                            <span className="text-[10px] text-slate-500 block mb-1">Datei hochladen:</span>
+                                            <input
+                                                type="file"
+                                                accept=".png,.jpg,.jpeg,.webp,.svg,image/*"
+                                                onChange={e => {
+                                                    const f = e.target.files?.[0];
+                                                    if (f) setLogoFile(f);
+                                                }}
+                                                className="w-full text-xs text-slate-600 file:mr-2.5 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-orange-50 file:text-orange-700 hover:file:bg-orange-100 cursor-pointer"
+                                            />
+                                        </div>
+
+                                        <div>
+                                            <span className="text-[10px] text-slate-500 block mb-1">Oder Bild-URL:</span>
+                                            <input
+                                                type="url"
+                                                value={branding.logo_url}
+                                                onChange={e => setBranding(b => ({ ...b, logo_url: e.target.value }))}
+                                                placeholder="https://.../logo-full.png"
+                                                className="w-full border border-slate-200 rounded-lg p-2 focus:outline-orange-500 font-mono text-[11px] bg-white"
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* 2. Kompaktes Icon-Logo (ohne Text für eingeklappte Sidebar) */}
+                                <div className="space-y-2 p-3 bg-slate-50/70 border border-slate-200/80 rounded-xl">
+                                    <div className="flex items-center justify-between">
+                                        <label className="block text-[11px] font-semibold text-slate-700">2. Icon-Logo (Kompakt / Quadratisch für eingeklappte Navigation)</label>
+                                        <span className="text-[10px] text-slate-400">Favicon / Minified</span>
+                                    </div>
+                                    
+                                    {branding.logo_icon_url && (
+                                        <div className="flex items-center gap-3 p-2 bg-white rounded-lg border border-slate-200">
+                                            <img src={branding.logo_icon_url} alt="Icon-Logo" className="w-8 h-8 object-contain" />
+                                            <button
+                                                type="button"
+                                                onClick={() => setBranding(b => ({ ...b, logo_icon_url: '' }))}
+                                                className="text-[11px] text-rose-600 hover:underline cursor-pointer ml-auto"
+                                            >
+                                                Entfernen
+                                            </button>
+                                        </div>
+                                    )}
+
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
+                                        <div>
+                                            <span className="text-[10px] text-slate-500 block mb-1">Datei hochladen:</span>
+                                            <input
+                                                type="file"
+                                                accept=".png,.jpg,.jpeg,.webp,.svg,image/*"
+                                                onChange={e => {
+                                                    const f = e.target.files?.[0];
+                                                    if (f) setLogoIconFile(f);
+                                                }}
+                                                className="w-full text-xs text-slate-600 file:mr-2.5 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-orange-50 file:text-orange-700 hover:file:bg-orange-100 cursor-pointer"
+                                            />
+                                        </div>
+
+                                        <div>
+                                            <span className="text-[10px] text-slate-500 block mb-1">Oder Bild-URL:</span>
+                                            <input
+                                                type="url"
+                                                value={branding.logo_icon_url || ''}
+                                                onChange={e => setBranding(b => ({ ...b, logo_icon_url: e.target.value }))}
+                                                placeholder="https://.../icon.png"
+                                                className="w-full border border-slate-200 rounded-lg p-2 focus:outline-orange-500 font-mono text-[11px] bg-white"
+                                            />
+                                        </div>
+                                    </div>
                                 </div>
 
                                 <div className="grid grid-cols-3 gap-3">
