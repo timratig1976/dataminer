@@ -65,8 +65,19 @@ class ContactSearchService
         // 3. Fallback: Search for exact Impressum URL if guessing {$base}/impressum fails
         if (!$rawText) {
             try {
-                // Try guessing /impressum first
-                $scraped = $this->edenAi->scrapeUrl($apiKey, "{$base}/impressum");
+                // Pre-check HTTP status code (HEAD request) in <300ms to avoid scraping dead 404 URLs
+                $guessedUrl = "{$base}/impressum";
+                $isGuessedLive = false;
+                try {
+                    $check = (new \GuzzleHttp\Client(['timeout' => 3, 'http_errors' => false, 'allow_redirects' => true]))->head($guessedUrl);
+                    $isGuessedLive = ($check->getStatusCode() >= 200 && $check->getStatusCode() < 300);
+                } catch (\Throwable $e) {}
+
+                $scraped = null;
+                if ($isGuessedLive) {
+                    $scraped = $this->edenAi->scrapeUrl($apiKey, $guessedUrl);
+                }
+
                 $md = $scraped['markdown'] ?? '';
                 $isGarbage = strlen($md) < 80 
                     || str_contains($md, 'does not exist') 
@@ -87,8 +98,17 @@ class ContactSearchService
                     foreach ($searchRes['results'] ?? [] as $sr) {
                         $u = $sr['url'] ?? '';
                         if (str_contains($u, $domain) && (stripos($u, 'impressum') !== false || stripos($u, 'legal') !== false || stripos($u, 'kontakt') !== false)) {
-                            $foundUrl = $u;
-                            break;
+                            // Check that found URL is actually accessible (not 404)
+                            try {
+                                $uCheck = (new \GuzzleHttp\Client(['timeout' => 3, 'http_errors' => false, 'allow_redirects' => true]))->head($u);
+                                if ($uCheck->getStatusCode() >= 200 && $uCheck->getStatusCode() < 400) {
+                                    $foundUrl = $u;
+                                    break;
+                                }
+                            } catch (\Throwable $e) {
+                                $foundUrl = $u;
+                                break;
+                            }
                         }
                     }
 
