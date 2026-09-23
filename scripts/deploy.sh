@@ -18,7 +18,7 @@ echo "🚀 [1/4] Starte DataMiner Deployment..."
 
 # 1. Frontend kompilieren
 echo "📦 [2/4] Kompiliere Frontend-Assets mit Vite..."
-cd "$ROOT_DIR/backend-laravel"
+cd "$ROOT_DIR"
 npm run build
 
 # 2. Dateien synchronisieren
@@ -31,7 +31,7 @@ rsync -avz --progress -e "ssh -p $REMOTE_PORT" \
   --exclude='storage/framework/cache/*' \
   --exclude='storage/framework/sessions/*' \
   --exclude='storage/framework/views/*' \
-  "$ROOT_DIR/backend-laravel/" "$REMOTE_USER@$REMOTE_HOST:$REMOTE_PATH/"
+  "$ROOT_DIR/" "$REMOTE_USER@$REMOTE_HOST:$REMOTE_PATH/"
 
 # 3. Server-Tasks ausführen
 echo "⚙️ [4/4] Aktualisiere Abhängigkeiten & Caches auf dem Server..."
