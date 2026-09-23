@@ -11,7 +11,8 @@ class ContactSearchService
 {
     public function __construct(
         protected EdenAiService $edenAi,
-        protected SearchService $searchService
+        protected SearchService $searchService,
+        protected WebsiteNavigationService $webNav
     ) {}
 
     /**
@@ -65,54 +66,19 @@ class ContactSearchService
         // 3. Fallback: Find exact Impressum URL via Navigation Links or Search
         if (!$rawText) {
             try {
-                $targetImpressumUrl = null;
+                // A. Smart Direct Inspection via WebsiteNavigationService (Scan Menu/Footer, then HEAD pre-check)
+                $targetImpressumUrl = $this->webNav->findImpressumUrl($domain);
 
-                // A. Direct Homepage Link Inspection (Scan Menu & Footer for exact case-sensitive link)
-                try {
-                    $homeRes = (new \GuzzleHttp\Client(['timeout' => 4, 'http_errors' => false, 'allow_redirects' => true]))->get($base);
-                    if ($homeRes->getStatusCode() === 200) {
-                        $html = (string) $homeRes->getBody();
-                        if (preg_match_all('/<a[^>]+href=[\x22\x27]([^\x22\x27#]+)[\x22\x27][^>]*>(.*?)<\/a>/is', $html, $matches, PREG_SET_ORDER)) {
-                            foreach ($matches as $m) {
-                                $href = trim($m[1]);
-                                $text = strip_tags($m[2]);
-                                if (stripos($href, 'impressum') !== false || stripos($text, 'impressum') !== false || stripos($href, 'legal') !== false) {
-                                    if (str_starts_with($href, 'http')) {
-                                        $targetImpressumUrl = $href;
-                                    } elseif (str_starts_with($href, '/')) {
-                                        $targetImpressumUrl = rtrim($base, '/') . $href;
-                                    } else {
-                                        $targetImpressumUrl = rtrim($base, '/') . '/' . $href;
-                                    }
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                } catch (\Throwable $e) {}
-
-                // B. If not found in menu, try common permutations with fast HEAD pre-check
-                if (!$targetImpressumUrl) {
-                    $candidates = ["{$base}/impressum", "{$base}/Impressum", "{$base}/de/impressum", "{$base}/kontakt"];
-                    foreach ($candidates as $cand) {
-                        try {
-                            $check = (new \GuzzleHttp\Client(['timeout' => 2.5, 'http_errors' => false, 'allow_redirects' => true]))->head($cand);
-                            if ($check->getStatusCode() >= 200 && $check->getStatusCode() < 300) {
-                                $targetImpressumUrl = $cand;
-                                break;
-                            }
-                        } catch (\Throwable $e) {}
-                    }
-                }
-
-                // C. Fallback: Search via Google if still unknown
+                // B. Fallback: Search via Google if still unknown
                 if (!$targetImpressumUrl) {
                     $searchRes = $this->searchService->search("{$companyName} {$domain} Impressum", 3);
                     foreach ($searchRes['results'] ?? [] as $sr) {
                         $u = $sr['url'] ?? '';
                         if (str_contains($u, $domain) && (stripos($u, 'impressum') !== false || stripos($u, 'legal') !== false)) {
-                            $targetImpressumUrl = $u;
-                            break;
+                            if ($this->webNav->isUrlAccessible($u)) {
+                                $targetImpressumUrl = $u;
+                                break;
+                            }
                         }
                     }
                 }
