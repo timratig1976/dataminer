@@ -214,6 +214,12 @@ export default function CaseShow({ case: c }: Props) {
     const [reclassifyAllToggle, setReclassifyAllToggle] = useState(false);
     const [savingPrompt, setSavingPrompt] = useState(false);
 
+    // Row Error Inspection Modal State
+    const [rowErrorModal, setRowErrorModal] = useState<{
+        row: RowData;
+        errors: Record<string, string>;
+    } | null>(null);
+
     // Rename case state
     const [isEditingName, setIsEditingName] = useState(false);
     const [editedName, setEditedName] = useState(c.name);
@@ -1160,7 +1166,7 @@ export default function CaseShow({ case: c }: Props) {
             }
         >
             {/* ── Table Workspace Container (Strict Match to Next.js UI) ── */}
-            <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: "var(--surface)", margin: "0 0 18px", border: "1px solid var(--border)", borderRadius: "var(--r)", boxShadow: "var(--shadow)" }}>
+            <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0, width: "100%", background: "var(--surface)", margin: "0 0 18px", border: "1px solid var(--border)", borderRadius: "var(--r)", boxShadow: "var(--shadow)" }}>
 
                 {/* Integrated Sheet Bar (Tabs directly on table) */}
                 <div style={{ background: "#fbfaf8", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 8px", flexShrink: 0, height: 38 }}>
@@ -1746,7 +1752,7 @@ export default function CaseShow({ case: c }: Props) {
                 )}
 
                 {activeTab === "Firmen" && viewMode === "flat" && (
-                    <div className="overflow-x-auto">
+                    <div className="overflow-x-auto w-full" style={{ WebkitOverflowScrolling: "touch" }}>
                         <table 
                             className="text-left border-collapse text-xs"
                             style={{ tableLayout: "fixed", width: "max-content", minWidth: "100%" }}
@@ -1975,9 +1981,21 @@ export default function CaseShow({ case: c }: Props) {
                                             <td className="p-2.5 border-r whitespace-nowrap" style={{ borderColor: "var(--border-xs)" }}>
                                                 <div className="flex items-center gap-1.5 flex-wrap">
                                                     {rowState === "error" && (
-                                                        <span className="status-pill status-pill-error" title={`${errorCount} von ${totalCols} Spalten fehlgeschlagen`}>
-                                                            Fehler
-                                                        </span>
+                                                        <button
+                                                            type="button"
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                setRowErrorModal({
+                                                                    row: r,
+                                                                    errors: r.cell_errors || {}
+                                                                });
+                                                            }}
+                                                            className="status-pill status-pill-error cursor-pointer hover:opacity-80 transition-opacity inline-flex items-center gap-1 font-bold"
+                                                            title={`${errorCount} von ${totalCols} Spalten fehlgeschlagen (Klicken für Fehler-Details)`}
+                                                        >
+                                                            <AlertCircle className="w-2.5 h-2.5 shrink-0" />
+                                                            <span>Fehler ({errorCount})</span>
+                                                        </button>
                                                     )}
                                                     {rowState === "running" && (
                                                         <span className="status-pill status-pill-pending">
@@ -3430,6 +3448,87 @@ export default function CaseShow({ case: c }: Props) {
                 onConfirm={() => dataColumnToDelete && deleteColumn(dataColumnToDelete.key, true)}
                 onClose={() => setDataColumnToDelete(null)}
             />
+
+            {/* 🚨 Detail Error Inspection Modal */}
+            {rowErrorModal && (
+                <div 
+                    className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in"
+                    onClick={() => setRowErrorModal(null)}
+                >
+                    <div 
+                        className="w-full max-w-2xl rounded-xl shadow-2xl flex flex-col max-h-[85vh] overflow-hidden bg-white border border-rose-200"
+                        onClick={e => e.stopPropagation()}
+                    >
+                        <div className="p-4 border-b flex items-center justify-between bg-rose-50/50 border-rose-100">
+                            <div className="flex items-center gap-2">
+                                <span className="text-xl">🚨</span>
+                                <div>
+                                    <h3 className="text-sm font-bold text-slate-900">
+                                        Fehler-Details für {rowErrorModal.row.data['company_name'] || rowErrorModal.row.data['domain'] || 'Zeile'}
+                                    </h3>
+                                    <p className="text-[11.5px] text-slate-500">
+                                        Domain: <code className="bg-slate-100 px-1 py-0.5 rounded font-mono text-slate-800">{rowErrorModal.row.data['domain'] || '—'}</code> · Zeilen-ID: <span className="font-mono text-[10.5px]">{rowErrorModal.row.id}</span>
+                                    </p>
+                                </div>
+                            </div>
+                            <button onClick={() => setRowErrorModal(null)} className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer">✕</button>
+                        </div>
+
+                        <div className="p-5 overflow-y-auto space-y-3">
+                            {Object.keys(rowErrorModal.errors).length === 0 ? (
+                                <div className="p-6 text-center text-xs text-slate-400">
+                                    Keine spezifische Fehlermeldung gespeichert.
+                                </div>
+                            ) : (
+                                Object.entries(rowErrorModal.errors).map(([colKey, errMsg]) => {
+                                    const colDef = aiColumns.find(c => c.outputKey === colKey);
+                                    const colName = colDef?.name || colKey;
+
+                                    return (
+                                        <div key={colKey} className="p-3.5 rounded-lg border border-rose-200 bg-rose-50/40 space-y-1.5 text-xs">
+                                            <div className="flex items-center justify-between">
+                                                <span className="font-bold text-rose-900 flex items-center gap-1.5">
+                                                    <span>💥 Spalte:</span>
+                                                    <span className="underline decoration-rose-300">{colName}</span>
+                                                    <code className="text-[10px] bg-rose-100/70 text-rose-800 px-1 py-0.5 rounded font-mono">({colKey})</code>
+                                                </span>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        if (colDef) {
+                                                            setRowErrorModal(null);
+                                                            setRunDetailCell({ col: colDef, row: rowErrorModal.row as any });
+                                                        }
+                                                    }}
+                                                    className="btn-v2 text-indigo-700 bg-indigo-50 border-indigo-200 hover:bg-indigo-100 text-[10.5px] py-0.5 px-2"
+                                                >
+                                                    🔍 Prompt & Zelle inspizieren
+                                                </button>
+                                            </div>
+                                            <div className="p-2.5 bg-white rounded border border-rose-200/80 font-mono text-[11px] text-rose-800 whitespace-pre-wrap leading-relaxed select-text shadow-2xs">
+                                                {errMsg}
+                                            </div>
+                                        </div>
+                                    );
+                                })
+                            )}
+                        </div>
+
+                        <div className="p-3.5 border-t bg-slate-50 flex items-center justify-between">
+                            <span className="text-[11px] text-slate-500">
+                                Tipp: Klicke auf 'Prompt & Zelle inspizieren', um Rohdaten und KI-Anfrage im Detail zu sehen.
+                            </span>
+                            <button
+                                type="button"
+                                onClick={() => setRowErrorModal(null)}
+                                className="btn-v2 btn-v2-ghost"
+                            >
+                                Schließen
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* ⚡ Cache Inspector Modal */}
             {cacheModalRow && (
