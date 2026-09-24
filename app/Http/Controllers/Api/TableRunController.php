@@ -33,8 +33,17 @@ class TableRunController extends Controller
 
         $runMode = $validated['runMode'] ?? 'empty_only';
 
+        // Filter columns by autoRun flag (exclude columns where autoRun is explicitly false)
+        $runnableCols = collect($aiCols)->filter(function ($col) {
+            return ($col['autoRun'] ?? true) !== false;
+        });
+
+        if ($runnableCols->isEmpty()) {
+            return response()->json(['error' => 'Keine KI-Spalten für automatischen Durchlauf aktiv'], 400);
+        }
+
         // Sort columns: company enrichment first, then contact search, then rest
-        $sortedCols = collect($aiCols)->sort(function ($a, $b) {
+        $sortedCols = $runnableCols->sort(function ($a, $b) {
             $aGroup = ($a['tool'] ?? '') === 'batch_company' || ($a['columnGroup'] ?? '') === 'company' ? 0 :
                      (($a['tool'] ?? '') === 'batch_contact' || ($a['columnGroup'] ?? '') === 'contact' ? 1 : 2);
             $bGroup = ($b['tool'] ?? '') === 'batch_company' || ($b['columnGroup'] ?? '') === 'company' ? 0 :

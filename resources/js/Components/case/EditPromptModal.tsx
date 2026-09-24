@@ -288,6 +288,29 @@ Regeln:
           </FormField>
         </div>
 
+        {/* ⚡ Auto-Run Toggle */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", background: "var(--bg)", border: "1px solid var(--border)", borderRadius: "var(--r)" }}>
+          <div>
+            <span style={{ fontSize: 12, fontWeight: 600, color: "var(--text-1)", display: "block" }}>
+              ⚡ Automatischer Durchlauf (Auto-Run)
+            </span>
+            <span style={{ fontSize: 11, color: "var(--text-3)" }}>
+              Wenn deaktiviert, wird diese Spalte bei „Gesamte Tabelle starten" oder beim Zeilen-Start <strong>strikt übersprungen</strong> und kann nur manuell per Play-Button ausgeführt werden.
+            </span>
+          </div>
+          <label style={{ display: "flex", alignItems: "center", cursor: "pointer", gap: 8 }}>
+            <input
+              type="checkbox"
+              checked={draft.autoRun !== false}
+              onChange={(e) => setDraft((d) => ({ ...d, autoRun: e.target.checked }))}
+              style={{ accentColor: "var(--orange)", width: 16, height: 16, cursor: "pointer" }}
+            />
+            <span style={{ fontSize: 11.5, fontWeight: 500, color: draft.autoRun !== false ? "var(--green)" : "var(--danger)" }}>
+              {draft.autoRun !== false ? "Aktiviert" : "Gesperrt"}
+            </span>
+          </label>
+        </div>
+
           <div>
             <div style={{ display: "flex", alignItems: "center", justifyItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
               <label style={{ ...lbl, marginBottom: 0 }}>Prompt</label>

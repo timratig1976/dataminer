@@ -706,9 +706,9 @@ export default function CaseShow({ case: c }: Props) {
 
     const runSelectedRows = async () => {
         if (selectedRows.size === 0) return;
-        const targetCols = caseData.ai_columns || [];
+        const targetCols = (caseData.ai_columns || []).filter(c => c.autoRun !== false);
         if (targetCols.length === 0) {
-            alert('Keine KI-Spalten vorhanden.');
+            alert('Keine KI-Spalten für automatischen Durchlauf aktiv (alle auf Auto-Run gesperrt).');
             return;
         }
 
