@@ -227,6 +227,18 @@ class BatchEnrichService
         if (empty($fields['domain']) && $domain) {
             $fields['domain'] = $domain;
         }
+
+        // Falls die extrahierte oder vorhandene Domain facebook/instagram ist: Domain leeren & in Social URL sichern
+        $currentDomain = strtolower($fields['domain'] ?? $rowData['domain'] ?? '');
+        if (in_array($currentDomain, ['facebook.com', 'instagram.com']) || str_contains($currentDomain, 'facebook.') || str_contains($currentDomain, 'instagram.')) {
+            $fields['domain'] = null; // Entfernt facebook.com aus der Domain-Spalte!
+            if (str_contains($currentDomain, 'facebook')) {
+                $fields['facebook_url'] = $rowData['facebook_url'] ?? $rowData['source_url'] ?? "https://{$currentDomain}";
+            } else {
+                $fields['instagram_url'] = $rowData['instagram_url'] ?? $rowData['source_url'] ?? "https://{$currentDomain}";
+            }
+        }
+
         if (empty($fields['zip']) && !empty($rowData['PLZ'])) {
             $fields['zip'] = $rowData['PLZ'];
         }
@@ -261,8 +273,20 @@ class BatchEnrichService
             $val = $data[$k] ?? null;
             if (!$val) continue;
             if (str_contains($val, 'google.com/maps') || str_contains($val, 'place_id')) continue;
+            
+            // NIEMALS Social Media oder Kataloge als Domain auflösen!
+            if (str_contains($val, 'facebook.com') || str_contains($val, 'instagram.com') || str_contains($val, 'speisekarte.') || str_contains($val, 'speisekartenweb.')) {
+                continue;
+            }
+
             $clean = preg_replace('#^https?://#', '', preg_replace('#^www\.#', '', explode('/', $val)[0]));
-            if (str_contains($clean, '.')) return strtolower($clean);
+            if (str_contains($clean, '.')) {
+                $cleanLower = strtolower($clean);
+                if (in_array($cleanLower, ['facebook.com', 'instagram.com', 'speisekarte.menu', 'speisekartenweb.de', 'tripadvisor.de', 'tripadvisor.com'])) {
+                    continue;
+                }
+                return $cleanLower;
+            }
         }
         return '';
     }
