@@ -156,20 +156,22 @@ class BatchEnrichService
         if ($domain && $allowWebCrawl) {
             $base = str_starts_with($domain, 'http') ? $domain : "https://{$domain}";
             $cached = ScrapeCache::isFresh($base);
-            if ($cached && strlen($cached->markdown) > 100) {
-                $rawMarkdown = $cached->markdown;
+            if ($cached && strlen($cached->markdown) > 100 && !HtmlCleanerService::isOnlyCookieOrJunk($cached->markdown)) {
+                $rawMarkdown = HtmlCleanerService::cleanMarkdown($cached->markdown);
                 $sourceOrigin = 'cache:db';
             } else {
                 try {
                     $scraped = $this->edenAi->scrapeUrl($apiKey, $base);
                     $md = $scraped['markdown'] ?? '';
-                    $isJunk = strlen($md) < 80 
-                        || str_contains($md, 'does not exist') 
-                        || str_contains($md, '404 Not Found') 
-                        || str_contains($md, 'Seite nicht gefunden');
+                    $cleanedMd = HtmlCleanerService::cleanMarkdown($md);
+                    $isJunk = strlen($cleanedMd) < 80 
+                        || str_contains($cleanedMd, 'does not exist') 
+                        || str_contains($cleanedMd, '404 Not Found') 
+                        || str_contains($cleanedMd, 'Seite nicht gefunden')
+                        || HtmlCleanerService::isOnlyCookieOrJunk($cleanedMd);
 
-                    if (!empty($md) && !$isJunk) {
-                        $rawMarkdown = $md;
+                    if (!empty($cleanedMd) && !$isJunk) {
+                        $rawMarkdown = $cleanedMd;
                         $sourceOrigin = 'live:scrape';
 
                         ScrapeCache::updateOrCreate(

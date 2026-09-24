@@ -51,13 +51,13 @@ class ContactSearchService
         // 2. Check Database ScrapeCache
         if (!$rawText) {
             $cachedImp = ScrapeCache::isFresh("{$base}/impressum");
-            if ($cachedImp && strlen($cachedImp->markdown) > 100 && !str_contains($cachedImp->markdown, 'does not exist')) {
-                $rawText = $cachedImp->markdown;
+            if ($cachedImp && strlen($cachedImp->markdown) > 100 && !HtmlCleanerService::isOnlyCookieOrJunk($cachedImp->markdown) && !str_contains($cachedImp->markdown, 'does not exist')) {
+                $rawText = HtmlCleanerService::cleanMarkdown($cachedImp->markdown);
                 $sourceOrigin = 'cache:db_impressum';
             } else {
                 $cachedHome = ScrapeCache::isFresh($base);
-                if ($cachedHome && strlen($cachedHome->markdown) > 100) {
-                    $rawText = $cachedHome->markdown;
+                if ($cachedHome && strlen($cachedHome->markdown) > 100 && !HtmlCleanerService::isOnlyCookieOrJunk($cachedHome->markdown)) {
+                    $rawText = HtmlCleanerService::cleanMarkdown($cachedHome->markdown);
                     $sourceOrigin = 'cache:db_homepage';
                 }
             }
@@ -87,13 +87,15 @@ class ContactSearchService
                 if ($targetImpressumUrl) {
                     $scraped = $this->edenAi->scrapeUrl($apiKey, $targetImpressumUrl);
                     $foundMd = $scraped['markdown'] ?? '';
-                    $isFoundGarbage = strlen($foundMd) < 80 
-                        || str_contains($foundMd, 'does not exist') 
-                        || str_contains($foundMd, '404 Not Found')
-                        || str_contains($foundMd, 'Seite nicht gefunden');
+                    $cleanedFoundMd = HtmlCleanerService::cleanMarkdown($foundMd);
+                    $isFoundGarbage = strlen($cleanedFoundMd) < 80 
+                        || str_contains($cleanedFoundMd, 'does not exist') 
+                        || str_contains($cleanedFoundMd, '404 Not Found')
+                        || str_contains($cleanedFoundMd, 'Seite nicht gefunden')
+                        || HtmlCleanerService::isOnlyCookieOrJunk($cleanedFoundMd);
 
-                    if (!empty($foundMd) && !$isFoundGarbage) {
-                        $rawText = $foundMd;
+                    if (!empty($cleanedFoundMd) && !$isFoundGarbage) {
+                        $rawText = $cleanedFoundMd;
                         $sourceOrigin = 'live:verified_impressum';
                         ScrapeCache::updateOrCreate(
                             ['url' => $targetImpressumUrl],

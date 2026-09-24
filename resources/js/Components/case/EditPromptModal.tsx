@@ -793,21 +793,25 @@ Regeln:
             )}
           </div>
 
-          <div style={{marginTop:20,display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:14}}>
+          <div style={{marginTop:20,display:"grid",gridTemplateColumns: isBatchTool ? "1fr" : "1fr 1fr 1fr",gap:14}}>
             <div><label style={lbl}>Modell</label>
               <select style={inp} value={draft.model||"openai/gpt-4o-mini"} onChange={e=>setDraft(d=>({...d,model:e.target.value}))}>
                 {mergeModelOptions([draft.model || "openai/gpt-4o-mini"], modelOptions).map((m) => <option key={m}>{m}</option>)}
               </select>
             </div>
-            <div><label style={lbl}>Output-Modus</label>
-              <select style={inp} value={draft.outputMode||"text"} onChange={e=>setDraft(d=>({...d,outputMode:e.target.value as "text"|"json"}))}>
-                <option value="text">Text</option><option value="json">JSON (Key extrahieren)</option>
-              </select>
-            </div>
-            {draft.outputMode==="json" && (
-              <div><label style={lbl}>JSON Key</label>
-                <input style={{...inp,fontFamily:"monospace"}} value={draft.jsonKey||""} onChange={e=>setDraft(d=>({...d,jsonKey:e.target.value}))} placeholder="z.B. url" />
-              </div>
+            {!isBatchTool && (
+              <>
+                <div><label style={lbl}>Output-Modus</label>
+                  <select style={inp} value={draft.outputMode||"text"} onChange={e=>setDraft(d=>({...d,outputMode:e.target.value as "text"|"json"}))}>
+                    <option value="text">Text</option><option value="json">JSON (Key extrahieren)</option>
+                  </select>
+                </div>
+                {draft.outputMode==="json" && (
+                  <div><label style={lbl}>JSON Key</label>
+                    <input style={{...inp,fontFamily:"monospace"}} value={draft.jsonKey||""} onChange={e=>setDraft(d=>({...d,jsonKey:e.target.value}))} placeholder="z.B. url" />
+                  </div>
+                )}
+              </>
             )}
           </div>
 

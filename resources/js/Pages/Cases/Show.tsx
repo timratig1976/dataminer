@@ -1810,13 +1810,13 @@ export default function CaseShow({ case: c }: Props) {
                 )}
 
                 {activeTab === "Firmen" && viewMode === "flat" && (
-                    <div className="overflow-x-auto w-full" style={{ WebkitOverflowScrolling: "touch" }}>
+                    <div className="overflow-auto w-full flex-1" style={{ WebkitOverflowScrolling: "touch", maxHeight: "calc(100vh - 220px)" }}>
                         <table 
                             className="text-left border-collapse text-xs"
                             style={{ tableLayout: "fixed", width: "max-content", minWidth: "100%" }}
                         >
                             <thead 
-                                className="sticky top-0 z-10 uppercase tracking-wider font-semibold text-[10.5px]"
+                                className="sticky top-0 z-20 uppercase tracking-wider font-semibold text-[10.5px] shadow-xs"
                                 style={{ background: "var(--bg)", borderBottom: "1px solid var(--border)", color: "var(--text-2)" }}
                             >
                                 <tr>

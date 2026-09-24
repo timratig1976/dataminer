@@ -82,17 +82,62 @@ class CrawlStepTestController extends Controller
                 $url = str_starts_with($rendered, 'http') ? $rendered : "https://{$rendered}";
                 $global = GlobalSetting::instance();
                 $apiKey = $global->eden_api_key ?: env('EDEN_API_KEY');
+                $markdown = '';
+                $pageTitle = $url;
+
                 if ($apiKey) {
-                    $scraped = $edenAi->scrapeUrl($apiKey, $url);
-                    $scrapedContent = substr($scraped['markdown'] ?? '', 0, 4000);
-                    $output = [[
-                        'title' => $scraped['title'] ?? $url,
-                        'url' => $url,
-                        'snippet' => substr(strip_tags($scrapedContent), 0, 250) . '...',
-                    ]];
-                } else {
-                    $output = [['title' => $url, 'url' => $url, 'snippet' => 'Kein Scrape-API-Key konfiguriert']];
+                    try {
+                        $scraped = $edenAi->scrapeUrl($apiKey, $url);
+                        $markdown = trim($scraped['markdown'] ?? '');
+                        $pageTitle = trim($scraped['title'] ?? '') ?: $url;
+                    } catch (\Throwable $e) {
+                        // Firecrawl / Eden AI failed — will use direct fallback
+                    }
                 }
+
+                // Direct HTTP Fallback if Eden AI / Firecrawl failed or returned empty
+                if (empty($markdown) || strlen($markdown) < 50) {
+                    try {
+                        $res = \Illuminate\Support\Facades\Http::timeout(12)
+                            ->withHeaders([
+                                'User-Agent' => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+                                'Accept' => 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                            ])
+                            ->get($url);
+
+                        if ($res->successful()) {
+                            $html = $res->body();
+                            // Extract title
+                            if (preg_match('/<title[^>]*>(.*?)<\/title>/is', $html, $m)) {
+                                $pageTitle = html_entity_decode(trim($m[1]), ENT_QUOTES, 'UTF-8');
+                            }
+                            // Strip scripts, styles and tags
+                            $cleanHtml = preg_replace('/<(script|style|svg|noscript|header|footer|nav)[^>]*>.*?<\/\1>/is', '', $html);
+                            // Also remove inline JS blocks or unescaped JS
+                            $cleanHtml = preg_replace('/(var\s+[a-zA-Z0-9_$]+\s*=.*?;|function\s*\(.*?\)\s*\{.*?\})/is', '', $cleanHtml);
+                            $cleanText = html_entity_decode(strip_tags($cleanHtml), ENT_QUOTES, 'UTF-8');
+                            $lines = array_filter(array_map('trim', explode("\n", $cleanText)));
+                            $filteredLines = array_filter($lines, fn($l) => strlen($l) > 3 && !str_contains($l, '{') && !str_contains($l, '}') && !str_contains($l, ';') && !str_contains($l, 'var '));
+                            $markdown = implode("\n", array_slice($filteredLines, 0, 100));
+                        }
+                    } catch (\Throwable $e) {
+                        // Fallback failed as well
+                    }
+                }
+
+                // Clean cookie banners & junk
+                $markdown = \App\Services\HtmlCleanerService::cleanMarkdown($markdown);
+                $scrapedContent = substr($markdown, 0, 4000);
+
+                $snippet = !empty($markdown) 
+                    ? substr(preg_replace('/\s+/', ' ', $markdown), 0, 280) . '...' 
+                    : 'Kein lesbarer Inhalt extrahiert (Website blockiert oder leer).';
+
+                $output = [[
+                    'title' => $pageTitle,
+                    'url' => $url,
+                    'snippet' => $snippet,
+                ]];
             } else {
                 // Web search
                 $res = $searchService->search($rendered, $maxResults);
