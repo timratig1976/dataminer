@@ -449,9 +449,15 @@ export default function SettingsPage({ settings: initialSettings }: { settings: 
                         <div className="flex items-center gap-2.5">
                             <Search className="w-4 h-4" style={{ color: "var(--orange)" }} />
                             <h2 className="font-semibold text-sm" style={{ color: "var(--text-1)" }}>Serper.dev</h2>
-                            <span className="text-[11px]" style={{ color: "var(--text-3)" }}>Google Suche + Google Places (2.500 free/Monat)</span>
+                            <span className="text-[11px]" style={{ color: "var(--text-3)" }}>Google Suche & Google Maps</span>
                         </div>
-                        <div>
+                        <div className="flex items-center gap-2">
+                            {healthData?.statuses?.serper?.credits_remaining !== undefined && (
+                                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                    <Coins className="w-3 h-3 text-emerald-600" />
+                                    {Number(healthData.statuses.serper.credits_remaining).toLocaleString('de-DE')} Credits übrig
+                                </span>
+                            )}
                             {state.has_serper_api_key ? (
                                 <span className="status-pill status-pill-done">
                                     <CheckCircle2 className="w-3 h-3" /> In DB ({state.serperApiKeyMasked})

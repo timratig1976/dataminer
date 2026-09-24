@@ -71,15 +71,32 @@ class ApiStatusController extends Controller
             $statuses['serper'] = ['configured' => false, 'status' => 'missing', 'message' => 'Key nicht hinterlegt'];
         } else {
             try {
+                // Query official account endpoint: GET https://google.serper.dev/account (Costs 0 credits, returns exact balance)
                 $res = Http::timeout(5)
                     ->withHeaders(['X-API-KEY' => $serperKey, 'Content-Type' => 'application/json'])
-                    ->post('https://google.serper.dev/search', ['q' => 'test', 'num' => 1]);
+                    ->get('https://google.serper.dev/account');
+
                 if ($res->successful()) {
-                    $statuses['serper'] = [
-                        'configured' => true,
-                        'status' => 'ok',
-                        'message' => 'Aktiv & einsatzbereit',
-                    ];
+                    $accountData = $res->json() ?? [];
+                    $balance = isset($accountData['balance']) ? (int) $accountData['balance'] : null;
+
+                    if ($balance !== null && $balance <= 0) {
+                        $statuses['serper'] = [
+                            'configured' => true,
+                            'status' => 'exhausted',
+                            'message' => 'Credits aufgebraucht (0 Credits übrig)',
+                            'limit' => 0,
+                            'credits_remaining' => 0,
+                        ];
+                    } else {
+                        $statuses['serper'] = [
+                            'configured' => true,
+                            'status' => 'ok',
+                            'message' => $balance !== null ? number_format($balance, 0, ',', '.') . ' Credits übrig' : 'Aktiv & einsatzbereit',
+                            'limit' => $balance,
+                            'credits_remaining' => $balance,
+                        ];
+                    }
                 } else {
                     $statuses['serper'] = ['configured' => true, 'status' => 'error', 'message' => 'Key ungültig (HTTP ' . $res->status() . ')'];
                 }
