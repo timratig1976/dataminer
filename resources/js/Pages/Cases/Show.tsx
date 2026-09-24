@@ -121,6 +121,14 @@ export default function CaseShow({ case: c }: Props) {
     const [rows, setRows] = useState<RowItem[]>([]);
     const [total, setTotal] = useState(c.rows_count);
     const [page, setPage] = useState(1);
+    const [pageSize, setPageSize] = useState<number>(() => {
+        try {
+            const saved = localStorage.getItem('dataminer_page_size');
+            return saved ? parseInt(saved, 10) : 100;
+        } catch {
+            return 100;
+        }
+    });
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
@@ -216,14 +224,15 @@ export default function CaseShow({ case: c }: Props) {
         }
     };
 
-    const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+    const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
-    const loadPage = useCallback((p: number, silent: boolean = false) => {
+    const loadPage = useCallback((p: number, silent: boolean = false, currentLimit?: number) => {
+        const limitToUse = currentLimit || pageSize;
         if (!silent) {
             setLoading(true);
             setError(null);
         }
-        apiFetch(`/api/rows?caseId=${caseData.id}&limit=${PAGE_SIZE}&page=${p}`)
+        apiFetch(`/api/rows?caseId=${caseData.id}&limit=${limitToUse}&page=${p}`)
             .then(res => {
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
                 return res.json();
@@ -1673,7 +1682,7 @@ export default function CaseShow({ case: c }: Props) {
                                                 />
                                             </td>
                                             <td className="p-2.5 border-r text-center font-mono text-[10.5px] text-slate-400" style={{ borderColor: "var(--border-xs)" }}>
-                                                {(page - 1) * PAGE_SIZE + idx + 1}
+                                                {(page - 1) * pageSize + idx + 1}
                                             </td>
                                             {/* Status Badge & Search Source Pill */}
                                             <td className="p-2.5 border-r whitespace-nowrap" style={{ borderColor: "var(--border-xs)" }}>
@@ -2537,17 +2546,44 @@ export default function CaseShow({ case: c }: Props) {
                 )}
 
                 {/* Pagination (Only on Firmen Tab) */}
-                {!loading && totalPages > 1 && activeTab === "Firmen" && (
-                    <div className="flex items-center justify-between px-4 py-2.5 bg-[#fbfaf8] border-t text-xs text-slate-500" style={{ borderColor: "var(--border)" }}>
-                        <span>
-                            Zeile {((page - 1) * PAGE_SIZE + 1).toLocaleString("de-DE")}–{Math.min(page * PAGE_SIZE, total).toLocaleString("de-DE")} von {total.toLocaleString("de-DE")}
-                        </span>
+                {!loading && activeTab === "Firmen" && (
+                    <div className="flex items-center justify-between px-4 py-2 bg-[#fbfaf8] border-t text-xs text-slate-500" style={{ borderColor: "var(--border)" }}>
+                        <div className="flex items-center gap-3">
+                            <span>
+                                Zeile {total === 0 ? 0 : ((page - 1) * pageSize + 1).toLocaleString("de-DE")}–{Math.min(page * pageSize, total).toLocaleString("de-DE")} von {total.toLocaleString("de-DE")}
+                            </span>
+                            <div className="flex items-center gap-1.5 pl-3 border-l border-slate-200">
+                                <span className="text-[11px] text-slate-400">Zeilen pro Seite:</span>
+                                <div className="flex items-center gap-1 bg-white border border-slate-200 rounded p-0.5">
+                                    {[25, 50, 100, 200].map(sz => (
+                                        <button
+                                            key={sz}
+                                            type="button"
+                                            onClick={() => {
+                                                setPageSize(sz);
+                                                setPage(1);
+                                                try { localStorage.setItem('dataminer_page_size', String(sz)); } catch {}
+                                                loadPage(1, false, sz);
+                                            }}
+                                            className={`px-1.5 py-0.5 rounded text-[11px] font-mono cursor-pointer transition-colors ${
+                                                pageSize === sz
+                                                    ? 'bg-orange-500 text-white font-bold'
+                                                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                                            }`}
+                                        >
+                                            {sz}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+
                         <div className="flex items-center gap-2">
-                            <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1} className="btn-v2">
+                            <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1} className="btn-v2" title="Vorherige Seite">
                                 <ChevronLeft className="w-3.5 h-3.5" />
                             </button>
-                            <span>Seite {page} / {totalPages}</span>
-                            <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages} className="btn-v2">
+                            <span className="font-medium text-slate-700">Seite {page} / {totalPages}</span>
+                            <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page >= totalPages} className="btn-v2" title="Nächste Seite">
                                 <ChevronRight className="w-3.5 h-3.5" />
                             </button>
                         </div>
