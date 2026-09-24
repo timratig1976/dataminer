@@ -249,6 +249,20 @@ class BatchEnrichService
             $fields['industry'] = $rowData['Kategorie'];
         }
 
+        // Falls Branche oder Kategorie rohe Küchenstile sind (z.B. "Griechisch", "Italienisch"): Normalisieren!
+        if (!empty($fields['industry'])) {
+            $fields['industry'] = $this->mapsService->normalizeCategory($fields['industry']);
+        }
+        if (!empty($fields['category'])) {
+            $fields['category'] = $this->mapsService->normalizeCategory($fields['category']);
+        }
+        if (!empty($rowData['Kategorie'])) {
+            $fields['Kategorie'] = $this->mapsService->normalizeCategory($rowData['Kategorie']);
+        }
+        if (!empty($rowData['industry'])) {
+            $fields['industry'] = $this->mapsService->normalizeCategory($fields['industry'] ?? $rowData['industry']);
+        }
+
         // Auto-extract ZIP and City if address contains German postal code pattern e.g. "Straße 12, 17489 Greifswald"
         if ((empty($fields['zip']) || empty($fields['city'])) && !empty($fields['address'])) {
             if (preg_match('/\b(\d{5})\s+([A-Za-zäöüÄÖÜß\-\.\s]+?)(?:,|$)/u', $fields['address'], $m)) {
