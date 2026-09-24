@@ -2157,9 +2157,11 @@ export default function CaseShow({ case: c }: Props) {
                                                             ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
                                                             : run.status === 'running'
                                                             ? 'bg-blue-50 text-blue-700 border border-blue-200'
+                                                            : run.status === 'paused'
+                                                            ? 'bg-amber-50 text-amber-700 border border-amber-200'
                                                             : 'bg-orange-50 text-orange-700 border border-orange-200'
                                                     }`}>
-                                                        {run.status}
+                                                        {run.status === 'paused' ? 'Pausiert' : run.status}
                                                     </span>
                                                 </div>
                                                 <div className="text-xs text-slate-500 mt-1 flex items-center gap-4 flex-wrap">
@@ -2235,7 +2237,7 @@ export default function CaseShow({ case: c }: Props) {
 
                                         {/* Actions: Resume, Cancel, Modal */}
                                         <div className="flex items-center justify-end gap-2 pt-2 border-t" style={{ borderColor: 'var(--border)' }}>
-                                            {run.status === 'cancelled' && (
+                                            {(run.status === 'cancelled' || run.status === 'paused') && (
                                                 <button
                                                     onClick={async () => {
                                                         const res = await apiFetch(`/api/cases/${caseData.id}/agent/${run.id}`, { method: 'PATCH' });

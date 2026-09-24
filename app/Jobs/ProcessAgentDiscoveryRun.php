@@ -57,12 +57,18 @@ class ProcessAgentDiscoveryRun implements ShouldQueue
 
             $result = $runner->executeNextStep($run);
 
-            // Yield slightly to prevent rate limit bursts
-            usleep(500000); // 500ms between steps
-
+            // If the runner caught an error or stopped (e.g. quota exhausted or completed)
             if ($result['completed'] ?? false) {
                 break;
             }
+
+            $run->refresh();
+            if (in_array($run->status, ['completed', 'cancelled', 'failed'])) {
+                break;
+            }
+
+            // Yield slightly to prevent rate limit bursts
+            usleep(500000); // 500ms between steps
         }
     }
 }
