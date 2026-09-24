@@ -112,8 +112,13 @@ class ContactSearchService
 
         $userPrompt = "Unternehmen: {$companyName}\nDomain: {$domain}\n\n";
         if ($rawText) {
-            $userPrompt .= "Quelltext:\n" . substr($rawText, 0, 6000);
+            $cleanRawText = mb_convert_encoding(substr($rawText, 0, 6000), 'UTF-8', 'UTF-8');
+            $cleanRawText = iconv('UTF-8', 'UTF-8//IGNORE', $cleanRawText) ?: $cleanRawText;
+            $userPrompt .= "Quelltext:\n" . $cleanRawText;
         }
+
+        $userPrompt = mb_convert_encoding($userPrompt, 'UTF-8', 'UTF-8');
+        $userPrompt = iconv('UTF-8', 'UTF-8//IGNORE', $userPrompt) ?: $userPrompt;
 
         $chat = $this->edenAi->chatCompletion($apiKey, $model, $system, $userPrompt, 800, 0.0, $region);
         $jsonStr = trim(preg_replace('/^```(?:json)?\n?/i', '', preg_replace('/\n?```$/i', '', $chat['raw'])));

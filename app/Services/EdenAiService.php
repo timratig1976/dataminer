@@ -23,6 +23,12 @@ class EdenAiService
         float $temperature = 0.0,
         string $region = 'us'
     ): array {
+        // Sanitize UTF-8 strings to prevent "json_encode error: Malformed UTF-8 characters" from Guzzle
+        $system = mb_convert_encoding($system, 'UTF-8', 'UTF-8');
+        $prompt = mb_convert_encoding($prompt, 'UTF-8', 'UTF-8');
+        $system = iconv('UTF-8', 'UTF-8//IGNORE', $system) ?: $system;
+        $prompt = iconv('UTF-8', 'UTF-8//IGNORE', $prompt) ?: $prompt;
+
         // On Eden AI EU endpoint, OpenAI models return 451. Transparently fallback to Mistral.
         if ($region === 'eu' && str_starts_with($model, 'openai/')) {
             $model = 'mistral/mistral-small-latest';
