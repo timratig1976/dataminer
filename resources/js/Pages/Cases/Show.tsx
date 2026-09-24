@@ -220,6 +220,9 @@ export default function CaseShow({ case: c }: Props) {
         errors: Record<string, string>;
     } | null>(null);
 
+    // Text Details Inspection Modal (for Long Descriptions)
+    const [textDetailModal, setTextDetailModal] = useState<{ title: string; subtitle?: string; content: string } | null>(null);
+
     // Inline Editing for Table Data Cells
     const [editingCell, setEditingCell] = useState<{ rowId: string; colKey: string; value: string } | null>(null);
 
@@ -1785,7 +1788,11 @@ export default function CaseShow({ case: c }: Props) {
                                     </th>
                                     {visibleColumns.map(col => {
                                         const isDragOver = dragOverCol === col.key;
-                                        const colWidth = colWidths[col.key] ?? (col.key === 'company_name' ? 200 : col.isAi ? 180 : 140);
+                                        const colWidth = colWidths[col.key] ?? (
+                                            col.key === 'company_name' ? 200 :
+                                            col.key === 'description' || col.key === 'Beschreibung' ? 140 :
+                                            col.isAi ? 180 : 140
+                                        );
 
                                         return (
                                             <th 
@@ -2376,6 +2383,30 @@ export default function CaseShow({ case: c }: Props) {
                                                                     </div>
                                                                 )}
                                                             </div>
+                                                        ) : (col.key === 'description' || col.key === 'Beschreibung') ? (
+                                                            val ? (
+                                                                <div 
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        setTextDetailModal({
+                                                                            title: `Beschreibung: ${r.data['company_name'] || r.data['Unternehmen'] || 'Unternehmen'}`,
+                                                                            subtitle: r.data['domain'] ? `Website: ${r.data['domain']}` : undefined,
+                                                                            content: String(val)
+                                                                        });
+                                                                    }}
+                                                                    className="cursor-pointer group flex items-center justify-between gap-1 p-0.5 rounded hover:bg-slate-100 transition-colors"
+                                                                    title="Klicken, um den vollständigen Text zu lesen"
+                                                                >
+                                                                    <span className="truncate text-slate-700 max-w-[110px] block">
+                                                                        {String(val)}
+                                                                    </span>
+                                                                    <span className="text-[10px] text-slate-400 group-hover:text-orange-600 shrink-0 font-medium">
+                                                                        🔍
+                                                                    </span>
+                                                                </div>
+                                                            ) : (
+                                                                <span className="text-slate-300 italic text-[11px]">—</span>
+                                                            )
                                                         ) : (
                                                             editingCell && editingCell.rowId === r.id && editingCell.colKey === col.key ? (
                                                                 <input
@@ -3604,6 +3635,60 @@ export default function CaseShow({ case: c }: Props) {
                                 type="button"
                                 onClick={() => setRowErrorModal(null)}
                                 className="btn-v2 btn-v2-ghost"
+                            >
+                                Schließen
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* 📖 Text & Description Inspection Modal */}
+            {textDetailModal && (
+                <div 
+                    className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in"
+                    onClick={() => setTextDetailModal(null)}
+                >
+                    <div 
+                        className="w-full max-w-xl rounded-xl shadow-2xl flex flex-col max-h-[80vh] overflow-hidden bg-white border border-slate-200"
+                        onClick={e => e.stopPropagation()}
+                    >
+                        <div className="p-4 border-b flex items-center justify-between bg-slate-50/50" style={{ borderColor: 'var(--border-xs)' }}>
+                            <div>
+                                <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                                    <span>📝</span>
+                                    <span>{textDetailModal.title}</span>
+                                </h3>
+                                {textDetailModal.subtitle && (
+                                    <p className="text-[11.5px] text-slate-500 mt-0.5 font-mono">
+                                        {textDetailModal.subtitle}
+                                    </p>
+                                )}
+                            </div>
+                            <button onClick={() => setTextDetailModal(null)} className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer">✕</button>
+                        </div>
+
+                        <div className="p-5 overflow-y-auto">
+                            <div className="p-3.5 bg-slate-50 rounded-lg border border-slate-200 text-xs text-slate-800 leading-relaxed whitespace-pre-wrap select-text font-normal">
+                                {textDetailModal.content}
+                            </div>
+                        </div>
+
+                        <div className="p-3 border-t bg-slate-50 flex items-center justify-between">
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    navigator.clipboard.writeText(textDetailModal.content);
+                                    alert('Text in Zwischenablage kopiert!');
+                                }}
+                                className="btn-v2 btn-v2-ghost text-xs"
+                            >
+                                📋 Text kopieren
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setTextDetailModal(null)}
+                                className="btn-v2 btn-v2-primary text-xs"
                             >
                                 Schließen
                             </button>
