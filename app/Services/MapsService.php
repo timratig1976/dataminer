@@ -16,24 +16,48 @@ class MapsService
         $settings = GlobalSetting::instance();
         $fullQuery = $location ? "{$query} {$location}" : $query;
 
-        // 1. Serper Google Maps Engine (/maps) — Has FULL Google Maps Data (Website, Phone, Rating, Description)
+        // 1. Serper Google Maps Engine (/maps) — Has FULL Google Maps Data with auto-pagination up to $limit
         if (!empty($settings->serper_api_key)) {
             try {
-                $res = Http::timeout(15)
-                    ->withHeaders(['X-API-KEY' => $settings->serper_api_key, 'Content-Type' => 'application/json'])
-                    ->post('https://google.serper.dev/maps', [
+                $allPlaces = [];
+                $page = 1;
+                $ll = null;
+
+                while (count($allPlaces) < $limit && $page <= 5) {
+                    $payload = [
                         'q' => $fullQuery,
                         'gl' => 'de',
                         'hl' => 'de',
-                    ]);
-
-                if ($res->successful()) {
-                    $places = $res->json('places') ?? [];
-                    if (!empty($places)) {
-                        return $this->formatSerperMapsResults($places, $limit);
+                    ];
+                    if ($page > 1 && $ll) {
+                        $payload['ll'] = $ll;
+                        $payload['page'] = $page;
                     }
-                } elseif ($res->status() === 400 && str_contains(strtolower($res->body()), 'not enough credits')) {
-                    throw new \RuntimeException("Serper.dev API Credits aufgebraucht! Bitte Guthaben aufladen oder API-Key in den Einstellungen prüfen.");
+
+                    $res = Http::timeout(15)
+                        ->withHeaders(['X-API-KEY' => $settings->serper_api_key, 'Content-Type' => 'application/json'])
+                        ->post('https://google.serper.dev/maps', $payload);
+
+                    if ($res->successful()) {
+                        $batch = $res->json('places') ?? [];
+                        if (empty($batch)) {
+                            break;
+                        }
+                        // Capture GPS anchor from first page for smooth pagination
+                        if (!$ll && !empty($batch[0]['latitude']) && !empty($batch[0]['longitude'])) {
+                            $ll = "@{$batch[0]['latitude']},{$batch[0]['longitude']},14z";
+                        }
+                        $allPlaces = array_merge($allPlaces, $batch);
+                        $page++;
+                    } elseif ($res->status() === 400 && str_contains(strtolower($res->body()), 'not enough credits')) {
+                        throw new \RuntimeException("Serper.dev API Credits aufgebraucht! Bitte Guthaben aufladen oder API-Key in den Einstellungen prüfen.");
+                    } else {
+                        break;
+                    }
+                }
+
+                if (!empty($allPlaces)) {
+                    return $this->formatSerperMapsResults($allPlaces, $limit);
                 }
             } catch (\Throwable $e) {
                 Log::warning("Serper /maps failed: " . $e->getMessage());
