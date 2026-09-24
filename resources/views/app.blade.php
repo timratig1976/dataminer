@@ -9,13 +9,22 @@
         <!-- Dynamic Favicon: Brand Logo Icon if configured, otherwise high-res SVG -->
         @php
             $brandingIcon = null;
+            $iconMime = 'image/svg+xml';
             try {
                 $b = app(\App\Services\EmailTemplateService::class)->getBranding();
-                $brandingIcon = !empty($b['logo_icon_url']) ? $b['logo_icon_url'] : null;
+                if (!empty($b['logo_icon_url'])) {
+                    $brandingIcon = $b['logo_icon_url'];
+                    $iconMime = str_ends_with(strtolower($brandingIcon), '.png') ? 'image/png' : (str_ends_with(strtolower($brandingIcon), '.svg') ? 'image/svg+xml' : 'image/x-icon');
+                }
             } catch (\Throwable $e) {}
         @endphp
-        <link rel="icon" type="image/svg+xml" href="{{ $brandingIcon ?: asset('favicon.svg') }}">
-        <link rel="alternate icon" type="image/svg+xml" href="{{ asset('favicon.svg') }}">
+        @if($brandingIcon)
+            <link rel="icon" type="{{ $iconMime }}" href="{{ $brandingIcon }}">
+            <link rel="shortcut icon" href="{{ $brandingIcon }}">
+            <link rel="apple-touch-icon" href="{{ $brandingIcon }}">
+        @else
+            <link rel="icon" type="image/svg+xml" href="{{ asset('favicon.svg') }}">
+        @endif
 
         <!-- Fonts -->
         <link rel="preconnect" href="https://fonts.googleapis.com">
