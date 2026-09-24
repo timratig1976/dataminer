@@ -220,6 +220,9 @@ export default function CaseShow({ case: c }: Props) {
         errors: Record<string, string>;
     } | null>(null);
 
+    // Inline Editing for Table Data Cells
+    const [editingCell, setEditingCell] = useState<{ rowId: string; colKey: string; value: string } | null>(null);
+
     // Rename case state
     const [isEditingName, setIsEditingName] = useState(false);
     const [editedName, setEditedName] = useState(c.name);
@@ -2374,7 +2377,53 @@ export default function CaseShow({ case: c }: Props) {
                                                                 )}
                                                             </div>
                                                         ) : (
-                                                            <span>{val !== null && val !== undefined && String(val).trim() !== "" ? String(val) : "—"}</span>
+                                                            editingCell && editingCell.rowId === r.id && editingCell.colKey === col.key ? (
+                                                                <input
+                                                                    type="text"
+                                                                    value={editingCell.value}
+                                                                    autoFocus
+                                                                    onChange={(e) => setEditingCell({ ...editingCell, value: e.target.value })}
+                                                                    onKeyDown={async (e) => {
+                                                                        if (e.key === 'Enter') {
+                                                                            const nextVal = editingCell.value.trim();
+                                                                            const nextData = { ...r.data, [col.key]: nextVal };
+                                                                            setEditingCell(null);
+                                                                            setRows(prev => prev.map(row => row.id === r.id ? { ...row, data: nextData } : row));
+                                                                            await apiFetch(`/api/rows/${r.id}`, {
+                                                                                method: "PATCH",
+                                                                                headers: { "Content-Type": "application/json" },
+                                                                                body: JSON.stringify({ data: nextData }),
+                                                                            });
+                                                                        } else if (e.key === 'Escape') {
+                                                                            setEditingCell(null);
+                                                                        }
+                                                                    }}
+                                                                    onBlur={async () => {
+                                                                        const nextVal = editingCell.value.trim();
+                                                                        const nextData = { ...r.data, [col.key]: nextVal };
+                                                                        setEditingCell(null);
+                                                                        setRows(prev => prev.map(row => row.id === r.id ? { ...row, data: nextData } : row));
+                                                                        await apiFetch(`/api/rows/${r.id}`, {
+                                                                            method: "PATCH",
+                                                                            headers: { "Content-Type": "application/json" },
+                                                                            body: JSON.stringify({ data: nextData }),
+                                                                        });
+                                                                    }}
+                                                                    className="w-full text-xs p-1 bg-white rounded border border-orange-500 focus:outline-hidden ring-1 ring-orange-400"
+                                                                    onClick={(e) => e.stopPropagation()}
+                                                                />
+                                                            ) : (
+                                                                <span 
+                                                                    onDoubleClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        setEditingCell({ rowId: r.id, colKey: col.key, value: String(val ?? '') });
+                                                                    }}
+                                                                    className="cursor-text hover:bg-slate-100/70 p-0.5 rounded transition-colors inline-block w-full truncate"
+                                                                    title="Doppelklick zum Bearbeiten"
+                                                                >
+                                                                    {val !== null && val !== undefined && String(val).trim() !== "" ? String(val) : "—"}
+                                                                </span>
+                                                            )
                                                         )}
                                                     </td>
                                                 );

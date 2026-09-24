@@ -186,10 +186,58 @@ class MapsService
                 'website' => $p['website'] ?? '',
                 'rating' => $p['rating'] ?? null,
                 'reviews' => $p['ratingCount'] ?? null,
-                'category' => $p['category'] ?? '',
+                'category' => $this->normalizeCategory($p['category'] ?? ''),
                 'mapsUrl' => $mapsUrl,
             ];
         }
         return $out;
+    }
+
+    /**
+     * Normalizes raw Google Maps cuisine/national categories into clean industry names.
+     */
+    public function normalizeCategory(?string $cat): string
+    {
+        $cat = trim($cat ?? '');
+        if (empty($cat)) return '';
+
+        // Known cuisines that Google maps directly without "Restaurant"
+        $cuisineMap = [
+            'griechisch' => 'Griechisches Restaurant',
+            'italienisch' => 'Italienisches Restaurant',
+            'deutsch' => 'Deutsches Restaurant',
+            'asiatisch' => 'Asiatisches Restaurant',
+            'chinesisch' => 'Chinesisches Restaurant',
+            'japanisch' => 'Japanisches Restaurant',
+            'indisch' => 'Indisches Restaurant',
+            'türkisch' => 'Türkisches Restaurant',
+            'spanisch' => 'Spanisches Restaurant',
+            'mexikanisch' => 'Mexikanisches Restaurant',
+            'französisch' => 'Französisches Restaurant',
+            'vietnamesisch' => 'Vietnamesisches Restaurant',
+            'kroatisch' => 'Kroatisches Restaurant',
+            'mediterran' => 'Mediterranes Restaurant',
+            'amerikanisch' => 'Amerikanisches Restaurant',
+            'vegetarisch' => 'Vegetarisches Restaurant',
+            'vegan' => 'Veganes Restaurant',
+            'gutbürgerlich' => 'Gutbürgerliches Restaurant',
+            'balkan' => 'Balkan-Restaurant',
+            'sushi' => 'Sushi-Restaurant',
+            'pizza' => 'Pizzeria',
+            'burger' => 'Burger-Restaurant',
+            'steakhouse' => 'Steakhouse',
+            'eiscafe' => 'Eiscafé',
+            'eiscafé' => 'Eiscafé',
+            'bäckerei' => 'Bäckerei & Café',
+            'konditorei' => 'Konditorei & Café',
+        ];
+
+        $lower = mb_strtolower($cat);
+        if (isset($cuisineMap[$lower])) {
+            return $cuisineMap[$lower];
+        }
+
+        // If it already ends with Restaurant, Café, Bar, Hotel, etc., keep it
+        return $cat;
     }
 }
