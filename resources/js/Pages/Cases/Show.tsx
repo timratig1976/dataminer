@@ -1459,7 +1459,14 @@ export default function CaseShow({ case: c }: Props) {
                 )}
 
                 {activeTab === "Firmen" && viewMode === "flat" && (
-                    <div className="overflow-x-auto max-h-[72vh]">
+                    <div 
+                        className="overflow-x-auto overflow-y-auto"
+                        style={{
+                            // Row height is ~39px per row + ~36px thead
+                            // Dynamically fit up to the selected page size or available viewport
+                            maxHeight: `${Math.min(pageSize * 39 + 38, Math.round(window.innerHeight * 0.78))}px`,
+                        }}
+                    >
                         <table 
                             className="text-left border-collapse text-xs"
                             style={{ tableLayout: "fixed", width: "max-content", minWidth: "100%" }}
