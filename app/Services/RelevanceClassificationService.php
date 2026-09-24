@@ -10,7 +10,8 @@ use Illuminate\Support\Facades\Log;
 class RelevanceClassificationService
 {
     public function __construct(
-        protected EdenAiService $edenAi
+        protected EdenAiService $edenAi,
+        protected SearchService $searchService
     ) {}
 
     /**
@@ -20,26 +21,25 @@ class RelevanceClassificationService
     {
         $instruction = trim($customInstruction ?: ($case->relevance_prompt ?: ''));
 
+        $rules = "WICHTIGE REGELN ZUR UNTERSCHEIDUNG VON UNTERNEHMEN VS. VERZEICHNIS:\n"
+            . "1. Wenn der NAME ein echtes, operatives Zielunternehmen ist (z. B. 'Restaurant Carlshöhe', 'Hotel Seeblick', 'Tischlerei Müller'), ist es IMMER \"target\"!\n"
+            . "   Auch wenn die angegebene Domain ein Verzeichnis, Portal oder Social-Media-Profil ist (z. B. speisekarte.menu, speisekartenweb.de, tripadvisor.de, facebook.com, gelbeseiten.de) -> stufe es als \"target\" ein und setze is_directory_domain: true!\n"
+            . "2. Stufe einen Eintrag NUR DANN als \"catalog\" ein, wenn der Eintrag SELBST das Portal/Verzeichnis ist (z. B. 'Speisekartenweb GmbH', 'Tripadvisor Deutschland', 'Gelbe Seiten Verlag', oder eine reine Link-/Verzeichnisseite).\n"
+            . "3. \"association\": Dachverband, Tourismusverband, Verein e.V., Innung, Handwerkskammer, IHK, Ministerium, Stadtmarketing.\n"
+            . "4. \"irrelevant\": Fremde Branche, Großzulieferer, Privatperson oder thematisch unpassend.\n\n";
+
         if (!empty($instruction)) {
             $baseInstruction = "Projekt-Kontext & Zielgruppe: \"{$case->name}\"\n\n"
                 . "Individuelle Vorgabe des Nutzers für die Relevanzprüfung:\n{$instruction}\n\n"
-                . "Klassifiziere jeden der folgenden Einträge in genau eine der folgenden Kategorien:\n"
-                . "- \"target\": Echtes, passendes Zielunternehmen gemäß den obigen Kriterien.\n"
-                . "- \"catalog\": Branchenverzeichnis, Bewertungsportal, Speisekarten-Portal, Buchungsplattform oder Aggregator (z.B. speisekarte.menu, tripadvisor, gelbeseiten).\n"
-                . "- \"association\": Dachverband, Innung, Verein, Verband e.V., Handwerkskammer, IHK, Tourismusverband, Behörde, Stadtmarketing.\n"
-                . "- \"irrelevant\": Fremde Branche, Großzulieferer, Privatperson oder passt gar nicht zur Zielgruppe.\n\n";
+                . $rules;
         } else {
             $baseInstruction = "Projekt-Kontext & Zielgruppe: \"{$case->name}\"\n\n"
-                . "Prüfe jeden der folgenden Einträge, ob es sich um ein echtes, operatives Einzelunternehmen der Zielgruppe handelt, oder um ein atypisches Ergebnis:\n"
-                . "- \"target\": Echtes operatives Einzelunternehmen der Zielgruppe (z. B. einzelnes Hotel, Pension, Restaurant, Handwerksbetrieb).\n"
-                . "- \"catalog\": Branchenverzeichnis, Bewertungsportal, Speisekarten-Portal oder Aggregator (z.B. speisekarte.menu, tripadvisor, gelbeseiten).\n"
-                . "- \"association\": Dachverband, Innung, Verein, Verband e.V., Handwerkskammer, IHK, Tourismusverband, Behörde, Stadtmarketing.\n"
-                . "- \"irrelevant\": Fremde Branche, Großzulieferer oder passt inhaltlich gar nicht zum Thema.\n\n";
+                . $rules;
         }
 
         return $baseInstruction
             . "Antworte NUR als valides JSON-Array im Format:\n"
-            . "[{\"id\": \"<id>\", \"relevance_type\": \"target|catalog|association|irrelevant\", \"reason\": \"prägnante Begründung (max 6 Wörter)\"}]\n\n"
+            . "[{\"id\": \"<id>\", \"relevance_type\": \"target|catalog|association|irrelevant\", \"is_directory_domain\": true|false, \"reason\": \"prägnante Begründung (max 6 Wörter)\"}]\n\n"
             . "Einträge:\n" . json_encode($itemsToPrompt, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
     }
 
@@ -167,12 +167,29 @@ class RelevanceClassificationService
                         if ($res && isset($res['relevance_type'])) {
                             $d = $r->data ?? [];
                             $relType = $res['relevance_type'];
-                            $d['relevance_type'] = $relType;
-                            $d['relevance_reason'] = $res['reason'] ?? '';
-                            $d['is_target'] = ($relType === 'target');
-                            if ($relType === 'catalog') {
-                                $d['is_catalog'] = 'true';
+                            $isDirectoryDomain = !empty($res['is_directory_domain']);
+                            
+                            $currentDomain = $d['domain'] ?? '';
+                            $isCatalogDomain = !empty($currentDomain) && $this->searchService->isCatalogDomain($currentDomain);
+
+                            // Wenn echtes Zielunternehmen, aber Domain ein Katalog/Portal ist:
+                            if ($relType === 'target' && ($isDirectoryDomain || $isCatalogDomain)) {
+                                $d['raw_portal_domain'] = $currentDomain;
+                                $d['portal_source'] = $currentDomain;
+                                $d['domain'] = ''; // Leeren, damit die offizielle Domain recherchiert wird
+                                $d['is_third_party_domain'] = 'true';
+                                $d['relevance_type'] = 'target';
+                                $d['relevance_reason'] = 'Zielkunde (Verzeichnis-Domain entfernt)';
+                                $d['is_target'] = true;
+                            } else {
+                                $d['relevance_type'] = $relType;
+                                $d['relevance_reason'] = $res['reason'] ?? '';
+                                $d['is_target'] = ($relType === 'target');
+                                if ($relType === 'catalog') {
+                                    $d['is_catalog'] = 'true';
+                                }
                             }
+
                             $r->update(['data' => $d]);
                             if ($relType !== 'target') {
                                 $atypicCount++;
@@ -293,12 +310,28 @@ class RelevanceClassificationService
                         if ($res && isset($res['relevance_type'])) {
                             $d = $r->data ?? [];
                             $relType = $res['relevance_type'];
-                            $d['relevance_type'] = $relType;
-                            $d['relevance_reason'] = $res['reason'] ?? '';
-                            $d['is_target'] = ($relType === 'target');
-                            if ($relType === 'catalog') {
-                                $d['is_catalog'] = 'true';
+                            $isDirectoryDomain = !empty($res['is_directory_domain']);
+
+                            $currentDomain = $d['domain'] ?? '';
+                            $isCatalogDomain = !empty($currentDomain) && $this->searchService->isCatalogDomain($currentDomain);
+
+                            if ($relType === 'target' && ($isDirectoryDomain || $isCatalogDomain)) {
+                                $d['raw_portal_domain'] = $currentDomain;
+                                $d['portal_source'] = $currentDomain;
+                                $d['domain'] = ''; // Leeren, damit die offizielle Domain recherchiert wird
+                                $d['is_third_party_domain'] = 'true';
+                                $d['relevance_type'] = 'target';
+                                $d['relevance_reason'] = 'Zielkunde (Verzeichnis-Domain entfernt)';
+                                $d['is_target'] = true;
+                            } else {
+                                $d['relevance_type'] = $relType;
+                                $d['relevance_reason'] = $res['reason'] ?? '';
+                                $d['is_target'] = ($relType === 'target');
+                                if ($relType === 'catalog') {
+                                    $d['is_catalog'] = 'true';
+                                }
                             }
+
                             $r->update(['data' => $d]);
                             $totalClassified++;
                             if ($relType !== 'target') {

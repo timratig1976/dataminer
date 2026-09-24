@@ -89,8 +89,11 @@ class DiscoveryService
             $url = $p['website'] ?? '';
             $domain = !empty($url) ? $this->extractDomain($url) : null;
 
-            // Skip duplicates if domain exists
-            if (!empty($domain) && in_array($domain, $existingDomains)) {
+            // Check if domain is a known catalog or directory (e.g. speisekarte.menu, tripadvisor, facebook)
+            $isCatalog = !empty($domain) && $this->searchService->isCatalogDomain($url);
+
+            // Skip duplicates if domain exists and is not empty
+            if (!empty($domain) && !$isCatalog && in_array($domain, $existingDomains)) {
                 continue;
             }
 
@@ -106,9 +109,13 @@ class DiscoveryService
                 $city = trim($m[2]);
             }
 
+            // Wenn es eine Portal-Domain ist: Domain leeren & in raw_portal_domain sichern
+            $effectiveDomain = $isCatalog ? '' : ($domain ?? '');
+
             $newRows[] = [
                 'company_name' => $name,
-                'domain' => $domain ?? '',
+                'domain' => $effectiveDomain,
+                'raw_portal_domain' => $isCatalog ? ($domain ?? '') : '',
                 'address' => $address,
                 'zip' => $zip,
                 'city' => $city,
@@ -127,8 +134,8 @@ class DiscoveryService
                 'is_catalog' => '',
             ];
 
-            if (!empty($domain)) {
-                $existingDomains[] = $domain;
+            if (!empty($effectiveDomain)) {
+                $existingDomains[] = $effectiveDomain;
             }
         }
 
