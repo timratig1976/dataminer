@@ -179,6 +179,8 @@ class MapsService
             $cid = $p['cid'] ?? null;
             $mapsUrl = $cid ? "https://www.google.com/maps/place/?q=place_id:{$cid}" : "https://www.google.com/maps/search/" . urlencode($p['title'] ?? '');
 
+            $rawCategory = trim($p['category'] ?? '');
+
             $out[] = [
                 'name' => $p['title'] ?? '',
                 'address' => $p['address'] ?? '',
@@ -186,7 +188,9 @@ class MapsService
                 'website' => $p['website'] ?? '',
                 'rating' => $p['rating'] ?? null,
                 'reviews' => $p['ratingCount'] ?? null,
-                'category' => $this->normalizeCategory($p['category'] ?? ''),
+                'raw_category' => $rawCategory,
+                'category' => $rawCategory, // Original GMB Tag (z.B. "Griechisch", "Italienisch")
+                'industry' => $this->normalizeCategory($rawCategory), // Generische Branche (z.B. "Restaurant", "Café", "Hotel")
                 'mapsUrl' => $mapsUrl,
             ];
         }

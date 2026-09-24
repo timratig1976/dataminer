@@ -116,6 +116,9 @@ class DiscoveryService
             // Wenn es eine Portal- oder Social-Domain ist: Hauptdomain leeren & gezielt speichern
             $effectiveDomain = ($isCatalog || $isFacebook || $isInstagram) ? '' : ($domain ?? '');
 
+            $rawCategory = $p['raw_category'] ?? $p['category'] ?? '';
+            $genericIndustry = !empty($p['industry']) ? $p['industry'] : $this->mapsService->normalizeCategory($rawCategory);
+
             $newRows[] = [
                 'company_name' => $name,
                 'domain' => $effectiveDomain,
@@ -126,14 +129,16 @@ class DiscoveryService
                 'zip' => $zip,
                 'city' => $city,
                 'phone' => $p['phone'] ?? '',
-                'industry' => $p['category'] ?? '',
-                'category' => $p['category'] ?? '',
+                'industry' => $genericIndustry, // Generisch: "Restaurant", "Café", "Hotel"
+                'category' => $rawCategory,     // Spezifisch aus GMB: "Griechisch", "Italienisch", etc.
+                'Kategorie' => $rawCategory,
+                'Branche' => $genericIndustry,
                 'maps_rating' => !empty($p['rating']) ? (string) $p['rating'] : '',
                 'maps_reviews' => !empty($p['reviews']) ? (string) $p['reviews'] : '',
                 'maps_url' => $mapsUrl,
                 'source_url' => !empty($url) ? $url : $mapsUrl,
                 'source_title' => $name,
-                'source_snippet' => implode(' · ', array_filter([$p['category'] ?? null, $address])),
+                'source_snippet' => implode(' · ', array_filter([$rawCategory, $address])),
                 'source_domain' => $domain ?? '',
                 'search_query' => $query,
                 'search_source' => 'google_maps',
