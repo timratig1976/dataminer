@@ -1320,6 +1320,27 @@ export default function CaseShow({ case: c }: Props) {
                                         </div>
                                     )}
 
+                                    <button
+                                        type="button"
+                                        onClick={async () => {
+                                            if (!confirm("Bekannte News-, Blog- und Magazinzeilen (z.B. spiegel.de, hotelvor9, tageskarte, Google Maps Ansichten) automatisch bereinigen?")) return;
+                                            try {
+                                                const res = await apiFetch(`/api/cases/${caseData.id}/purge-junk`, { method: 'POST' });
+                                                const d = await res.json();
+                                                alert(d.message || `${d.purged_count} Zeilen bereinigt.`);
+                                                loadPage(1);
+                                                refreshCase();
+                                            } catch (e: any) {
+                                                alert("Fehler: " + e.message);
+                                            }
+                                        }}
+                                        className="btn-v2"
+                                        style={{ padding: "3px 8px", fontSize: 11.5, color: "#be123c", background: "#ffe4e6", borderColor: "#fecdd3" }}
+                                        title="Löscht bekannte redaktionelle Artikel, News-Seiten und Google-eigene Treffer aus diesem Case"
+                                    >
+                                        🧹 Junk bereinigen
+                                    </button>
+
                                     {/* Atypical Count (Project-Wide) Button */}
                                     {(relevanceStats?.atypic_count ?? atypicRows.length) > 0 && (
                                         <button

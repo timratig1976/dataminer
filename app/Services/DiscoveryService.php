@@ -36,6 +36,13 @@ class DiscoveryService
             // Check if result is unwanted (catalog, wikipedia, ebay, social media etc.)
             $isJunk = empty($domain) || $this->searchService->isCatalogDomain($url);
 
+            // Redaktionelle Artikel, Blog-Posts & Ratgeber aussortieren (keine Zielkunden!)
+            $title = $hit['title'] ?? '';
+            $snippet = $hit['snippet'] ?? '';
+            if (!$isJunk && $this->isEditorialOrArticle($title, $url, $snippet)) {
+                $isJunk = true;
+            }
+
             if ($isJunk) {
                 $consecutiveJunkCount++;
                 // Early-Exit: If 4 unwanted results appear consecutively, relevance has decayed -> abort this query
@@ -221,5 +228,37 @@ class DiscoveryService
         $host = strtolower(trim($host));
         $host = preg_replace('/^www\./', '', $host);
         return !empty($host) ? $host : null;
+    }
+
+    /**
+     * Checks if a search result title/url is typical for editorial news, blog posts, tests or agency articles
+     */
+    protected function isEditorialOrArticle(string $title, string $url, string $snippet): bool
+    {
+        $lowerTitle = mb_strtolower($title);
+        $lowerUrl = mb_strtolower($url);
+        $lowerSnippet = mb_strtolower($snippet);
+
+        // Typical news, guide & article headline indicators
+        $articleKeywords = [
+            'deshalb sieht', 'darum sollte', 'so funktioniert', 'im test:', 'testbericht',
+            'wie ihr hotel', 'wie sie ihr', 'tipps für', 'trends 202', 'ratgeber',
+            'news & trends', 'inside google', 'strategie für', 'interview mit',
+            'leitfaden', 'whitepaper', 'kartenansicht', 'google maps integration',
+            'sichtbarkeit steigern', 'erweitert ask maps', 'preise vergleichen'
+        ];
+
+        foreach ($articleKeywords as $kw) {
+            if (str_contains($lowerTitle, $kw) || str_contains($lowerSnippet, $kw)) {
+                return true;
+            }
+        }
+
+        // Typical URL paths for articles, blogs and news
+        if (preg_match('#/(news|blog|magazin|artikel|article|insights|aktuelles|ratgeber|posts|stories)/#i', $lowerUrl)) {
+            return true;
+        }
+
+        return false;
     }
 }

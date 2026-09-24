@@ -91,6 +91,7 @@ Route::middleware(['web', 'auth'])->group(function () {
         // Relevance & Atypical Entry Management
         Route::get('/cases/{id}/relevance-stats', [\App\Http\Controllers\Api\RelevanceController::class, 'stats']);
         Route::put('/cases/{id}/relevance-prompt', [\App\Http\Controllers\Api\RelevanceController::class, 'updatePrompt']);
+        Route::post('/cases/{id}/purge-junk', [\App\Http\Controllers\Api\RelevanceController::class, 'purgeJunk']);
         Route::post('/cases/{id}/classify-bulk', [\App\Http\Controllers\Api\RelevanceController::class, 'classifyBulk']);
         Route::post('/cases/{id}/classify-cancel', [\App\Http\Controllers\Api\RelevanceController::class, 'cancel']);
         Route::get('/cases/{id}/atypic-rows', [\App\Http\Controllers\Api\RelevanceController::class, 'atypicRows']);

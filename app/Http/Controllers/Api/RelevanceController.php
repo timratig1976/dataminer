@@ -62,6 +62,50 @@ class RelevanceController extends Controller
     }
 
     /**
+     * Purge known junk / news / catalog rows across the case using SearchService rules.
+     * POST /api/cases/{id}/purge-junk
+     */
+    public function purgeJunk(Request $request, string $id, \App\Services\SearchService $searchService): JsonResponse
+    {
+        $case = DataCase::findOrFail($id);
+        $rows = Row::where('case_id', $case->id)->get();
+
+        $junkIds = [];
+        foreach ($rows as $r) {
+            $d = $r->data ?? [];
+            $domain = strtolower($d['domain'] ?? '');
+            $url = $d['source_url'] ?? "https://{$domain}";
+            $title = $d['company_name'] ?? $d['source_title'] ?? '';
+
+            if ($domain && $searchService->isCatalogDomain($url)) {
+                $junkIds[] = $r->id;
+                continue;
+            }
+
+            if (str_contains($domain, 'spiegel.') || str_contains($domain, 'zeit.') || str_contains($domain, 'hotelvor9.') || str_contains($domain, 'tageskarte.') || str_contains($domain, 'ubilabs.') || str_contains($domain, 'hogapage.') || str_contains($domain, 'maps.google.')) {
+                $junkIds[] = $r->id;
+                continue;
+            }
+
+            if (str_contains($title, 'Kartenansicht') || str_contains($title, 'Deshalb sieht') || str_contains($title, 'Google testet')) {
+                $junkIds[] = $r->id;
+                continue;
+            }
+        }
+
+        $deleted = 0;
+        if (!empty($junkIds)) {
+            $deleted = Row::where('case_id', $case->id)->whereIn('id', $junkIds)->delete();
+        }
+
+        return response()->json([
+            'success' => true,
+            'purged_count' => $deleted,
+            'message' => "{$deleted} nachweislich irrelevante News- & Katalogzeilen gelöscht.",
+        ]);
+    }
+
+    /**
      * Update the relevance prompt for the case.
      * PUT /api/cases/{id}/relevance-prompt
      */

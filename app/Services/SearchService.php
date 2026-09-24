@@ -9,21 +9,41 @@ use Illuminate\Support\Facades\Log;
 class SearchService
 {
     /**
-     * Known catalog, directory and non-target consumer domains in DACH
+     * Known catalog, directory, editorial media and non-target consumer domains in DACH
      */
     protected array $catalogDomains = [
+        // Verzeichnisse & Branchenbücher
         'wlw.de', 'gelbeseiten.de', 'dasoertliche.de', 'dastelefonbuch.de',
         '11880.com', '11880.de', 'meinestadt.de', 'stadtbranchenbuch.com',
         'branchenbuch.de', 'firmen.de', 'firmenwissen.de', 'northdata.de',
         'northdata.com', 'companyhouse.de', 'handelsregister.de',
         'unternehmensregister.de', 'bundesanzeiger.de', 'creditreform.de',
+
+        // Social Media & Video / Community
         'linkedin.com', 'xing.com', 'facebook.com', 'instagram.com',
+        'youtube.com', 'pinterest.de', 'pinterest.com', 'tiktok.com', 
+        'reddit.com', 'twitter.com', 'x.com',
+
+        // Speisekarten & Bewertungsportale
         'speisekarte.de', 'speisekarte.menu', 'speisekartenweb.de',
         'tripadvisor.de', 'tripadvisor.com', 'restaurant-guru.in', 'yelp.de',
         'falstaff.com', 'opentable.de', 'lieferando.de', 'michelin.com',
+        'booking.com', 'trivago.de', 'trivago.com', 'hrs.de', 'expedia.de',
+        'holidaycheck.de', 'hotel.de',
+
+        // Google interne Domains
+        'google.com', 'google.de', 'maps.google.de', 'maps.google.com',
+        'support.google.com', 'blog.google',
+
+        // Nachrichten-Magazine & Fach-Blogs (keine operativen Zielkunden!)
+        'spiegel.de', 'zeit.de', 'welt.de', 'faz.net', 'focus.de', 'bild.de',
+        'heise.de', 'golem.de', 't-online.de', 'stern.de', 'sueddeutsche.de',
+        'handelsblatt.com', 'wiwo.de', 'tagesschau.de', 'n-tv.de',
+        'tageskarte.io', 'hotelvor9.de', 'hogapage.de', 'ahgz.de', 'gastgewerbe-magazin.de',
+
+        // E-Commerce & Kleinanzeigen
         'wikipedia.org', 'wikidata.org', 'ebay.de', 'ebay.com', 'ebay-kleinanzeigen.de',
-        'kleinanzeigen.de', 'amazon.de', 'amazon.com', 'youtube.com', 'pinterest.de',
-        'pinterest.com', 'tiktok.com', 'reddit.com', 'twitter.com', 'x.com'
+        'kleinanzeigen.de', 'amazon.de', 'amazon.com', 'otto.de'
     ];
 
     /**
