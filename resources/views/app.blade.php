@@ -3,7 +3,19 @@
     <head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
-        <title inertia>{{ config('app.name', 'DataMiner') }}</title>
+        <meta name="description" content="DataMiner 100k — High-Performance B2B Lead Engine & Data Enrichment Platform">
+        <title inertia>{{ config('app.name', 'DataMiner') }} — High-Performance Lead Engine</title>
+
+        <!-- Dynamic Favicon: Brand Logo Icon if configured, otherwise high-res SVG -->
+        @php
+            $brandingIcon = null;
+            try {
+                $b = app(\App\Services\EmailTemplateService::class)->getBranding();
+                $brandingIcon = !empty($b['logo_icon_url']) ? $b['logo_icon_url'] : null;
+            } catch (\Throwable $e) {}
+        @endphp
+        <link rel="icon" type="image/svg+xml" href="{{ $brandingIcon ?: asset('favicon.svg') }}">
+        <link rel="alternate icon" type="image/svg+xml" href="{{ asset('favicon.svg') }}">
 
         <!-- Fonts -->
         <link rel="preconnect" href="https://fonts.googleapis.com">

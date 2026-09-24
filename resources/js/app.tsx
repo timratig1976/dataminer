@@ -12,7 +12,7 @@ router.on('invalid', (event) => {
 const appName = import.meta.env.VITE_APP_NAME || 'DataMiner';
 
 createInertiaApp({
-    title: (title) => `${title} - ${appName}`,
+    title: (title) => title ? `${title} — ${appName}` : `${appName} — High-Performance Lead Engine`,
     resolve: (name) =>
         resolvePageComponent(
             `./Pages/${name}.tsx`,

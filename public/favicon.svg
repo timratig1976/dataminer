@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <defs>
+    <linearGradient id="dm-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ea580c"/>
+      <stop offset="100%" stop-color="#c2410c"/>
+    </linearGradient>
+    <filter id="dm-shadow" x="-10%" y="-10%" width="130%" height="130%">
+      <feDropShadow dx="0" dy="2" stdDeviation="2" flood-opacity="0.25"/>
+    </filter>
+  </defs>
+  
+  <!-- Modern Rounded Diamond/Hexagon Tile -->
+  <rect x="4" y="4" width="56" height="56" rx="14" fill="url(#dm-grad)" filter="url(#dm-shadow)"/>
+  
+  <!-- Subtle Internal Grid Pattern -->
+  <path d="M4 22h56M4 42h56M22 4v56M42 4v56" stroke="white" stroke-opacity="0.08" stroke-width="1.5"/>
+
+  <!-- High-Tech Mining Pick / Diamond Lead Symbol -->
+  <g transform="translate(14, 14)" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+    <!-- Database cylinders stacked & connected with node rays -->
+    <ellipse cx="18" cy="8" rx="11" ry="4.5" fill="none"/>
+    <path d="M7 8v8c0 2.5 5 4.5 11 4.5s11-2 11-4.5V8" fill="none"/>
+    <path d="M7 16v8c0 2.5 5 4.5 11 4.5s11-2 11-4.5v-8" fill="none"/>
+    
+    <!-- Spark / Energy Star in corner -->
+    <path d="M29 3l1.5 3.5L34 8l-3.5 1.5L29 13l-1.5-3.5L24 8l3.5-1.5z" fill="#fde047" stroke="#fde047" stroke-width="0.8"/>
+  </g>
+</svg>
