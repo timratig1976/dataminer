@@ -1,6 +1,6 @@
 #!/bin/bash
 # ==============================================================================
-# DataMiner Deployment Script for Hetzner Server
+# DataMiner Deployment Script for Hetzner Server (Git-Based Deployment)
 # Server: dedi4509.your-server.de (Port 222)
 # Target: /usr/www/users/viminb/dataminer
 # ==============================================================================
@@ -12,54 +12,39 @@ REMOTE_PORT="222"
 REMOTE_USER="viminb"
 REMOTE_PATH="/usr/www/users/viminb/dataminer"
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+echo "🚀 Starte Git-basiertes DataMiner Deployment auf $REMOTE_HOST..."
 
-echo "🚀 [1/4] Starte DataMiner Deployment..."
-
-# 1. Frontend kompilieren
-echo "📦 [2/4] Kompiliere Frontend-Assets mit Vite..."
-cd "$ROOT_DIR"
-npm run build
-
-# 2. Dateien synchronisieren
-echo "📤 [3/4] Übertrage Projektdateien per rsync..."
-rsync -avz --progress -e "ssh -p $REMOTE_PORT" \
-  --exclude='node_modules' \
-  --exclude='.git' \
-  --exclude='.env' \
-  --exclude='public/hot' \
-  --exclude='storage/logs/*' \
-  --exclude='storage/framework/cache/*' \
-  --exclude='storage/framework/sessions/*' \
-  --exclude='storage/framework/views/*' \
-  "$ROOT_DIR/" "$REMOTE_USER@$REMOTE_HOST:$REMOTE_PATH/"
-
-# 3. Server-Tasks ausführen
-echo "⚙️ [4/4] Aktualisiere Abhängigkeiten & Caches auf dem Server..."
 ssh -p "$REMOTE_PORT" "$REMOTE_USER@$REMOTE_HOST" << 'EOF'
+set -e
 cd /usr/www/users/viminb/dataminer
 
-# Composer Dependencies installieren
+echo "📥 [1/5] Hole neuesten Stand vom GitHub Repository (git pull)..."
+git fetch origin main
+git reset --hard origin/main
+
+echo "📦 [2/5] Installiere PHP Dependencies..."
 composer install --no-dev --optimize-autoloader --no-interaction
 
-# Falls noch kein App Key existiert
+echo "🔨 [3/5] Kompiliere Frontend-Assets mit Vite direkt auf dem Server..."
+npm run build
+rm -f public/hot
+
+echo "🗄️ [4/5] Führe Datenbank-Migrationen aus..."
 if grep -q "APP_KEY=$" .env 2>/dev/null || ! grep -q "APP_KEY=" .env 2>/dev/null; then
   php artisan key:generate --force
 fi
-
-# Datenbank-Migrationen ausführen (falls DB konfiguriert ist)
 php artisan migrate --force || echo "⚠️ Migrationen übersprungen (DB prüfen)"
 
-# Caches leeren und neu erstellen
+echo "⚙️ [5/5] Optimiere Caches & starte Worker neu..."
 php artisan optimize:clear
 php artisan config:cache
 php artisan route:cache
 php artisan view:cache
 
-# Queue-Worker neu starten, falls PM2 läuft (inkl. Aktualisierung der Umgebungsvariablen)
+# Starte PM2 Queue-Worker neu
 pm2 restart dataminer-worker --update-env 2>/dev/null || true
 
 echo "✅ Server-Aktualisierung erfolgreich abgeschlossen!"
 EOF
 
-echo "🎉 Deployment erfolgreich beendet!"
+echo "🎉 Deployment via Git erfolgreich beendet!"
