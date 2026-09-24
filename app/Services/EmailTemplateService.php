@@ -14,7 +14,19 @@ class EmailTemplateService
             $stored = [];
         }
 
-        return array_merge($this->defaultBranding(), $stored);
+        $merged = array_merge($this->defaultBranding(), $stored);
+
+        // Normalize local URLs (e.g. http://127.0.0.1:8000/uploads/...) to current environment root
+        foreach (['logo_url', 'logo_icon_url'] as $key) {
+            if (!empty($merged[$key])) {
+                $val = (string) $merged[$key];
+                if (preg_match('#^https?://[^/]+(/uploads/branding/.*)$#', $val, $m)) {
+                    $merged[$key] = url($m[1]);
+                }
+            }
+        }
+
+        return $merged;
     }
 
     public function saveBranding(array $branding): array
