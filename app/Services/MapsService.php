@@ -32,32 +32,47 @@ class MapsService
                     if (!empty($places)) {
                         return $this->formatSerperMapsResults($places, $limit);
                     }
+                } elseif ($res->status() === 400 && str_contains(strtolower($res->body()), 'not enough credits')) {
+                    throw new \RuntimeException("Serper.dev API Credits aufgebraucht! Bitte Guthaben aufladen oder API-Key in den Einstellungen prüfen.");
                 }
             } catch (\Throwable $e) {
                 Log::warning("Serper /maps failed: " . $e->getMessage());
             }
         }
 
-        // 2. SerpAPI Google Maps (Fallback)
+        // 2. SerpAPI Google Maps (Fallback with pagination support up to $limit)
         if (!empty($settings->serp_api_key)) {
             try {
-                $params = [
-                    'engine' => 'google_maps',
-                    'q' => $fullQuery,
-                    'api_key' => $settings->serp_api_key,
-                    'hl' => 'de',
-                    'gl' => 'de',
-                ];
-                if ($location) {
-                    $params['ll'] = $location;
+                $allResults = [];
+                $start = 0;
+
+                while (count($allResults) < $limit) {
+                    $params = [
+                        'engine' => 'google_maps',
+                        'q' => $fullQuery,
+                        'api_key' => $settings->serp_api_key,
+                        'hl' => 'de',
+                        'gl' => 'de',
+                    ];
+                    if ($start > 0) {
+                        $params['start'] = $start;
+                    }
+
+                    $res = Http::timeout(15)->get('https://serpapi.com/search.json', $params);
+                    if (!$res->successful()) break;
+
+                    $localResults = $res->json('local_results') ?? [];
+                    if (empty($localResults)) break;
+
+                    $allResults = array_merge($allResults, $localResults);
+                    $start += 20;
+
+                    // If less than 20 returned, we reached the end of Google Maps results
+                    if (count($localResults) < 20) break;
                 }
 
-                $res = Http::timeout(15)->get('https://serpapi.com/search.json', $params);
-                if ($res->successful()) {
-                    $localResults = $res->json('local_results') ?? [];
-                    if (!empty($localResults)) {
-                        return $this->formatSerpApiResults($localResults, $limit);
-                    }
+                if (!empty($allResults)) {
+                    return $this->formatSerpApiResults($allResults, $limit);
                 }
             } catch (\Throwable $e) {
                 Log::warning("SerpAPI Maps search failed: " . $e->getMessage());
@@ -80,6 +95,8 @@ class MapsService
                     if (!empty($places)) {
                         return $this->formatSerperResults($places, $limit);
                     }
+                } elseif ($res->status() === 400 && str_contains(strtolower($res->body()), 'not enough credits')) {
+                    throw new \RuntimeException("Serper.dev API Credits aufgebraucht! Bitte Guthaben aufladen oder API-Key in den Einstellungen prüfen.");
                 }
             } catch (\Throwable $e) {
                 Log::warning("Serper /places failed: " . $e->getMessage());

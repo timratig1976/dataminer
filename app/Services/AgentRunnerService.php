@@ -87,23 +87,51 @@ class AgentRunnerService
         $logMessage = '';
         $stepCost = 0.001; // default 0.001 per serper call
 
-        if (($step['type'] ?? '') === 'google_search') {
-            $query = $step['query'] ?? $step['label'];
-            // Fetch maximum yield (up to 100 results)
-            $limit = max(100, $step['estimated_hits'] ?? 100);
-            $res = $this->discovery->discoverWeb($run->case_id, $query, $limit);
-            $addedCount = $res['added_count'] ?? 0;
-            $stepCost = 0.001;
-            $logMessage = "Search '{$query}' found {$addedCount} new companies.";
-        } elseif (($step['type'] ?? '') === 'google_maps') {
-            $query = $step['map_query'] ?? $step['label'];
-            $loc = $step['location'] ?? null;
-            // Fetch maximum yield from Google Maps (up to 100 places per search)
-            $limit = max(100, $step['estimated_hits'] ?? 100);
-            $res = $this->discovery->discoverMaps($run->case_id, $query, $loc, $limit);
-            $addedCount = $res['added_count'] ?? 0;
-            $stepCost = 0.001;
-            $logMessage = "Maps '{$query}' ({$loc}) found {$addedCount} new places.";
+        try {
+            if (($step['type'] ?? '') === 'google_search') {
+                $query = $step['query'] ?? $step['label'];
+                // Fetch maximum yield (up to 100 results)
+                $limit = max(100, $step['estimated_hits'] ?? 100);
+                $res = $this->discovery->discoverWeb($run->case_id, $query, $limit);
+                $addedCount = $res['added_count'] ?? 0;
+                $stepCost = 0.001;
+                $logMessage = "Search '{$query}' found {$addedCount} new companies.";
+            } elseif (($step['type'] ?? '') === 'google_maps') {
+                $query = $step['map_query'] ?? $step['label'];
+                $loc = $step['location'] ?? null;
+                // Fetch maximum yield from Google Maps (up to 100 places per search)
+                $limit = max(100, $step['estimated_hits'] ?? 100);
+                $res = $this->discovery->discoverMaps($run->case_id, $query, $loc, $limit);
+                $addedCount = $res['added_count'] ?? 0;
+                $stepCost = 0.001;
+                $logMessage = "Maps '{$query}' ({$loc}) found {$addedCount} new places.";
+            }
+        } catch (\Throwable $e) {
+            // Check for API quota/credits exhaustion
+            if (str_contains(strtolower($e->getMessage()), 'credits aufgebraucht') || str_contains(strtolower($e->getMessage()), 'not enough credits')) {
+                $status = 'cancelled';
+                $state['status'] = $status;
+                $state['error'] = $e->getMessage();
+                $state['logs'][] = [
+                    'timestamp' => now()->toIso8601String(),
+                    'message' => "🚨 ABBRUCH: " . $e->getMessage(),
+                ];
+                $run->update([
+                    'status' => $status,
+                    'state' => $state,
+                ]);
+
+                \App\Models\CaseLog::record($run->case_id, "🚨 Suche gestoppt: " . $e->getMessage());
+
+                return array_merge($run->toArray(), $state, [
+                    'id' => $run->id,
+                    'caseId' => $run->case_id,
+                    'status' => 'cancelled',
+                    'error' => $e->getMessage(),
+                    'completed' => true,
+                ]);
+            }
+            throw $e;
         }
 
         // Record step result

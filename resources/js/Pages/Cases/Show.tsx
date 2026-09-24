@@ -138,6 +138,8 @@ export default function CaseShow({ case: c }: Props) {
 
     // Modals
     const [showAgentModal, setShowAgentModal] = useState(false);
+    const [selectedAgentRunId, setSelectedAgentRunId] = useState<string | null>(null);
+    const [apiToast, setApiToast] = useState<{ type: 'error' | 'warn' | 'success'; message: string } | null>(null);
     const [showAddColModal, setShowAddColModal] = useState(false);
     const [showImportModal, setShowImportModal] = useState(false);
     const [showExportModal, setShowExportModal] = useState(false);
@@ -302,11 +304,30 @@ export default function CaseShow({ case: c }: Props) {
                 .finally(() => setContactRowsLoading(false));
         } else if (activeTab === "Suchen") {
             setAgentRunsLoading(true);
-            apiFetch(`/api/cases/${caseData.id}/agent`)
-                .then(r => r.json())
-                .then(d => setAgentRuns(Array.isArray(d) ? d : []))
-                .catch(() => setAgentRuns([]))
-                .finally(() => setAgentRunsLoading(false));
+            const fetchRuns = () => {
+                apiFetch(`/api/cases/${caseData.id}/agent`)
+                    .then(r => r.json())
+                    .then(d => {
+                        const runs = Array.isArray(d) ? d : [];
+                        setAgentRuns(runs);
+                        // Check if any run stopped due to quota error
+                        const quotaRun = runs.find(r => r.state?.error && (
+                            r.state.error.includes('Credits aufgebraucht') || 
+                            r.state.error.includes('not enough credits')
+                        ));
+                        if (quotaRun) {
+                            setApiToast({
+                                type: 'error',
+                                message: '🚨 Serper.dev API Credits aufgebraucht! Die Suche wurde gestoppt. Bitte lade Guthaben auf oder hinterlege einen API-Key in den Einstellungen.'
+                            });
+                        }
+                    })
+                    .catch(() => setAgentRuns([]))
+                    .finally(() => setAgentRunsLoading(false));
+            };
+            fetchRuns();
+            const interval = setInterval(fetchRuns, 4000);
+            return () => clearInterval(interval);
         } else if (activeTab === "Log") {
             setLogsLoading(true);
             const fetchLogs = () => {
@@ -2085,7 +2106,7 @@ export default function CaseShow({ case: c }: Props) {
                                 <h3 className="font-semibold text-sm text-slate-900">Autonome Discovery-Läufe</h3>
                                 <p className="text-xs text-slate-500">Historie aller KI-Recherchen via Google Search & Maps</p>
                             </div>
-                            <button onClick={() => setShowAgentModal(true)} className="btn-v2 btn-v2-primary">
+                            <button onClick={() => { setSelectedAgentRunId(null); setShowAgentModal(true); }} className="btn-v2 btn-v2-primary">
                                 + Neue Suche starten
                             </button>
                         </div>
@@ -2170,33 +2191,32 @@ export default function CaseShow({ case: c }: Props) {
                                             </div>
                                         </div>
 
-                                        {/* Plan steps snippet if present */}
+                                        {/* Plan steps list (fully scrollable, showing all planned steps) */}
                                         {planSteps.length > 0 && (
                                             <div className="border-t pt-2 space-y-1" style={{ borderColor: 'var(--border)' }}>
                                                 <div className="text-[11px] font-medium text-slate-600 flex justify-between">
-                                                    <span>Plan ({planSteps.length} Schritte)</span>
+                                                    <span>Plan ({planSteps.length} Schritte gesamt)</span>
                                                     <span className="text-slate-400">Aktuell: Schritt {Math.min(currentStep + 1, totalSteps)}</span>
                                                 </div>
-                                                <div className="max-h-28 overflow-y-auto space-y-1 pr-1 font-mono text-[11px]">
-                                                    {planSteps.slice(0, 8).map((st: any, idx: number) => {
+                                                <div className="max-h-72 overflow-y-auto space-y-1 pr-1 font-mono text-[11px] border border-slate-100 rounded-lg p-1.5 bg-slate-50/50">
+                                                    {planSteps.map((st: any, idx: number) => {
                                                         const isDone = idx < currentStep;
                                                         const isCur = idx === currentStep && run.status === 'running';
                                                         return (
-                                                            <div key={st.id || idx} className={`flex items-center gap-2 px-2 py-0.5 rounded text-[11px] ${
-                                                                isDone ? 'bg-emerald-50 text-emerald-800' : isCur ? 'bg-blue-50 text-blue-800 font-semibold' : 'bg-slate-50 text-slate-600'
+                                                            <div key={st.id || idx} className={`flex items-center gap-2 px-2 py-1 rounded text-[11px] transition-colors ${
+                                                                isDone ? 'bg-emerald-50 text-emerald-800 border border-emerald-100' : isCur ? 'bg-blue-50 text-blue-800 font-semibold border border-blue-200' : 'bg-white text-slate-600 border border-slate-100'
                                                             }`}>
-                                                                <span>{isDone ? '✓' : isCur ? '▶' : '○'}</span>
-                                                                <span className="uppercase text-[9px] px-1 bg-white rounded border border-slate-200">{st.type === 'google_maps' ? 'MAPS' : 'WEB'}</span>
-                                                                <span className="truncate flex-1">{st.label || st.mapQuery || st.query}</span>
-                                                                <span className="text-slate-400 text-[10px]">~{st.estimatedHits}</span>
+                                                                <span className="shrink-0">{isDone ? '✓' : isCur ? '▶' : '○'}</span>
+                                                                <span className="text-[10px] text-slate-400 shrink-0 font-mono w-6 text-right">#{idx + 1}</span>
+                                                                <span className="uppercase text-[9px] px-1 bg-slate-100 rounded border border-slate-200 shrink-0">{st.type === 'google_maps' ? 'MAPS' : 'WEB'}</span>
+                                                                <span className="truncate flex-1 font-medium">{st.label || st.mapQuery || st.query}</span>
+                                                                {st.location && (
+                                                                    <span className="text-slate-400 text-[10px] shrink-0 truncate max-w-[140px]">{st.location}</span>
+                                                                )}
+                                                                <span className="text-slate-400 text-[10px] shrink-0">~{st.estimatedHits}</span>
                                                             </div>
                                                         );
                                                     })}
-                                                    {planSteps.length > 8 && (
-                                                        <div className="text-[10px] text-slate-400 text-center py-0.5">
-                                                            + {planSteps.length - 8} weitere Schritte im Modal...
-                                                        </div>
-                                                    )}
                                                 </div>
                                             </div>
                                         )}
@@ -2220,6 +2240,7 @@ export default function CaseShow({ case: c }: Props) {
                                                     onClick={async () => {
                                                         const res = await apiFetch(`/api/cases/${caseData.id}/agent/${run.id}`, { method: 'PATCH' });
                                                         if (res.ok) {
+                                                            setSelectedAgentRunId(run.id);
                                                             setShowAgentModal(true);
                                                         }
                                                     }}
@@ -2242,7 +2263,10 @@ export default function CaseShow({ case: c }: Props) {
                                                 </button>
                                             )}
                                             <button
-                                                onClick={() => setShowAgentModal(true)}
+                                                onClick={() => {
+                                                    setSelectedAgentRunId(run.id);
+                                                    setShowAgentModal(true);
+                                                }}
                                                 className="btn-v2 btn-v2-ghost text-xs py-1 px-3"
                                             >
                                                 📊 Im Modal steuern
@@ -2529,12 +2553,77 @@ export default function CaseShow({ case: c }: Props) {
                 )}
             </div>
 
+            {/* Global API Alert / Toast */}
+            {apiToast && (
+                <div 
+                    style={{
+                        position: 'fixed',
+                        bottom: 24,
+                        right: 24,
+                        zIndex: 9999,
+                        maxWidth: 420,
+                        backgroundColor: '#fff',
+                        borderRadius: 12,
+                        boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1)',
+                        border: '1px solid #fecaca',
+                        padding: '14px 16px',
+                        display: 'flex',
+                        alignItems: 'flex-start',
+                        gap: 12,
+                    }}
+                >
+                    <div style={{ flexShrink: 0, marginTop: 2 }}>
+                        <OctagonAlert style={{ width: 18, height: 18, color: '#dc2626' }} />
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: '#991b1b', marginBottom: 2 }}>
+                            API-Guthaben aufgebraucht
+                        </div>
+                        <div style={{ fontSize: 12, color: '#7f1d1d', lineHeight: 1.4 }}>
+                            {apiToast.message}
+                        </div>
+                        <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
+                            <a 
+                                href="/settings" 
+                                target="_blank"
+                                style={{
+                                    fontSize: 11.5,
+                                    fontWeight: 600,
+                                    color: '#b91c1c',
+                                    textDecoration: 'underline'
+                                }}
+                            >
+                                Zu den Einstellungen →
+                            </a>
+                        </div>
+                    </div>
+                    <button 
+                        onClick={() => setApiToast(null)}
+                        style={{
+                            flexShrink: 0,
+                            border: 'none',
+                            background: 'none',
+                            cursor: 'pointer',
+                            color: '#9ca3af',
+                            padding: 2
+                        }}
+                    >
+                        <X style={{ width: 14, height: 14 }} />
+                    </button>
+                </div>
+            )}
+
             {/* Modals */}
             {showAgentModal && (
                 <AgentGoalModal
                     caseId={caseData.id}
+                    caseName={caseData.name}
+                    initialRunId={selectedAgentRunId ?? undefined}
                     rowsCount={total}
-                    onClose={() => setShowAgentModal(false)}
+                    onClose={() => {
+                        setShowAgentModal(false);
+                        setSelectedAgentRunId(null);
+                    }}
                     onImported={() => { loadPage(1); refreshCase(); }}
                 />
             )}

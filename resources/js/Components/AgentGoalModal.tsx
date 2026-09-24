@@ -12,6 +12,8 @@ import { Modal, FormField, Input, Callout } from "@/Components/ui/ModalMaster";
 
 interface Props {
   caseId: string;
+  caseName?: string;
+  initialRunId?: string;
   rowsCount: number;
   onClose: () => void;
   onImported: () => void;
@@ -61,9 +63,9 @@ function stepIcon(result: { uniqueInserted: number; error?: string }): React.Rea
 
 // ── Agent run hook — only used when no external state provided ──
 
-export function AgentGoalModal({ caseId, rowsCount, onClose, onImported, externalRun, externalRunning, externalStart, externalStep, externalCancel, externalReload, embedded }: Props) {
+export function AgentGoalModal({ caseId, caseName, initialRunId, rowsCount, onClose, onImported, externalRun, externalRunning, externalStart, externalStep, externalCancel, externalReload, embedded }: Props) {
   // ── Goal form state ──
-  const [description, setDescription] = useState("");
+  const [description, setDescription] = useState(caseName || "");
   const [targetCount, setTargetCount] = useState(3000);
   const [maxBudgetUsd, setMaxBudgetUsd] = useState("");
   const [maxDurationMin, setMaxDurationMin] = useState("");
@@ -207,6 +209,18 @@ export function AgentGoalModal({ caseId, rowsCount, onClose, onImported, externa
   useEffect(() => {
     // Skip internal prefill when page manages the run state
     if (hasExternal) return;
+
+    if (initialRunId) {
+      reloadRef.current(initialRunId);
+      apiFetch(`/api/cases/${caseId}/agent/${initialRunId}`)
+        .then(r => r.ok ? r.json() : null)
+        .then(d => {
+          if (d && d.status === "running") setPaused(false);
+        })
+        .catch(() => {});
+      return;
+    }
+
     apiFetch(`/api/cases/${caseId}/agent`)
       .then((r) => r.ok ? r.json() : [])
       .then((runs: Array<{ id: string; status: string; goal?: { description?: string; targetCount?: number } }>) => {
@@ -215,16 +229,13 @@ export function AgentGoalModal({ caseId, rowsCount, onClose, onImported, externa
         const active = runs.find((r) => !TERMINAL_STATUSES.has(r.status));
         if (active) {
           reloadRef.current(active.id);
-        }
-        // Always pre-fill form from the most recent run's goal
-        const last = runs[0];
-        if (last?.goal?.description) {
-          setDescription(last.goal.description);
-          if (last.goal.targetCount) setTargetCount(last.goal.targetCount);
+          if (active.status === "running") {
+            setPaused(false);
+          }
         }
       })
       .catch(() => {});
-  }, [caseId]); // stable — reloadRef holds latest reload without being a dep
+  }, [caseId, initialRunId]); // stable — reloadRef holds latest reload without being a dep
 
   // Step loop: call step() repeatedly while run is not terminal
   // Pre-fill form fields from the loaded run so "Neue Suche" works immediately
@@ -389,9 +400,9 @@ export function AgentGoalModal({ caseId, rowsCount, onClose, onImported, externa
   };
 
   const handleNewSearch = () => {
-    // Reset to empty form — user must enter a new description
+    // Reset to empty form — default to caseName if provided
     reset();
-    setDescription("");
+    setDescription(caseName || "");
     setTargetCount(3000);
     setMaxBudgetUsd("");
     setMaxDurationMin("");
@@ -401,10 +412,10 @@ export function AgentGoalModal({ caseId, rowsCount, onClose, onImported, externa
     setDeletedStepIds(new Set());
   };
 
-  // When closing the modal while a plan is shown but not yet started (paused),
-  // cancel the run so it doesn't get auto-resumed on next open.
+  // When closing the modal, NEVER cancel a running or executing run!
+  // Only discard if the run was truly just an unstarted draft (0 steps executed)
   const handleClose = async () => {
-    if (run && !TERMINAL_STATUSES.has(run.status) && paused) {
+    if (run && run.status === 'pending' && (!run.stepResults || run.stepResults.length === 0)) {
       await cancel();
       reset();
     }
