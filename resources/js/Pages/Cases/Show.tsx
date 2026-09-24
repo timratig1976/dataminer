@@ -1727,6 +1727,37 @@ export default function CaseShow({ case: c }: Props) {
                             ⊘ Dedupe
                         </button>
                         <button
+                            onClick={async () => {
+                                if (!confirm(`${selectedRows.size} Zeile(n): Domains entfernen, aber Betriebe & Adressen behalten?`)) return;
+                                const ids = Array.from(selectedRows);
+                                for (const id of ids) {
+                                    const row = rows.find(r => r.id === id);
+                                    if (!row) continue;
+                                    const oldDomain = row.data['domain'];
+                                    const nextData = { 
+                                        ...row.data, 
+                                        domain: null, 
+                                        raw_portal_domain: oldDomain || row.data['raw_portal_domain'] || null,
+                                        _scrape_cached: null, 
+                                        _scrape_cached_ts: null 
+                                    };
+                                    await apiFetch(`/api/rows/${id}`, {
+                                        method: "PATCH",
+                                        headers: { "Content-Type": "application/json" },
+                                        body: JSON.stringify({ data: nextData }),
+                                    });
+                                }
+                                loadPage(page);
+                                setSelectedRows(new Set());
+                                alert(`${ids.length} Domain(s) erfolgreich entfernt. Die Firmendaten bleiben erhalten.`);
+                            }}
+                            className="btn-v2"
+                            title="Löscht nur die Domain aus den ausgewählten Zeilen. Der Betrieb, die Adresse und Telefonnummer bleiben erhalten."
+                            style={{ padding: "2px 8px", fontSize: 11, background: "#fff", borderColor: "#f59e0b", color: "#b45309", fontWeight: 500 }}
+                        >
+                            🌐 Nur Domain entfernen
+                        </button>
+                        <button
                             onClick={() => setConfirmDeleteRows(true)}
                             className="btn-v2"
                             style={{ padding: "2px 8px", fontSize: 11, background: "#fff", borderColor: "var(--danger)", color: "var(--danger)", fontWeight: 500 }}
@@ -2329,22 +2360,70 @@ export default function CaseShow({ case: c }: Props) {
                                                                         >
                                                                             {String(val)}
                                                                         </a>
-                                                                        <button
-                                                                            onClick={async (e) => {
-                                                                                e.stopPropagation();
-                                                                                const nextData = { ...r.data, domain: null, _scrape_cached: null, _scrape_cached_ts: null };
-                                                                                await apiFetch(`/api/rows/${r.id}`, {
-                                                                                    method: "PATCH",
-                                                                                    headers: { "Content-Type": "application/json" },
-                                                                                    body: JSON.stringify({ data: nextData }),
-                                                                                });
-                                                                                setRows(prev => prev.map(row => row.id === r.id ? { ...row, data: nextData } : row));
-                                                                            }}
-                                                                            title="Domain leeren"
-                                                                            className="text-slate-300 hover:text-red-500 font-bold px-1 ml-auto text-[11px]"
-                                                                        >
-                                                                            ✕
-                                                                        </button>
+                                                                        <div className="flex items-center gap-1 ml-auto shrink-0">
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={async (e) => {
+                                                                                    e.stopPropagation();
+                                                                                    const cleanDomain = String(val).replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0].toLowerCase();
+                                                                                    const promptChoice = confirm(`Was möchtest du tun?\n\nOK: Domain '${cleanDomain}' nur für diese eine Zeile entfernen\nABBRECHEN: Nichts ändern`);
+                                                                                    if (!promptChoice) return;
+                                                                                    
+                                                                                    const nextData = { 
+                                                                                        ...r.data, 
+                                                                                        domain: null, 
+                                                                                        raw_portal_domain: cleanDomain,
+                                                                                        _scrape_cached: null, 
+                                                                                        _scrape_cached_ts: null 
+                                                                                    };
+                                                                                    await apiFetch(`/api/rows/${r.id}`, {
+                                                                                        method: "PATCH",
+                                                                                        headers: { "Content-Type": "application/json" },
+                                                                                        body: JSON.stringify({ data: nextData }),
+                                                                                    });
+                                                                                    setRows(prev => prev.map(row => row.id === r.id ? { ...row, data: nextData } : row));
+                                                                                }}
+                                                                                title="Domain leeren (Betrieb & Adresse behalten)"
+                                                                                className="text-slate-300 hover:text-amber-600 font-bold px-1 text-[11px] cursor-pointer"
+                                                                            >
+                                                                                ✕
+                                                                            </button>
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={async (e) => {
+                                                                                    e.stopPropagation();
+                                                                                    const cleanDomain = String(val).replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0].toLowerCase();
+                                                                                    if (!confirm(`'${cleanDomain}' als sinnlose/Verzeichnis-Domain auf die Blacklist setzen und aus ALLEN Zeilen entfernen?\n\n(Die Betriebe, Adressen und Telefonnummern bleiben im Projekt erhalten!)`)) return;
+
+                                                                                    // 1. Domain zur Blacklist hinzufügen
+                                                                                    await apiFetch('/api/blacklist', {
+                                                                                        method: 'POST',
+                                                                                        headers: { 'Content-Type': 'application/json' },
+                                                                                        body: JSON.stringify({
+                                                                                            domain: cleanDomain,
+                                                                                            reason: 'Manuell als Portal/sinnlos geflaggt',
+                                                                                        }),
+                                                                                    });
+
+                                                                                    // 2. Aus allen Zeilen im aktuellen Case leeren
+                                                                                    await apiFetch(`/api/cases/${caseData.id}/resolve-relevance`, {
+                                                                                        method: 'POST',
+                                                                                        headers: { 'Content-Type': 'application/json' },
+                                                                                        body: JSON.stringify({
+                                                                                            action: 'unflag',
+                                                                                            rowIds: [r.id],
+                                                                                        }),
+                                                                                    });
+
+                                                                                    loadPage(page);
+                                                                                    alert(`Domain '${cleanDomain}' wurde geblacklistet. Sie wird künftig bei keinem Re-Run mehr als Firmenwebsite gecrawlt.`);
+                                                                                }}
+                                                                                title="Domain als Verzeichnis/sinnlos blockieren (Domain aus allen Zeilen leeren & Blacklist)"
+                                                                                className="text-slate-300 hover:text-rose-600 font-bold px-1 text-[11px] cursor-pointer"
+                                                                            >
+                                                                                🚫
+                                                                            </button>
+                                                                        </div>
                                                                     </>
                                                                 ) : (
                                                                     <div className="flex items-center gap-1.5 flex-wrap">
