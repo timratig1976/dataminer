@@ -190,10 +190,29 @@ export default function CaseShow({ case: c }: Props) {
 
     // Relevance Review & Filter State
     const [showRelevanceModal, setShowRelevanceModal] = useState(false);
+    const [showRelevanceSettingsModal, setShowRelevanceSettingsModal] = useState(false);
     const [relevanceFilterOnlyAtypic, setRelevanceFilterOnlyAtypic] = useState(false);
     const [classifyingRelevance, setClassifyingRelevance] = useState(false);
     const [selectedReviewRows, setSelectedReviewRows] = useState<Set<string>>(new Set());
     const [resolvingRelevance, setResolvingRelevance] = useState(false);
+
+    // Project-wide Relevance State & Stats
+    const [relevanceStats, setRelevanceStats] = useState<{
+        status: string;
+        prompt: string;
+        total_rows: number;
+        unclassified_rows: number;
+        classified_rows: number;
+        target_count: number;
+        atypic_count: number;
+        progress: { total: number; processed: number; percentage: number };
+        cost_estimate: { row_count: number; estimated_cost_formatted: string; estimated_input_tokens: number; estimated_output_tokens: number; model: string };
+    } | null>(null);
+    const [projectAtypicRows, setProjectAtypicRows] = useState<any[]>([]);
+    const [loadingAtypicRows, setLoadingAtypicRows] = useState(false);
+    const [customPromptDraft, setCustomPromptDraft] = useState('');
+    const [reclassifyAllToggle, setReclassifyAllToggle] = useState(false);
+    const [savingPrompt, setSavingPrompt] = useState(false);
 
     // Rename case state
     const [isEditingName, setIsEditingName] = useState(false);
@@ -486,6 +505,114 @@ export default function CaseShow({ case: c }: Props) {
         }
     };
 
+    // Load relevance stats and poll if running
+    const fetchRelevanceStats = useCallback(async () => {
+        try {
+            const res = await apiFetch(`/api/cases/${caseData.id}/relevance-stats`);
+            const data = await res.json();
+            setRelevanceStats(data);
+            if (!customPromptDraft && data.prompt) {
+                setCustomPromptDraft(data.prompt);
+            }
+            return data;
+        } catch (e) {
+            return null;
+        }
+    }, [caseData.id, customPromptDraft]);
+
+    const fetchProjectAtypicRows = useCallback(async () => {
+        setLoadingAtypicRows(true);
+        try {
+            const res = await apiFetch(`/api/cases/${caseData.id}/atypic-rows`);
+            const data = await res.json();
+            setProjectAtypicRows(data.rows || []);
+        } catch (e) {
+            setProjectAtypicRows([]);
+        } finally {
+            setLoadingAtypicRows(false);
+        }
+    }, [caseData.id]);
+
+    useEffect(() => {
+        fetchRelevanceStats();
+    }, [fetchRelevanceStats]);
+
+    // Polling while background job is running
+    useEffect(() => {
+        if (!relevanceStats || relevanceStats.status !== 'running') return;
+
+        const interval = setInterval(async () => {
+            const updated = await fetchRelevanceStats();
+            if (updated && updated.status !== 'running') {
+                clearInterval(interval);
+                loadPage(page);
+                fetchProjectAtypicRows();
+            }
+        }, 2000);
+
+        return () => clearInterval(interval);
+    }, [relevanceStats?.status, fetchRelevanceStats, loadPage, page, fetchProjectAtypicRows]);
+
+    const handleSaveRelevancePrompt = async () => {
+        setSavingPrompt(true);
+        try {
+            const res = await apiFetch(`/api/cases/${caseData.id}/relevance-prompt`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ prompt: customPromptDraft }),
+            });
+            const data = await res.json();
+            if (data.error) throw new Error(data.error);
+            fetchRelevanceStats();
+            alert('Relevanz-Prompt erfolgreich gespeichert!');
+        } catch (e: any) {
+            alert('Fehler beim Speichern: ' + e.message);
+        } finally {
+            setSavingPrompt(false);
+        }
+    };
+
+    const handleStartBulkRelevanceJob = async () => {
+        if (!relevanceStats) return;
+        const count = reclassifyAllToggle ? relevanceStats.total_rows : relevanceStats.unclassified_rows;
+        if (count === 0) {
+            alert('Keine Zeilen zur Prüfung vorhanden.');
+            return;
+        }
+
+        const cost = relevanceStats.cost_estimate.estimated_cost_formatted;
+        if (!confirm(`Möchtest du ${count} Zeilen im Hintergrund per KI prüfen?\n\nGeschätzte Modellkosten: ca. ${cost} (GPT-4o-mini).`)) {
+            return;
+        }
+
+        try {
+            const res = await apiFetch(`/api/cases/${caseData.id}/classify-bulk`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    prompt: customPromptDraft,
+                    reclassifyAll: reclassifyAllToggle,
+                }),
+            });
+            const data = await res.json();
+            if (data.error) throw new Error(data.error);
+
+            setShowRelevanceSettingsModal(false);
+            fetchRelevanceStats();
+            setStatusMsg('🚀 Hintergrund-Prüfung gestartet...');
+            setTimeout(() => setStatusMsg(null), 5000);
+        } catch (e: any) {
+            alert('Fehler beim Starten des Jobs: ' + e.message);
+        }
+    };
+
+    const handleCancelRelevanceJob = async () => {
+        try {
+            await apiFetch(`/api/cases/${caseData.id}/classify-cancel`, { method: 'POST' });
+            fetchRelevanceStats();
+        } catch (e) {}
+    };
+
     const handleTriggerRelevanceCheck = async () => {
         setClassifyingRelevance(true);
         setStatusMsg('🤖 KI prüft Relevanz, Dachverbände und Portale...');
@@ -512,7 +639,7 @@ export default function CaseShow({ case: c }: Props) {
     const handleApplyRelevanceAction = async (action: 'delete' | 'move_to_sources' | 'unflag' | 'blacklist') => {
         const ids = selectedReviewRows.size > 0 
             ? Array.from(selectedReviewRows) 
-            : atypicRows.map(r => r.id);
+            : projectAtypicRows.map(r => r.id);
 
         if (ids.length === 0) {
             alert('Keine Zeilen ausgewählt.');
@@ -534,7 +661,8 @@ export default function CaseShow({ case: c }: Props) {
 
             alert(data.message || 'Aktion erfolgreich ausgeführt.');
             setSelectedReviewRows(new Set());
-            setShowRelevanceModal(false);
+            fetchProjectAtypicRows();
+            fetchRelevanceStats();
             loadPage(page);
             refreshCase();
         } catch (e: any) {
@@ -1131,51 +1259,79 @@ export default function CaseShow({ case: c }: Props) {
                                 </button>
 
                                 {/* 🎯 KI-Relevanz-Prüfung & Atypische Ergebnisse Filter */}
-                                <div className="flex items-center gap-1">
-                                    <button
-                                        type="button"
-                                        onClick={handleTriggerRelevanceCheck}
-                                        disabled={classifyingRelevance}
-                                        title="Prüft alle Einträge per KI auf Dachverbände, Verzeichnisse oder fremde Branchen"
-                                        className="btn-v2"
-                                        style={{
-                                            padding: "3px 8px",
-                                            fontSize: 11.5,
-                                            fontWeight: 500,
-                                            color: "#4338ca",
-                                            background: "#e0e7ff",
-                                            borderColor: "#c7d2fe",
-                                            display: "inline-flex",
-                                            alignItems: "center",
-                                            gap: 4
-                                        }}
-                                    >
-                                        <Sparkles style={{ width: 11, height: 11, color: "#4f46e5" }} />
-                                        <span>{classifyingRelevance ? 'Prüfe...' : 'Relevanz prüfen'}</span>
-                                    </button>
-
-                                    {atypicRows.length > 0 && (
-                                        <button
-                                            type="button"
-                                            onClick={() => setRelevanceFilterOnlyAtypic(v => !v)}
-                                            className={`btn-v2 ${relevanceFilterOnlyAtypic ? 'bg-amber-500 text-white border-amber-600 font-bold' : 'bg-amber-50 text-amber-800 border-amber-200'}`}
-                                            style={{ padding: "3px 8px", fontSize: 11.5 }}
-                                            title="Filtert die Tabelle, um nur atypische Treffer (Dachverbände, Portale) anzuzeigen"
-                                        >
-                                            <span>⚠️ {atypicRows.length} Atypisch</span>
-                                            {relevanceFilterOnlyAtypic && <span className="ml-1 text-[10px]">✕</span>}
-                                        </button>
+                                <div className="flex items-center gap-1.5">
+                                    {relevanceStats?.status === 'running' ? (
+                                        <div className="flex items-center gap-2 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded text-[11px] text-indigo-700">
+                                            <span className="animate-spin">⚙️</span>
+                                            <span>
+                                                Prüfe Relevanz: {relevanceStats.progress.processed} / {relevanceStats.progress.total} ({relevanceStats.progress.percentage}%)
+                                            </span>
+                                            <button
+                                                type="button"
+                                                onClick={handleCancelRelevanceJob}
+                                                className="text-rose-600 hover:text-rose-800 font-bold ml-1"
+                                                title="Job abbrechen"
+                                            >
+                                                ✕
+                                            </button>
+                                        </div>
+                                    ) : (
+                                        <div className="inline-flex rounded border border-indigo-200 overflow-hidden">
+                                            <button
+                                                type="button"
+                                                onClick={() => setShowRelevanceSettingsModal(true)}
+                                                title="Öffnet die Relevanz-Einstellungen, Prompt-Pflege und Kosten-Kalkulation"
+                                                className="btn-v2"
+                                                style={{
+                                                    padding: "3px 8px",
+                                                    fontSize: 11.5,
+                                                    fontWeight: 500,
+                                                    color: "#4338ca",
+                                                    background: "#e0e7ff",
+                                                    borderColor: "transparent",
+                                                    display: "inline-flex",
+                                                    alignItems: "center",
+                                                    gap: 4
+                                                }}
+                                            >
+                                                <Sparkles style={{ width: 11, height: 11, color: "#4f46e5" }} />
+                                                <span>Relevanz prüfen</span>
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => setShowRelevanceSettingsModal(true)}
+                                                className="bg-indigo-100 hover:bg-indigo-200 text-indigo-800 px-1.5 text-[10px] flex items-center border-l border-indigo-200"
+                                                title="Relevanz-Prompt & Einstellungen konfigurieren"
+                                            >
+                                                ⚙️
+                                            </button>
+                                        </div>
                                     )}
 
-                                    {atypicRows.length > 0 && (
+                                    {/* Atypical Count (Project-Wide) Button */}
+                                    {(relevanceStats?.atypic_count ?? atypicRows.length) > 0 && (
                                         <button
                                             type="button"
-                                            onClick={() => setShowRelevanceModal(true)}
+                                            onClick={() => {
+                                                fetchProjectAtypicRows();
+                                                setShowRelevanceModal(true);
+                                            }}
                                             className="btn-v2"
-                                            style={{ padding: "3px 8px", fontSize: 11.5, color: "#92400e", background: "#fef3c7", borderColor: "#fde68a" }}
-                                            title="Öffnet das Prüf- und Bereinigungsmodal für atypische Einträge"
+                                            style={{
+                                                padding: "3px 8px",
+                                                fontSize: 11.5,
+                                                fontWeight: 600,
+                                                color: "#92400e",
+                                                background: "#fef3c7",
+                                                borderColor: "#fde68a",
+                                                display: "inline-flex",
+                                                alignItems: "center",
+                                                gap: 4
+                                            }}
+                                            title="Öffnet das projektweite Prüf- und Bereinigungsmodal für atypische Einträge"
                                         >
-                                            Bereinigen ({atypicRows.length})
+                                            <span>⚠️ {relevanceStats?.atypic_count ?? atypicRows.length} Atypisch</span>
+                                            <span className="text-[10px] bg-amber-200 px-1 rounded">Bereinigen</span>
                                         </button>
                                     )}
                                 </div>
@@ -2924,7 +3080,7 @@ export default function CaseShow({ case: c }: Props) {
                                 <span className="text-lg">🎯</span>
                                 <div>
                                     <h3 className="text-sm font-bold text-slate-800">
-                                        Relevanz-Prüfung & Atypische Treffer ({atypicRows.length})
+                                        Projektweite Relevanz-Prüfung & Atypische Treffer ({projectAtypicRows.length})
                                     </h3>
                                     <p className="text-[11.5px] text-slate-500">
                                         Identifiziere Dachverbände, Verzeichnisse oder themenfremde Einträge vor der teuren Anreicherung.
@@ -2940,25 +3096,25 @@ export default function CaseShow({ case: c }: Props) {
                                 <button
                                     type="button"
                                     onClick={() => {
-                                        if (selectedReviewRows.size === atypicRows.length) {
+                                        if (selectedReviewRows.size === projectAtypicRows.length) {
                                             setSelectedReviewRows(new Set());
                                         } else {
-                                            setSelectedReviewRows(new Set(atypicRows.map(r => r.id)));
+                                            setSelectedReviewRows(new Set(projectAtypicRows.map(r => r.id)));
                                         }
                                     }}
                                     className="btn-v2"
                                 >
-                                    {selectedReviewRows.size === atypicRows.length ? 'Alle abwählen' : 'Alle auswählen'}
+                                    {selectedReviewRows.size === projectAtypicRows.length ? 'Alle abwählen' : 'Alle auswählen'}
                                 </button>
                                 <span className="text-slate-500 font-mono text-[11px]">
-                                    {selectedReviewRows.size > 0 ? `${selectedReviewRows.size} ausgewählt` : `Alle ${atypicRows.length} im Fokus`}
+                                    {selectedReviewRows.size > 0 ? `${selectedReviewRows.size} ausgewählt` : `Alle ${projectAtypicRows.length} im Fokus`}
                                 </span>
                             </div>
 
                             <div className="flex items-center gap-2">
                                 <button
                                     type="button"
-                                    disabled={resolvingRelevance || atypicRows.length === 0}
+                                    disabled={resolvingRelevance || projectAtypicRows.length === 0}
                                     onClick={() => handleApplyRelevanceAction('delete')}
                                     className="btn-v2 text-rose-700 bg-rose-50 border-rose-200 hover:bg-rose-100"
                                     title="Löscht die ausgewählten Zeilen aus dem Case"
@@ -2967,7 +3123,7 @@ export default function CaseShow({ case: c }: Props) {
                                 </button>
                                 <button
                                     type="button"
-                                    disabled={resolvingRelevance || atypicRows.length === 0}
+                                    disabled={resolvingRelevance || projectAtypicRows.length === 0}
                                     onClick={() => handleApplyRelevanceAction('move_to_sources')}
                                     className="btn-v2 text-amber-800 bg-amber-50 border-amber-200 hover:bg-amber-100"
                                     title="Verschiebt Kataloge in den Reiter Quellen für späteren Deep-Crawl"
@@ -2976,7 +3132,7 @@ export default function CaseShow({ case: c }: Props) {
                                 </button>
                                 <button
                                     type="button"
-                                    disabled={resolvingRelevance || atypicRows.length === 0}
+                                    disabled={resolvingRelevance || projectAtypicRows.length === 0}
                                     onClick={() => handleApplyRelevanceAction('blacklist')}
                                     className="btn-v2 text-slate-800 bg-slate-100 border-slate-300 hover:bg-slate-200 font-semibold"
                                     title="Fügt Domains zur globalen Blacklist hinzu und löscht sie aus dem Case"
@@ -2985,7 +3141,7 @@ export default function CaseShow({ case: c }: Props) {
                                 </button>
                                 <button
                                     type="button"
-                                    disabled={resolvingRelevance || atypicRows.length === 0}
+                                    disabled={resolvingRelevance || projectAtypicRows.length === 0}
                                     onClick={() => handleApplyRelevanceAction('unflag')}
                                     className="btn-v2 text-emerald-700 bg-emerald-50 border-emerald-200 hover:bg-emerald-100"
                                     title="Markiert diese Zeilen als passendes Zielunternehmen"
@@ -2997,18 +3153,22 @@ export default function CaseShow({ case: c }: Props) {
 
                         {/* Rows List */}
                         <div className="flex-1 overflow-y-auto p-4 space-y-2">
-                            {atypicRows.length === 0 ? (
+                            {loadingAtypicRows ? (
+                                <div className="p-12 text-center text-xs text-slate-400">
+                                    Lade projektweite atypische Treffer...
+                                </div>
+                            ) : projectAtypicRows.length === 0 ? (
                                 <div className="p-12 text-center text-xs text-slate-400">
                                     Keine atypischen Einträge identifiziert. Alle Zeilen entsprechen der Zielgruppe!
                                 </div>
                             ) : (
-                                atypicRows.map(r => {
+                                projectAtypicRows.map(r => {
                                     const isSelected = selectedReviewRows.has(r.id);
-                                    const rel = r.data['relevance_type'];
-                                    const reason = r.data['relevance_reason'];
-                                    const name = r.data['company_name'] || 'Unbekannt';
-                                    const domain = r.data['domain'] || '—';
-                                    const address = r.data['address'] || r.data['city'] || '—';
+                                    const rel = r.relevance_type;
+                                    const reason = r.relevance_reason;
+                                    const name = r.name || 'Unbekannt';
+                                    const domain = r.domain || '—';
+                                    const address = r.address || '—';
 
                                     const isAssoc = rel === 'association';
                                     const isCat = rel === 'catalog';
@@ -3040,7 +3200,7 @@ export default function CaseShow({ case: c }: Props) {
                                                         <span className="text-[11px] font-mono text-slate-400 truncate">({domain})</span>
                                                     </div>
                                                     <div className="text-[11px] text-slate-500 mt-0.5">
-                                                        📍 {address} · {r.data['industry'] || 'Keine Branche'}
+                                                        📍 {address} · {r.industry || 'Keine Branche'}
                                                     </div>
                                                 </div>
                                             </div>
@@ -3065,6 +3225,137 @@ export default function CaseShow({ case: c }: Props) {
                                     );
                                 })
                             )}
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ⚙️ Relevanz & Prompt Konfiguration & Background Runner Modal */}
+            {showRelevanceSettingsModal && relevanceStats && (
+                <div 
+                    className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in"
+                    onClick={() => setShowRelevanceSettingsModal(false)}
+                >
+                    <div 
+                        className="w-full max-w-2xl rounded-xl shadow-2xl flex flex-col max-h-[90vh] overflow-hidden bg-white border border-slate-200"
+                        onClick={e => e.stopPropagation()}
+                    >
+                        <div className="p-4 border-b flex items-center justify-between bg-slate-50/50">
+                            <div className="flex items-center gap-2">
+                                <span className="text-xl">🎯</span>
+                                <div>
+                                    <h3 className="text-sm font-bold text-slate-800">
+                                        Relevanz-Prüfung & Zielgruppen-Kriterien
+                                    </h3>
+                                    <p className="text-[11.5px] text-slate-500">
+                                        Projekt: <strong>{caseData.name}</strong>
+                                    </p>
+                                </div>
+                            </div>
+                            <button onClick={() => setShowRelevanceSettingsModal(false)} className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer">✕</button>
+                        </div>
+
+                        <div className="p-5 overflow-y-auto space-y-4 text-xs">
+                            {/* Project Statistics */}
+                            <div className="grid grid-cols-4 gap-2.5 p-3 rounded-lg border bg-slate-50 text-center">
+                                <div>
+                                    <div className="text-slate-400 text-[10.5px]">Gesamtzeilen</div>
+                                    <div className="font-bold text-slate-800 text-sm mt-0.5">{relevanceStats.total_rows}</div>
+                                </div>
+                                <div>
+                                    <div className="text-slate-400 text-[10.5px]">Ungeprüft</div>
+                                    <div className="font-bold text-indigo-700 text-sm mt-0.5">{relevanceStats.unclassified_rows}</div>
+                                </div>
+                                <div>
+                                    <div className="text-slate-400 text-[10.5px]">Zielkunden</div>
+                                    <div className="font-bold text-emerald-700 text-sm mt-0.5">{relevanceStats.target_count}</div>
+                                </div>
+                                <div>
+                                    <div className="text-slate-400 text-[10.5px]">Atypisch / Fremd</div>
+                                    <div className="font-bold text-amber-700 text-sm mt-0.5">{relevanceStats.atypic_count}</div>
+                                </div>
+                            </div>
+
+                            {/* Cost Estimate Box */}
+                            <div className="p-3 rounded-lg border border-indigo-100 bg-indigo-50/60 flex items-center justify-between">
+                                <div>
+                                    <span className="font-semibold text-indigo-900 block">
+                                        💡 Kostenschätzung für die Prüfung:
+                                    </span>
+                                    <span className="text-[11px] text-indigo-700">
+                                        Modell: <code className="bg-indigo-100/70 px-1 py-0.5 rounded font-mono">{relevanceStats.cost_estimate.model}</code> (im 25er Batch)
+                                    </span>
+                                </div>
+                                <div className="text-right">
+                                    <span className="text-sm font-extrabold text-indigo-950 block">
+                                        ca. {relevanceStats.cost_estimate.estimated_cost_formatted}
+                                    </span>
+                                    <span className="text-[10px] text-indigo-600">
+                                        für {relevanceStats.unclassified_rows} ungeprüfte Zeilen
+                                    </span>
+                                </div>
+                            </div>
+
+                            {/* Editable Custom Prompt Section */}
+                            <div className="space-y-1.5">
+                                <label className="font-semibold text-slate-800 flex items-center justify-between">
+                                    <span>Eigene Relevanz-Vorgaben & Ausschlüsse:</span>
+                                    <span className="text-[10.5px] text-slate-400 font-normal">Optional</span>
+                                </label>
+                                <textarea
+                                    rows={4}
+                                    value={customPromptDraft}
+                                    onChange={e => setCustomPromptDraft(e.target.value)}
+                                    placeholder="Beispiel: Nur inhabergeführte Hotels und Pensionen in MV. Reine Campingplätze, Ferienwohnungsvermittler und Cafés ohne Übernachtung als 'irrelevant' einstufen..."
+                                    className="w-full text-xs font-mono p-2.5 rounded border border-slate-300 focus:outline-hidden focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                                />
+                                <div className="flex items-center justify-between text-[11px] text-slate-500">
+                                    <span>Wird vor dem Standard-Katalog/Verbands-Filter berücksichtigt.</span>
+                                    <button
+                                        type="button"
+                                        disabled={savingPrompt}
+                                        onClick={handleSaveRelevancePrompt}
+                                        className="btn-v2 btn-v2-ghost"
+                                    >
+                                        {savingPrompt ? 'Speichere...' : 'Prompt speichern'}
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Reclassify All Toggle */}
+                            <div className="pt-2 border-t flex items-center justify-between">
+                                <div>
+                                    <span className="font-medium text-slate-700 block">Bereits geprüfte Zeilen überschreiben?</span>
+                                    <span className="text-[11px] text-slate-400">
+                                        Standardmäßig werden nur neue, ungeprüfte Zeilen klassifiziert.
+                                    </span>
+                                </div>
+                                <input 
+                                    type="checkbox" 
+                                    checked={reclassifyAllToggle} 
+                                    onChange={e => setReclassifyAllToggle(e.target.checked)}
+                                    style={{ accentColor: "var(--orange)" }}
+                                />
+                            </div>
+                        </div>
+
+                        {/* Modal Footer / Start Button */}
+                        <div className="p-4 border-t bg-slate-50 flex items-center justify-between">
+                            <button
+                                type="button"
+                                onClick={() => setShowRelevanceSettingsModal(false)}
+                                className="btn-v2 btn-v2-ghost"
+                            >
+                                Schließen
+                            </button>
+
+                            <button
+                                type="button"
+                                onClick={handleStartBulkRelevanceJob}
+                                className="btn-v2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-4 py-1.5 shadow-xs"
+                            >
+                                🚀 Hintergrund-Prüfung starten ({reclassifyAllToggle ? relevanceStats.total_rows : relevanceStats.unclassified_rows} Zeilen)
+                            </button>
                         </div>
                     </div>
                 </div>

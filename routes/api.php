@@ -87,6 +87,13 @@ Route::middleware(['web', 'auth'])->group(function () {
         Route::post('/rows', [RowController::class, 'store']);
         Route::patch('/rows/{id}', [RowController::class, 'update']);
         Route::post('/cases/{id}/dedupe', [\App\Http\Controllers\Api\DeduplicationController::class, 'dedupe']);
+        
+        // Relevance & Atypical Entry Management
+        Route::get('/cases/{id}/relevance-stats', [\App\Http\Controllers\Api\RelevanceController::class, 'stats']);
+        Route::put('/cases/{id}/relevance-prompt', [\App\Http\Controllers\Api\RelevanceController::class, 'updatePrompt']);
+        Route::post('/cases/{id}/classify-bulk', [\App\Http\Controllers\Api\RelevanceController::class, 'classifyBulk']);
+        Route::post('/cases/{id}/classify-cancel', [\App\Http\Controllers\Api\RelevanceController::class, 'cancel']);
+        Route::get('/cases/{id}/atypic-rows', [\App\Http\Controllers\Api\RelevanceController::class, 'atypicRows']);
         Route::post('/cases/{id}/classify-relevance', [\App\Http\Controllers\Api\RelevanceController::class, 'classify']);
         Route::post('/cases/{id}/resolve-relevance', [\App\Http\Controllers\Api\RelevanceController::class, 'resolve']);
         Route::post('/cases/{id}/extrapolate-email', [\App\Http\Controllers\Api\EmailExtrapolateController::class, 'extrapolate']);

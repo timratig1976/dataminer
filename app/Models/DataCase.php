@@ -19,12 +19,22 @@ class DataCase extends Model
         'eden_region',
         'model_allowlist',
         'col_order',
+        'relevance_prompt',
+        'relevance_status',
+        'relevance_total',
+        'relevance_processed',
+        'relevance_atypic_count',
+        'relevance_last_run_at',
     ];
 
     protected $casts = [
         'ai_columns' => 'array',
         'model_allowlist' => 'array',
         'col_order' => 'array',
+        'relevance_total' => 'integer',
+        'relevance_processed' => 'integer',
+        'relevance_atypic_count' => 'integer',
+        'relevance_last_run_at' => 'datetime',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
     ];
