@@ -89,11 +89,15 @@ class DiscoveryService
             $url = $p['website'] ?? '';
             $domain = !empty($url) ? $this->extractDomain($url) : null;
 
+            // Check for social links
+            $isFacebook = !empty($url) && (str_contains($url, 'facebook.com') || str_contains($url, 'fb.me') || str_contains($url, 'fb.watch'));
+            $isInstagram = !empty($url) && (str_contains($url, 'instagram.com') || str_contains($url, 'instagr.am'));
+
             // Check if domain is a known catalog or directory (e.g. speisekarte.menu, tripadvisor, facebook)
             $isCatalog = !empty($domain) && $this->searchService->isCatalogDomain($url);
 
-            // Skip duplicates if domain exists and is not empty
-            if (!empty($domain) && !$isCatalog && in_array($domain, $existingDomains)) {
+            // Skip duplicates if real domain exists and is not empty
+            if (!empty($domain) && !$isCatalog && !$isFacebook && !$isInstagram && in_array($domain, $existingDomains)) {
                 continue;
             }
 
@@ -109,13 +113,15 @@ class DiscoveryService
                 $city = trim($m[2]);
             }
 
-            // Wenn es eine Portal-Domain ist: Domain leeren & in raw_portal_domain sichern
-            $effectiveDomain = $isCatalog ? '' : ($domain ?? '');
+            // Wenn es eine Portal- oder Social-Domain ist: Hauptdomain leeren & gezielt speichern
+            $effectiveDomain = ($isCatalog || $isFacebook || $isInstagram) ? '' : ($domain ?? '');
 
             $newRows[] = [
                 'company_name' => $name,
                 'domain' => $effectiveDomain,
-                'raw_portal_domain' => $isCatalog ? ($domain ?? '') : '',
+                'facebook_url' => $isFacebook ? $url : '',
+                'instagram_url' => $isInstagram ? $url : '',
+                'raw_portal_domain' => ($isCatalog && !$isFacebook && !$isInstagram) ? ($domain ?? '') : '',
                 'address' => $address,
                 'zip' => $zip,
                 'city' => $city,

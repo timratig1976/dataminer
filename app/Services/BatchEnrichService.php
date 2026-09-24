@@ -133,6 +133,24 @@ class BatchEnrichService
             }
         }
 
+        // 3b. Social Profile Snippet Lookup (if Facebook or Instagram URL exists, pull public Google snippet data)
+        $facebookUrl = $row['data']['facebook_url'] ?? '';
+        $instagramUrl = $row['data']['instagram_url'] ?? '';
+        if ($allowWebCrawl && ($facebookUrl || $instagramUrl)) {
+            $targetSocial = $facebookUrl ?: $instagramUrl;
+            try {
+                $socialSearch = $this->searchService->search("\"{$companyName}\" site:" . (str_contains($targetSocial, 'facebook.com') ? 'facebook.com' : 'instagram.com'), 2);
+                $socialResults = $socialSearch['results'] ?? [];
+                if (!empty($socialResults)) {
+                    $snippets = [];
+                    foreach ($socialResults as $sr) {
+                        $snippets[] = ($sr['title'] ?? '') . ": " . ($sr['snippet'] ?? '');
+                    }
+                    $contextParts[] = "## Social Media Profil Info ({$targetSocial}):\n" . implode("\n", $snippets);
+                }
+            } catch (\Throwable $e) {}
+        }
+
         // 4. Scrape website: ONLY if allowWebCrawl is explicitly active (or if missing and domain was provided)
         // If row already has GMB data and web crawl is not activated, do not scrape the website!
         if ($domain && $allowWebCrawl) {

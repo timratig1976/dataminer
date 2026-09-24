@@ -2337,7 +2337,40 @@ export default function CaseShow({ case: c }: Props) {
                                                                         </button>
                                                                     </>
                                                                 ) : (
-                                                                    <span className="text-slate-300 italic text-[11px]">— keine Domain —</span>
+                                                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                                                        {r.data['facebook_url'] ? (
+                                                                            <a
+                                                                                href={r.data['facebook_url']}
+                                                                                target="_blank"
+                                                                                rel="noreferrer"
+                                                                                onClick={e => e.stopPropagation()}
+                                                                                className="inline-flex items-center gap-1 text-[10.5px] font-semibold text-blue-700 bg-blue-50 border border-blue-200 px-1.5 py-0.5 rounded hover:bg-blue-100 transition-colors"
+                                                                                title={`Facebook-Profil hinterlegt: ${r.data['facebook_url']}\n(Domain wird bei Anreicherung automatisch recherchiert)`}
+                                                                            >
+                                                                                <span>📘 FB-Seite</span>
+                                                                            </a>
+                                                                        ) : r.data['instagram_url'] ? (
+                                                                            <a
+                                                                                href={r.data['instagram_url']}
+                                                                                target="_blank"
+                                                                                rel="noreferrer"
+                                                                                onClick={e => e.stopPropagation()}
+                                                                                className="inline-flex items-center gap-1 text-[10.5px] font-semibold text-pink-700 bg-pink-50 border border-pink-200 px-1.5 py-0.5 rounded hover:bg-pink-100 transition-colors"
+                                                                                title={`Instagram-Profil hinterlegt: ${r.data['instagram_url']}\n(Domain wird bei Anreicherung automatisch recherchiert)`}
+                                                                            >
+                                                                                <span>📷 Insta</span>
+                                                                            </a>
+                                                                        ) : r.data['raw_portal_domain'] ? (
+                                                                            <span 
+                                                                                className="inline-flex items-center gap-1 text-[10px] text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded font-mono"
+                                                                                title={`Portal-Domain entfernt: ${r.data['raw_portal_domain']}`}
+                                                                            >
+                                                                                📚 {r.data['raw_portal_domain']}
+                                                                            </span>
+                                                                        ) : (
+                                                                            <span className="text-slate-300 italic text-[11px]">— keine Domain —</span>
+                                                                        )}
+                                                                    </div>
                                                                 )}
                                                             </div>
                                                         ) : (

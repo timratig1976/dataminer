@@ -171,15 +171,24 @@ class RelevanceClassificationService
                             
                             $currentDomain = $d['domain'] ?? '';
                             $isCatalogDomain = !empty($currentDomain) && $this->searchService->isCatalogDomain($currentDomain);
+                            $isFacebook = str_contains($currentDomain, 'facebook.com') || str_contains($currentDomain, 'fb.me');
+                            $isInstagram = str_contains($currentDomain, 'instagram.com');
 
-                            // Wenn echtes Zielunternehmen, aber Domain ein Katalog/Portal ist:
-                            if ($relType === 'target' && ($isDirectoryDomain || $isCatalogDomain)) {
-                                $d['raw_portal_domain'] = $currentDomain;
-                                $d['portal_source'] = $currentDomain;
+                            // Wenn echtes Zielunternehmen, aber Domain ein Katalog/Portal oder Social-Profil ist:
+                            if ($relType === 'target' && ($isDirectoryDomain || $isCatalogDomain || $isFacebook || $isInstagram)) {
+                                if ($isFacebook) {
+                                    $d['facebook_url'] = $d['source_url'] ?? "https://{$currentDomain}";
+                                } elseif ($isInstagram) {
+                                    $d['instagram_url'] = $d['source_url'] ?? "https://{$currentDomain}";
+                                } else {
+                                    $d['raw_portal_domain'] = $currentDomain;
+                                    $d['portal_source'] = $currentDomain;
+                                }
+
                                 $d['domain'] = ''; // Leeren, damit die offizielle Domain recherchiert wird
                                 $d['is_third_party_domain'] = 'true';
                                 $d['relevance_type'] = 'target';
-                                $d['relevance_reason'] = 'Zielkunde (Verzeichnis-Domain entfernt)';
+                                $d['relevance_reason'] = $isFacebook ? 'Zielkunde (Facebook als Profil gesichert)' : ($isInstagram ? 'Zielkunde (Instagram als Profil gesichert)' : 'Zielkunde (Verzeichnis-Domain entfernt)');
                                 $d['is_target'] = true;
                             } else {
                                 $d['relevance_type'] = $relType;
@@ -314,14 +323,23 @@ class RelevanceClassificationService
 
                             $currentDomain = $d['domain'] ?? '';
                             $isCatalogDomain = !empty($currentDomain) && $this->searchService->isCatalogDomain($currentDomain);
+                            $isFacebook = str_contains($currentDomain, 'facebook.com') || str_contains($currentDomain, 'fb.me');
+                            $isInstagram = str_contains($currentDomain, 'instagram.com');
 
-                            if ($relType === 'target' && ($isDirectoryDomain || $isCatalogDomain)) {
-                                $d['raw_portal_domain'] = $currentDomain;
-                                $d['portal_source'] = $currentDomain;
+                            if ($relType === 'target' && ($isDirectoryDomain || $isCatalogDomain || $isFacebook || $isInstagram)) {
+                                if ($isFacebook) {
+                                    $d['facebook_url'] = $d['source_url'] ?? "https://{$currentDomain}";
+                                } elseif ($isInstagram) {
+                                    $d['instagram_url'] = $d['source_url'] ?? "https://{$currentDomain}";
+                                } else {
+                                    $d['raw_portal_domain'] = $currentDomain;
+                                    $d['portal_source'] = $currentDomain;
+                                }
+
                                 $d['domain'] = ''; // Leeren, damit die offizielle Domain recherchiert wird
                                 $d['is_third_party_domain'] = 'true';
                                 $d['relevance_type'] = 'target';
-                                $d['relevance_reason'] = 'Zielkunde (Verzeichnis-Domain entfernt)';
+                                $d['relevance_reason'] = $isFacebook ? 'Zielkunde (Facebook als Profil gesichert)' : ($isInstagram ? 'Zielkunde (Instagram als Profil gesichert)' : 'Zielkunde (Verzeichnis-Domain entfernt)');
                                 $d['is_target'] = true;
                             } else {
                                 $d['relevance_type'] = $relType;
