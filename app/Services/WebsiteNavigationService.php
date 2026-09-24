@@ -11,7 +11,12 @@ class WebsiteNavigationService
 
     public function __construct()
     {
-        $proxy = env('OUTBOUND_PROXY_URL') ?: env('HTTP_PROXY') ?: env('HTTPS_PROXY') ?: null;
+        $settingsProxy = null;
+        try {
+            $settingsProxy = \App\Models\GlobalSetting::instance()->outbound_proxy_url;
+        } catch (\Throwable $e) {}
+
+        $proxy = $settingsProxy ?: (env('OUTBOUND_PROXY_URL') ?: env('HTTP_PROXY') ?: env('HTTPS_PROXY') ?: null);
 
         $options = [
             'timeout' => 4,
@@ -132,8 +137,11 @@ class WebsiteNavigationService
         try {
             $res = $this->client->head($url);
             $status = $res->getStatusCode();
-            return ($status >= 200 && $status < 400);
+            $ok = ($status >= 200 && $status < 400);
+            Log::info("[WebsiteNavigationService] HEAD {$url} -> HTTP {$status} (" . ($ok ? 'ALIVE' : 'DEAD') . ")");
+            return $ok;
         } catch (\Throwable $e) {
+            Log::info("[WebsiteNavigationService] HEAD {$url} -> FAILED: " . $e->getMessage());
             return false;
         }
     }

@@ -21,6 +21,7 @@ class GlobalSetting extends Model
         'brave_api_key',
         'apify_api_token',
         'firecrawl_api_key',
+        'outbound_proxy_url',
         'planner_system_prompt',
         'custom_templates',
         'email_branding',
@@ -42,6 +43,7 @@ class GlobalSetting extends Model
         'brave_api_key' => 'encrypted',
         'apify_api_token' => 'encrypted',
         'firecrawl_api_key' => 'encrypted',
+        'outbound_proxy_url' => 'encrypted',
     ];
 
     public static function instance(): self

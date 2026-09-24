@@ -49,6 +49,7 @@ export default function SettingsPage({ settings: initialSettings }: { settings: 
     const [serpApiKey, setSerpApiKey] = useState('');
     const [braveApiKey, setBraveApiKey] = useState('');
     const [apifyApiToken, setApifyApiToken] = useState('');
+    const [outboundProxyUrl, setOutboundProxyUrl] = useState('');
 
     // ── Async states per key ──
     const [savingKey, setSavingKey] = useState<Record<string, boolean>>({});
@@ -106,6 +107,7 @@ export default function SettingsPage({ settings: initialSettings }: { settings: 
                 if (keyName === 'serp') setSerpApiKey('');
                 if (keyName === 'brave') setBraveApiKey('');
                 if (keyName === 'apify') setApifyApiToken('');
+                if (keyName === 'proxy') setOutboundProxyUrl('');
             }
         } catch (e: any) {
             alert('Speichern fehlgeschlagen: ' + e.message);
@@ -115,7 +117,7 @@ export default function SettingsPage({ settings: initialSettings }: { settings: 
     };
 
     const deleteIndividualKey = async (keyName: string) => {
-        if (!confirm(`Möchtest du den ${keyName} API-Key wirklich löschen?`)) return;
+        if (!confirm(`Möchtest du den ${keyName} wirklich löschen / deaktivieren?`)) return;
         setSavingKey(prev => ({ ...prev, [keyName]: true }));
         try {
             const res = await apiFetch('/api/settings', {
@@ -127,6 +129,11 @@ export default function SettingsPage({ settings: initialSettings }: { settings: 
                 await refreshSettings();
                 if (keyName === 'eden') setEdenApiKey('');
                 if (keyName === 'firecrawl') setFirecrawlApiKey('');
+                if (keyName === 'serper') setSerperApiKey('');
+                if (keyName === 'serp') setSerpApiKey('');
+                if (keyName === 'brave') setBraveApiKey('');
+                if (keyName === 'apify') setApifyApiToken('');
+                if (keyName === 'proxy') setOutboundProxyUrl('');
                 if (keyName === 'serper') setSerperApiKey('');
                 if (keyName === 'serp') setSerpApiKey('');
                 if (keyName === 'brave') setBraveApiKey('');
@@ -730,7 +737,7 @@ export default function SettingsPage({ settings: initialSettings }: { settings: 
 
                 {/* ── 6. OUTBOUND PROXY (HETZNER IP-SCHUTZ) ── */}
                 <div 
-                    className="p-5 space-y-3"
+                    className="p-5 space-y-4"
                     style={{
                         background: "var(--surface)",
                         border: "1px solid var(--border)",
@@ -745,9 +752,9 @@ export default function SettingsPage({ settings: initialSettings }: { settings: 
                             <span className="text-[11px]" style={{ color: "var(--text-3)" }}>Schützt den Server vor Rate-Limits & Bot-Blocks</span>
                         </div>
                         <div>
-                            {state.outbound_proxy_url ? (
+                            {state.has_outbound_proxy || state.outbound_proxy_url ? (
                                 <span className="status-pill status-pill-done">
-                                    <CheckCircle2 className="w-3 h-3" /> Proxy aktiv
+                                    <CheckCircle2 className="w-3 h-3" /> Proxy aktiv ({state.outboundProxyMasked || 'Gespeichert'})
                                 </span>
                             ) : (
                                 <span className="status-pill status-pill-pending">
@@ -759,12 +766,72 @@ export default function SettingsPage({ settings: initialSettings }: { settings: 
 
                     <div className="text-xs text-slate-600 leading-relaxed bg-slate-50 p-3 rounded-lg border border-slate-200/60">
                         <p>
-                            Wenn du tausende Webseiten prüfst, schützt ein rotierender Proxy (z. B. Smartproxy, Webshare oder BrightData) die Hetzner-Server-IP vor Abuse-Meldungen und Cloudflare-Sperren.
-                        </p>
-                        <p className="mt-1.5 font-mono text-[11px] text-slate-700">
-                            Einstellung in der Server <code>.env</code>: <code>OUTBOUND_PROXY_URL=http://user:pass@proxy.example.com:8080</code>
+                            Wenn das System Webseiten scannt (z. B. Menü-Prüfung, Impressums-Checks oder HTTP 200/404 Statusabfragen), schützt ein rotierender Proxy (z. B. Webshare.io, Smartproxy) die Hetzner-Server-IP vor Abuse-Meldungen und Cloudflare-Sperren.
                         </p>
                     </div>
+
+                    <div>
+                        <label className="text-[11px] font-semibold uppercase tracking-wider block mb-1" style={{ color: "var(--text-3)" }}>
+                            Proxy URL (z.B. Webshare / HTTP / SOCKS5)
+                        </label>
+                        <input
+                            type="password"
+                            value={outboundProxyUrl}
+                            onChange={e => setOutboundProxyUrl(e.target.value)}
+                            placeholder={state.has_outbound_proxy ? `Gespeichert: ${state.outboundProxyMasked || '***'}` : 'http://username:password@ip:port oder http://p.webshare.io:80'}
+                            className="w-full border rounded px-3 py-1.5 text-xs font-mono focus:outline-none"
+                            style={{
+                                borderColor: "var(--border)",
+                                background: "var(--bg)",
+                                color: "var(--text-1)",
+                            }}
+                        />
+                    </div>
+
+                    <div className="flex items-center gap-2 flex-wrap pt-2 border-t" style={{ borderColor: "var(--border-xs)" }}>
+                        <button
+                            type="button"
+                            onClick={() => saveIndividualKey('proxy', { outbound_proxy_url: outboundProxyUrl.trim() || undefined })}
+                            disabled={savingKey.proxy || !outboundProxyUrl.trim()}
+                            className="btn-v2 btn-v2-primary"
+                        >
+                            {savingKey.proxy ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                            {savedKeyMsg.proxy ? 'Gespeichert ✓' : 'Speichern'}
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => testSearchProvider('proxy', outboundProxyUrl)}
+                            disabled={testingProvider === 'proxy' || (!outboundProxyUrl.trim() && !state.has_outbound_proxy && !state.outbound_proxy_url)}
+                            className="btn-v2"
+                        >
+                            {testingProvider === 'proxy' ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Globe className="w-3.5 h-3.5" />}
+                            Proxy testen
+                        </button>
+                        {(state.has_outbound_proxy || state.outbound_proxy_url) && (
+                            <button
+                                type="button"
+                                onClick={() => deleteIndividualKey('proxy')}
+                                className="btn-v2 ml-auto"
+                                style={{ color: "var(--danger)", background: "var(--danger-soft)", borderColor: "var(--danger-soft)" }}
+                            >
+                                <Trash2 className="w-3.5 h-3.5" /> Proxy entfernen
+                            </button>
+                        )}
+                    </div>
+
+                    {testResults.proxy && (
+                        <div 
+                            className="p-2.5 rounded-md border text-xs flex items-center gap-2"
+                            style={{
+                                background: testResults.proxy.ok ? "var(--green-soft)" : "var(--danger-soft)",
+                                borderColor: testResults.proxy.ok ? "var(--green-mid)" : "var(--danger)",
+                                color: testResults.proxy.ok ? "var(--green)" : "var(--danger)",
+                            }}
+                        >
+                            <span>{testResults.proxy.ok ? '✓' : '✗'}</span>
+                            <span>{testResults.proxy.ok ? `${testResults.proxy.sample} (${testResults.proxy.latencyMs}ms)` : (testResults.proxy.error || 'Proxy-Verbindung fehlgeschlagen')}</span>
+                        </div>
+                    )}
                 </div>
             </div>
         </AppLayout>

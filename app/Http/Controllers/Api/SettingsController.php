@@ -43,7 +43,9 @@ class SettingsController extends Controller
                 'has_brave_api_key' => !empty($settings->brave_api_key),
                 'has_apify_api_token' => !empty($settings->apify_api_token),
                 'has_firecrawl_api_key' => !empty($settings->firecrawl_api_key),
-                'outbound_proxy_url' => env('OUTBOUND_PROXY_URL') ?: env('HTTP_PROXY') ?: env('HTTPS_PROXY') ?: null,
+                'has_outbound_proxy' => !empty($settings->outbound_proxy_url) || !empty(env('OUTBOUND_PROXY_URL')),
+                'outbound_proxy_url' => $settings->outbound_proxy_url ?: (env('OUTBOUND_PROXY_URL') ?: env('HTTP_PROXY') ?: env('HTTPS_PROXY') ?: null),
+                'outboundProxyMasked' => $mask($settings->outbound_proxy_url ?: (env('OUTBOUND_PROXY_URL') ?: null)),
 
                 'hasKey' => !empty($settings->eden_api_key),
                 'hasFirecrawlKey' => !empty($settings->firecrawl_api_key),
@@ -74,6 +76,7 @@ class SettingsController extends Controller
             'brave_api_key' => 'nullable|string',
             'apify_api_token' => 'nullable|string',
             'firecrawl_api_key' => 'nullable|string',
+            'outbound_proxy_url' => 'nullable|string',
             'planner_system_prompt' => 'nullable|string',
         ]);
 
@@ -108,6 +111,7 @@ class SettingsController extends Controller
             'serpapi' => 'serp_api_key',
             'brave' => 'brave_api_key',
             'apify' => 'apify_api_token',
+            'proxy' => 'outbound_proxy_url',
         ];
 
         if (!isset($map[$keyName])) {
@@ -258,6 +262,23 @@ class SettingsController extends Controller
                         'error' => 'Firecrawl API Fehler: HTTP ' . $response->status(),
                     ]);
                 }
+            }
+
+            if ($provider === 'proxy') {
+                $proxyUrl = $bodyKey ?: ($settings->outbound_proxy_url ?: (env('OUTBOUND_PROXY_URL') ?: env('HTTP_PROXY')));
+                if (!$proxyUrl) return response()->json(['ok' => false, 'error' => 'Keine Proxy-URL hinterlegt']);
+
+                $client = new \GuzzleHttp\Client(['timeout' => 8, 'proxy' => $proxyUrl]);
+                $testRes = $client->get('http://ipv4.webshare.io/');
+                $exitIp = trim((string) $testRes->getBody());
+
+                return response()->json([
+                    'ok' => !empty($exitIp) && $testRes->getStatusCode() === 200,
+                    'provider' => 'proxy',
+                    'sample' => "Erfolgreich verbunden! Ausgehende IP: {$exitIp}",
+                    'note' => 'Webshare / HTTP Proxy Gateway',
+                    'latencyMs' => round((microtime(true) - $t0) * 1000),
+                ]);
             }
 
             if ($provider === 'apify') {
