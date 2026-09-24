@@ -87,6 +87,8 @@ Route::middleware(['web', 'auth'])->group(function () {
         Route::post('/rows', [RowController::class, 'store']);
         Route::patch('/rows/{id}', [RowController::class, 'update']);
         Route::post('/cases/{id}/dedupe', [\App\Http\Controllers\Api\DeduplicationController::class, 'dedupe']);
+        Route::post('/cases/{id}/classify-relevance', [\App\Http\Controllers\Api\RelevanceController::class, 'classify']);
+        Route::post('/cases/{id}/resolve-relevance', [\App\Http\Controllers\Api\RelevanceController::class, 'resolve']);
         Route::post('/cases/{id}/extrapolate-email', [\App\Http\Controllers\Api\EmailExtrapolateController::class, 'extrapolate']);
         Route::post('/cases/{id}/resolve-domains', [\App\Http\Controllers\Api\DomainResolveController::class, 'resolve']);
         Route::post('/cases/{id}/sub-industries', [\App\Http\Controllers\Api\SubIndustryController::class, 'analyse']);

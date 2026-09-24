@@ -159,6 +159,14 @@ class DiscoveryService
 
         Row::insert($batch);
 
+        // Auto-Trigger Relevance Classification asynchronously or immediate small batch
+        try {
+            $insertedIds = array_column($batch, 'id');
+            app(RelevanceClassificationService::class)->classifyCaseRows($caseId, $insertedIds);
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning("[DiscoveryService] Auto-classification skipped: " . $e->getMessage());
+        }
+
         return [
             'added_count' => count($batch),
             'total_rows' => $totalExisting + count($batch),

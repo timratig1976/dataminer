@@ -94,10 +94,12 @@ const COL_LABELS: Record<string, string> = {
     maps_rating: "★ Rating",
     maps_reviews: "Bewertungen",
     category: "Kategorie",
+    relevance_type: "🎯 Relevanz",
     _scrape_cached_ts: "⚡ Cache-Status",
 };
 
 const DEFAULT_BASE_KEYS = [
+    'relevance_type',
     'company_name',
     'domain',
     'maps_url',
@@ -185,6 +187,13 @@ export default function CaseShow({ case: c }: Props) {
         isReferenced: boolean;
         isCore: boolean;
     } | null>(null);
+
+    // Relevance Review & Filter State
+    const [showRelevanceModal, setShowRelevanceModal] = useState(false);
+    const [relevanceFilterOnlyAtypic, setRelevanceFilterOnlyAtypic] = useState(false);
+    const [classifyingRelevance, setClassifyingRelevance] = useState(false);
+    const [selectedReviewRows, setSelectedReviewRows] = useState<Set<string>>(new Set());
+    const [resolvingRelevance, setResolvingRelevance] = useState(false);
 
     // Rename case state
     const [isEditingName, setIsEditingName] = useState(false);
@@ -477,6 +486,64 @@ export default function CaseShow({ case: c }: Props) {
         }
     };
 
+    const handleTriggerRelevanceCheck = async () => {
+        setClassifyingRelevance(true);
+        setStatusMsg('🤖 KI prüft Relevanz, Dachverbände und Portale...');
+        try {
+            const res = await apiFetch(`/api/cases/${caseData.id}/classify-relevance`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+            });
+            const data = await res.json();
+            if (data.error) throw new Error(data.error);
+
+            setStatusMsg(data.message || 'Prüfung abgeschlossen.');
+            setTimeout(() => setStatusMsg(null), 5000);
+            loadPage(page);
+            setShowRelevanceModal(true);
+        } catch (e: any) {
+            alert('Relevanz-Prüfung fehlgeschlagen: ' + e.message);
+            setStatusMsg(null);
+        } finally {
+            setClassifyingRelevance(false);
+        }
+    };
+
+    const handleApplyRelevanceAction = async (action: 'delete' | 'move_to_sources' | 'unflag' | 'blacklist') => {
+        const ids = selectedReviewRows.size > 0 
+            ? Array.from(selectedReviewRows) 
+            : atypicRows.map(r => r.id);
+
+        if (ids.length === 0) {
+            alert('Keine Zeilen ausgewählt.');
+            return;
+        }
+
+        const actionText = action === 'delete' ? 'löschen' : action === 'move_to_sources' ? 'in Quellen verschieben' : action === 'blacklist' ? 'auf die Domain-Blacklist setzen und löschen' : 'als passend bestätigen';
+        if (!confirm(`${ids.length} Zeilen wirklich ${actionText}?`)) return;
+
+        setResolvingRelevance(true);
+        try {
+            const res = await apiFetch(`/api/cases/${caseData.id}/resolve-relevance`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action, rowIds: ids }),
+            });
+            const data = await res.json();
+            if (data.error) throw new Error(data.error);
+
+            alert(data.message || 'Aktion erfolgreich ausgeführt.');
+            setSelectedReviewRows(new Set());
+            setShowRelevanceModal(false);
+            loadPage(page);
+            refreshCase();
+        } catch (e: any) {
+            alert('Fehler: ' + e.message);
+        } finally {
+            setResolvingRelevance(false);
+        }
+    };
+
     // Bulk actions on selected rows
     const deleteSelectedRows = async () => {
         if (selectedRows.size === 0) return;
@@ -652,6 +719,20 @@ export default function CaseShow({ case: c }: Props) {
     const catalogRows = useMemo(() => {
         return rows.filter(r => r.data['is_catalog'] === 'true' || r.data['is_catalog'] === true);
     }, [rows]);
+
+    // Atypic rows filter (Associations, Portals, Irrelevant)
+    const atypicRows = useMemo(() => {
+        return rows.filter(r => {
+            const rel = r.data['relevance_type'];
+            return rel && rel !== 'target';
+        });
+    }, [rows]);
+
+    // Filtered rows for table view
+    const displayedRows = useMemo(() => {
+        if (!relevanceFilterOnlyAtypic) return rows;
+        return atypicRows;
+    }, [rows, relevanceFilterOnlyAtypic, atypicRows]);
 
     // Columns calculation
     const aiColumns = caseData.ai_columns || [];
@@ -1048,6 +1129,56 @@ export default function CaseShow({ case: c }: Props) {
                                 >
                                     Dedupe
                                 </button>
+
+                                {/* 🎯 KI-Relevanz-Prüfung & Atypische Ergebnisse Filter */}
+                                <div className="flex items-center gap-1">
+                                    <button
+                                        type="button"
+                                        onClick={handleTriggerRelevanceCheck}
+                                        disabled={classifyingRelevance}
+                                        title="Prüft alle Einträge per KI auf Dachverbände, Verzeichnisse oder fremde Branchen"
+                                        className="btn-v2"
+                                        style={{
+                                            padding: "3px 8px",
+                                            fontSize: 11.5,
+                                            fontWeight: 500,
+                                            color: "#4338ca",
+                                            background: "#e0e7ff",
+                                            borderColor: "#c7d2fe",
+                                            display: "inline-flex",
+                                            alignItems: "center",
+                                            gap: 4
+                                        }}
+                                    >
+                                        <Sparkles style={{ width: 11, height: 11, color: "#4f46e5" }} />
+                                        <span>{classifyingRelevance ? 'Prüfe...' : 'Relevanz prüfen'}</span>
+                                    </button>
+
+                                    {atypicRows.length > 0 && (
+                                        <button
+                                            type="button"
+                                            onClick={() => setRelevanceFilterOnlyAtypic(v => !v)}
+                                            className={`btn-v2 ${relevanceFilterOnlyAtypic ? 'bg-amber-500 text-white border-amber-600 font-bold' : 'bg-amber-50 text-amber-800 border-amber-200'}`}
+                                            style={{ padding: "3px 8px", fontSize: 11.5 }}
+                                            title="Filtert die Tabelle, um nur atypische Treffer (Dachverbände, Portale) anzuzeigen"
+                                        >
+                                            <span>⚠️ {atypicRows.length} Atypisch</span>
+                                            {relevanceFilterOnlyAtypic && <span className="ml-1 text-[10px]">✕</span>}
+                                        </button>
+                                    )}
+
+                                    {atypicRows.length > 0 && (
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowRelevanceModal(true)}
+                                            className="btn-v2"
+                                            style={{ padding: "3px 8px", fontSize: 11.5, color: "#92400e", background: "#fef3c7", borderColor: "#fde68a" }}
+                                            title="Öffnet das Prüf- und Bereinigungsmodal für atypische Einträge"
+                                        >
+                                            Bereinigen ({atypicRows.length})
+                                        </button>
+                                    )}
+                                </div>
 
                                 {/* Run Table / Phase Dropdown (Fulltable, Firmendaten first, Kontakte manually) */}
                                 <div style={{ position: "relative" }}>
@@ -1637,7 +1768,7 @@ export default function CaseShow({ case: c }: Props) {
                                         </td>
                                     </tr>
                                 ) : (
-                                    rows.map((r, idx) => {
+                                    displayedRows.map((r, idx) => {
                                         const statuses = aiColumns.map(c => r.cell_statuses?.[c.outputKey] ?? "idle");
                                         const errorCount = statuses.filter(s => s === "error").length;
                                         const runningCount = statuses.filter(s => s === "running" || runningCells.has(`${r.id}:${s}`)).length;
@@ -1763,7 +1894,48 @@ export default function CaseShow({ case: c }: Props) {
                                                             }
                                                         }}
                                                     >
-                                                        {col.key === "_scrape_cached_ts" ? (
+                                                        {col.key === "relevance_type" ? (() => {
+                                                            const rel = r.data['relevance_type'];
+                                                            const reason = r.data['relevance_reason'];
+
+                                                            if (!rel) {
+                                                                return (
+                                                                    <span className="text-slate-300 italic text-[11px]">—</span>
+                                                                );
+                                                            }
+
+                                                            if (rel === 'target') {
+                                                                return (
+                                                                    <span className="inline-flex items-center gap-1 text-[10.5px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full" title={reason || 'Passendes Zielunternehmen'}>
+                                                                        ✓ Zielkunde
+                                                                    </span>
+                                                                );
+                                                            }
+
+                                                            const isAssoc = rel === 'association';
+                                                            const isCatalog = rel === 'catalog';
+
+                                                            return (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        setSelectedReviewRows(new Set([r.id]));
+                                                                        setShowRelevanceModal(true);
+                                                                    }}
+                                                                    className={`inline-flex items-center gap-1 text-[10.5px] font-bold px-2 py-0.5 rounded-full border cursor-pointer hover:opacity-80 transition-opacity ${
+                                                                        isAssoc 
+                                                                            ? 'text-purple-700 bg-purple-50 border-purple-200'
+                                                                            : isCatalog
+                                                                            ? 'text-amber-800 bg-amber-50 border-amber-300'
+                                                                            : 'text-rose-700 bg-rose-50 border-rose-200'
+                                                                    }`}
+                                                                    title={`${reason || ''} (Klicken zum Bearbeiten)`}
+                                                                >
+                                                                    <span>{isAssoc ? '🏛️ Verband' : isCatalog ? '📚 Katalog' : '⚠️ Fremd'}</span>
+                                                                </button>
+                                                            );
+                                                        })() : col.key === "_scrape_cached_ts" ? (
                                                             val ? (
                                                                 <button
                                                                     type="button"
@@ -2735,6 +2907,167 @@ export default function CaseShow({ case: c }: Props) {
                         setRunDetailCell(prev => prev && prev.row.id === rowId ? { ...prev, row: { ...prev.row, ...patch } } : prev);
                     }}
                 />
+            )}
+
+            {/* 🎯 Relevanz & Atypische Einträge Review Modal */}
+            {showRelevanceModal && (
+                <div 
+                    className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in"
+                    onClick={() => setShowRelevanceModal(false)}
+                >
+                    <div 
+                        className="w-full max-w-4xl rounded-xl shadow-2xl flex flex-col max-h-[88vh] overflow-hidden bg-white border border-slate-200"
+                        onClick={e => e.stopPropagation()}
+                    >
+                        <div className="p-4 border-b flex items-center justify-between bg-slate-50/50" style={{ borderColor: 'var(--border-xs)' }}>
+                            <div className="flex items-center gap-2">
+                                <span className="text-lg">🎯</span>
+                                <div>
+                                    <h3 className="text-sm font-bold text-slate-800">
+                                        Relevanz-Prüfung & Atypische Treffer ({atypicRows.length})
+                                    </h3>
+                                    <p className="text-[11.5px] text-slate-500">
+                                        Identifiziere Dachverbände, Verzeichnisse oder themenfremde Einträge vor der teuren Anreicherung.
+                                    </p>
+                                </div>
+                            </div>
+                            <button onClick={() => setShowRelevanceModal(false)} className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer">✕</button>
+                        </div>
+
+                        {/* Modal Action Toolbar */}
+                        <div className="px-4 py-2.5 bg-slate-50 border-b flex items-center justify-between gap-3 text-xs" style={{ borderColor: 'var(--border-xs)' }}>
+                            <div className="flex items-center gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        if (selectedReviewRows.size === atypicRows.length) {
+                                            setSelectedReviewRows(new Set());
+                                        } else {
+                                            setSelectedReviewRows(new Set(atypicRows.map(r => r.id)));
+                                        }
+                                    }}
+                                    className="btn-v2"
+                                >
+                                    {selectedReviewRows.size === atypicRows.length ? 'Alle abwählen' : 'Alle auswählen'}
+                                </button>
+                                <span className="text-slate-500 font-mono text-[11px]">
+                                    {selectedReviewRows.size > 0 ? `${selectedReviewRows.size} ausgewählt` : `Alle ${atypicRows.length} im Fokus`}
+                                </span>
+                            </div>
+
+                            <div className="flex items-center gap-2">
+                                <button
+                                    type="button"
+                                    disabled={resolvingRelevance || atypicRows.length === 0}
+                                    onClick={() => handleApplyRelevanceAction('delete')}
+                                    className="btn-v2 text-rose-700 bg-rose-50 border-rose-200 hover:bg-rose-100"
+                                    title="Löscht die ausgewählten Zeilen aus dem Case"
+                                >
+                                    ✕ Aus Case löschen
+                                </button>
+                                <button
+                                    type="button"
+                                    disabled={resolvingRelevance || atypicRows.length === 0}
+                                    onClick={() => handleApplyRelevanceAction('move_to_sources')}
+                                    className="btn-v2 text-amber-800 bg-amber-50 border-amber-200 hover:bg-amber-100"
+                                    title="Verschiebt Kataloge in den Reiter Quellen für späteren Deep-Crawl"
+                                >
+                                    📚 In Quellen verschieben
+                                </button>
+                                <button
+                                    type="button"
+                                    disabled={resolvingRelevance || atypicRows.length === 0}
+                                    onClick={() => handleApplyRelevanceAction('blacklist')}
+                                    className="btn-v2 text-slate-800 bg-slate-100 border-slate-300 hover:bg-slate-200 font-semibold"
+                                    title="Fügt Domains zur globalen Blacklist hinzu und löscht sie aus dem Case"
+                                >
+                                    🚫 Zur Blacklist & Löschen
+                                </button>
+                                <button
+                                    type="button"
+                                    disabled={resolvingRelevance || atypicRows.length === 0}
+                                    onClick={() => handleApplyRelevanceAction('unflag')}
+                                    className="btn-v2 text-emerald-700 bg-emerald-50 border-emerald-200 hover:bg-emerald-100"
+                                    title="Markiert diese Zeilen als passendes Zielunternehmen"
+                                >
+                                    ✓ Als Zielkunde behalten
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Rows List */}
+                        <div className="flex-1 overflow-y-auto p-4 space-y-2">
+                            {atypicRows.length === 0 ? (
+                                <div className="p-12 text-center text-xs text-slate-400">
+                                    Keine atypischen Einträge identifiziert. Alle Zeilen entsprechen der Zielgruppe!
+                                </div>
+                            ) : (
+                                atypicRows.map(r => {
+                                    const isSelected = selectedReviewRows.has(r.id);
+                                    const rel = r.data['relevance_type'];
+                                    const reason = r.data['relevance_reason'];
+                                    const name = r.data['company_name'] || 'Unbekannt';
+                                    const domain = r.data['domain'] || '—';
+                                    const address = r.data['address'] || r.data['city'] || '—';
+
+                                    const isAssoc = rel === 'association';
+                                    const isCat = rel === 'catalog';
+
+                                    return (
+                                        <div 
+                                            key={r.id} 
+                                            onClick={() => {
+                                                setSelectedReviewRows(prev => {
+                                                    const next = new Set(prev);
+                                                    next.has(r.id) ? next.delete(r.id) : next.add(r.id);
+                                                    return next;
+                                                });
+                                            }}
+                                            className={`p-3 rounded-lg border transition-colors flex items-center justify-between text-xs cursor-pointer ${
+                                                isSelected ? 'bg-orange-50/60 border-orange-300' : 'bg-white hover:bg-slate-50 border-slate-200'
+                                            }`}
+                                        >
+                                            <div className="flex items-center gap-3 min-w-0">
+                                                <input 
+                                                    type="checkbox" 
+                                                    checked={isSelected}
+                                                    onChange={() => {}}
+                                                    style={{ accentColor: "var(--orange)" }}
+                                                />
+                                                <div className="min-w-0">
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="font-semibold text-slate-900 truncate">{name}</span>
+                                                        <span className="text-[11px] font-mono text-slate-400 truncate">({domain})</span>
+                                                    </div>
+                                                    <div className="text-[11px] text-slate-500 mt-0.5">
+                                                        📍 {address} · {r.data['industry'] || 'Keine Branche'}
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            <div className="text-right shrink-0 flex items-center gap-2">
+                                                <div className="text-right">
+                                                    <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                                                        isAssoc ? 'text-purple-700 bg-purple-50 border-purple-200' :
+                                                        isCat ? 'text-amber-800 bg-amber-50 border-amber-300' :
+                                                        'text-rose-700 bg-rose-50 border-rose-200'
+                                                    }`}>
+                                                        {isAssoc ? '🏛️ Dachverband / Verein' : isCat ? '📚 Verzeichnis / Portal' : '⚠️ Fremde Branche'}
+                                                    </span>
+                                                    {reason && (
+                                                        <div className="text-[10px] text-slate-500 font-mono mt-0.5 max-w-[200px] truncate" title={reason}>
+                                                            {reason}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    );
+                                })
+                            )}
+                        </div>
+                    </div>
+                </div>
             )}
 
             {/* 🛡️ Two-Step Confirmation Dialog: Row Bulk Deletion */}
