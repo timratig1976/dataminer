@@ -12,6 +12,12 @@ import { AddColumnModal } from '../../Components/AddColumnModal';
 import ImportModal from '../../Components/ImportModal';
 import { ExportModal } from '../../Components/ExportModal';
 import EditPromptModal from '../../Components/case/EditPromptModal';
+import { AiColumnSidePanel } from '../../Components/table/AiColumnSidePanel';
+import { TableToolbar } from '../../Components/table/TableToolbar';
+import { EnhancedColumnHeaderMenu } from '../../Components/table/ColumnHeaderMenu';
+import { CellExpand } from '../../Components/table/CellExpand';
+import { useTableFilter } from '../../hooks/useTableFilter';
+import { useTableSort } from '../../hooks/useTableSort';
 import RunDetailModal from '../../Components/case/RunDetailModal';
 import { ColumnHeaderMenu } from '../../Components/ColumnHeaderMenu';
 import { BaseColumnHeaderMenu } from '../../Components/BaseColumnHeaderMenu';
@@ -392,10 +398,23 @@ export default function CaseShow({ case: c }: Props) {
         }
     }, [activeTab, caseData.id]);
 
+    // Open AI Column Panel for creating a brand new column (Sprint 4: Clay Side Panel)
+    const openCreateAiColumn = (initialName?: string) => {
+        const id = (globalThis.crypto?.randomUUID ? globalThis.crypto.randomUUID() : Math.random().toString(36).substring(2, 9));
+        const outputKey = `ai_${Math.random().toString(36).substring(2, 7)}`;
+        setEditingCol({
+            id,
+            name: initialName || "Neue KI-Spalte",
+            outputKey,
+            tool: "enrich",
+            model: "openai/gpt-4o-mini",
+            prompt: "",
+            autoRun: true,
+        });
+    };
+
     // Handle Drag & Drop Column Reordering
     const handleColDrop = async (targetKey: string) => {
-        if (!dragCol || dragCol === targetKey) return;
-        const currentOrder = visibleColumns.map(c => c.key);
         const from = currentOrder.indexOf(dragCol);
         const to = currentOrder.indexOf(targetKey);
         if (from === -1 || to === -1) return;
@@ -706,7 +725,7 @@ export default function CaseShow({ case: c }: Props) {
 
     const runSelectedRows = async () => {
         if (selectedRows.size === 0) return;
-        const targetCols = (caseData.ai_columns || []).filter(c => c.autoRun !== false);
+        const targetCols = (caseData.ai_columns || (caseData as any).aiColumns || []).filter((c: any) => c.autoRun !== false);
         if (targetCols.length === 0) {
             alert('Keine KI-Spalten für automatischen Durchlauf aktiv (alle auf Auto-Run gesperrt).');
             return;
@@ -874,8 +893,30 @@ export default function CaseShow({ case: c }: Props) {
         return atypicRows;
     }, [rows, relevanceFilterOnlyAtypic, atypicRows]);
 
+    // Enhanced Table Filter & Sort (Clay Style)
+    const {
+        filters: tableFilters,
+        searchQuery: tableSearchQuery,
+        setSearchQuery: setTableSearchQuery,
+        addFilter: handleAddTableFilter,
+        updateFilter: handleUpdateTableFilter,
+        removeFilter: handleRemoveTableFilter,
+        clearFilters: handleClearTableFilters,
+        filteredItems: filterFilteredRows,
+    } = useTableFilter(displayedRows);
+
+    const {
+        sortRules: tableSortRules,
+        toggleSort: handleToggleTableSort,
+        addSortRule: handleAddTableSortRule,
+        updateSortRule: handleUpdateTableSortRule,
+        removeSortRule: handleRemoveTableSortRule,
+        clearSort: handleClearTableSort,
+        sortedItems: processedRows,
+    } = useTableSort(filterFilteredRows);
+
     // Columns calculation
-    const aiColumns = caseData.ai_columns || [];
+    const aiColumns = caseData.ai_columns || (caseData as any).aiColumns || [];
     const aiKeySet = useMemo(() => new Set(aiColumns.map(c => c.outputKey)), [aiColumns]);
 
     const baseCols = useMemo(() => {
@@ -1223,497 +1264,70 @@ export default function CaseShow({ case: c }: Props) {
 
                     {/* Table Controls Right */}
                     <div style={{ display: "flex", alignItems: "center", gap: 6, paddingRight: 4 }}>
-                        {activeTab === "Firmen" && (
-                            <>
-                                <div style={{ display: "flex", gap: 1, background: "var(--bg)", border: "1px solid var(--border)", borderRadius: "var(--rs)", padding: 2 }}>
-                                    <button 
-                                        onClick={() => setViewMode("flat")}
-                                        style={{
-                                            padding: "2px 8px", borderRadius: 3, fontSize: 11, cursor: "pointer", border: "none", transition: "0.1s",
-                                            background: viewMode === "flat" ? "var(--surface)" : "transparent",
-                                            color: viewMode === "flat" ? "var(--text-1)" : "var(--text-2)",
-                                            boxShadow: viewMode === "flat" ? "var(--shadow-sm)" : "none",
-                                            fontWeight: viewMode === "flat" ? 600 : 400
-                                        }}
-                                    >
-                                        Flach
-                                    </button>
-                                    <button 
-                                        onClick={() => setViewMode("grouped")}
-                                        style={{
-                                            padding: "2px 8px", borderRadius: 3, fontSize: 11, cursor: "pointer", border: "none", transition: "0.1s",
-                                            background: viewMode === "grouped" ? "var(--surface)" : "transparent",
-                                            color: viewMode === "grouped" ? "var(--text-1)" : "var(--text-2)",
-                                            boxShadow: viewMode === "grouped" ? "var(--shadow-sm)" : "none",
-                                            fontWeight: viewMode === "grouped" ? 600 : 400
-                                        }}
-                                    >
-                                        Gruppiert
-                                    </button>
-                                </div>
-
-                                <button 
-                                    onClick={() => { setRows(prev => prev.map(r => ({ ...r, cell_statuses: {}, cell_errors: {} }))); }}
-                                    title="Alle Status zurücksetzen"
-                                    className="btn-v2 btn-v2-ghost" 
-                                    style={{ padding: "3px 7px", fontSize: 11.5 }}
-                                >
-                                    Reset
-                                </button>
-
-                                <button 
-                                    onClick={dedupeRows}
-                                    title="Doppelte Zeilen (gleiche Domain) entfernen"
-                                    className="btn-v2 btn-v2-ghost" 
-                                    style={{ padding: "3px 7px", fontSize: 11.5 }}
-                                >
-                                    Dedupe
-                                </button>
-
-                                {/* 🎯 KI-Relevanz-Prüfung & Atypische Ergebnisse Filter */}
-                                <div className="flex items-center gap-1.5">
-                                    {relevanceStats?.status === 'running' ? (
-                                        <div className="flex items-center gap-2 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded text-[11px] text-indigo-700">
-                                            <span className="animate-spin">⚙️</span>
-                                            <span>
-                                                Prüfe Relevanz: {relevanceStats.progress.processed} / {relevanceStats.progress.total} ({relevanceStats.progress.percentage}%)
-                                            </span>
-                                            <button
-                                                type="button"
-                                                onClick={handleCancelRelevanceJob}
-                                                className="text-rose-600 hover:text-rose-800 font-bold ml-1"
-                                                title="Job abbrechen"
-                                            >
-                                                ✕
-                                            </button>
-                                        </div>
-                                    ) : (
-                                        <div className="inline-flex rounded border border-indigo-200 overflow-hidden">
-                                            <button
-                                                type="button"
-                                                onClick={() => setShowRelevanceSettingsModal(true)}
-                                                title="Öffnet die Relevanz-Einstellungen, Prompt-Pflege und Kosten-Kalkulation"
-                                                className="btn-v2"
-                                                style={{
-                                                    padding: "3px 8px",
-                                                    fontSize: 11.5,
-                                                    fontWeight: 500,
-                                                    color: "#4338ca",
-                                                    background: "#e0e7ff",
-                                                    borderColor: "transparent",
-                                                    display: "inline-flex",
-                                                    alignItems: "center",
-                                                    gap: 4
-                                                }}
-                                            >
-                                                <Sparkles style={{ width: 11, height: 11, color: "#4f46e5" }} />
-                                                <span>Relevanz prüfen</span>
-                                            </button>
-                                            <button
-                                                type="button"
-                                                onClick={() => setShowRelevanceSettingsModal(true)}
-                                                className="bg-indigo-100 hover:bg-indigo-200 text-indigo-800 px-1.5 text-[10px] flex items-center border-l border-indigo-200"
-                                                title="Relevanz-Prompt & Einstellungen konfigurieren"
-                                            >
-                                                ⚙️
-                                            </button>
-                                        </div>
-                                    )}
-
-                                    <button
-                                        type="button"
-                                        onClick={async () => {
-                                            if (!confirm("Bekannte News-, Blog- und Magazinzeilen (z.B. spiegel.de, hotelvor9, tageskarte, Google Maps Ansichten) automatisch bereinigen?")) return;
-                                            try {
-                                                const res = await apiFetch(`/api/cases/${caseData.id}/purge-junk`, { method: 'POST' });
-                                                const d = await res.json();
-                                                alert(d.message || `${d.purged_count} Zeilen bereinigt.`);
-                                                loadPage(1);
-                                                refreshCase();
-                                            } catch (e: any) {
-                                                alert("Fehler: " + e.message);
-                                            }
-                                        }}
-                                        className="btn-v2"
-                                        style={{ padding: "3px 8px", fontSize: 11.5, color: "#be123c", background: "#ffe4e6", borderColor: "#fecdd3" }}
-                                        title="Löscht bekannte redaktionelle Artikel, News-Seiten und Google-eigene Treffer aus diesem Case"
-                                    >
-                                        🧹 Junk bereinigen
-                                    </button>
-
-                                    {/* Atypical Count (Project-Wide) Button */}
-                                    {(relevanceStats?.atypic_count ?? atypicRows.length) > 0 && (
-                                        <button
-                                            type="button"
-                                            onClick={() => {
-                                                fetchProjectAtypicRows();
-                                                setShowRelevanceModal(true);
-                                            }}
-                                            className="btn-v2"
-                                            style={{
-                                                padding: "3px 8px",
-                                                fontSize: 11.5,
-                                                fontWeight: 600,
-                                                color: "#92400e",
-                                                background: "#fef3c7",
-                                                borderColor: "#fde68a",
-                                                display: "inline-flex",
-                                                alignItems: "center",
-                                                gap: 4
-                                            }}
-                                            title="Öffnet das projektweite Prüf- und Bereinigungsmodal für atypische Einträge"
-                                        >
-                                            <span>⚠️ {relevanceStats?.atypic_count ?? atypicRows.length} Atypisch</span>
-                                            <span className="text-[10px] bg-amber-200 px-1 rounded">Bereinigen</span>
-                                        </button>
-                                    )}
-                                </div>
-
-                                {/* Run Table / Phase Dropdown (Fulltable, Firmendaten first, Kontakte manually) */}
-                                <div style={{ position: "relative" }}>
-                                    <div style={{ display: "inline-flex", borderRadius: 4, overflow: "hidden", border: "1px solid var(--orange-mid)" }}>
-                                        <button
-                                            onClick={() => runFullTable('empty_only')}
-                                            title="Gesamte Tabelle anreichern (bereits fertige Zeilen werden übersprungen)"
-                                            className="btn-v2 btn-v2-ai"
-                                            style={{
-                                                padding: "3px 10px",
-                                                fontSize: 11.5,
-                                                fontWeight: 600,
-                                                display: "inline-flex",
-                                                alignItems: "center",
-                                                gap: 5,
-                                                borderRadius: 0,
-                                                border: "none",
-                                                borderRight: "1px solid rgba(255,255,255,0.2)"
-                                            }}
-                                        >
-                                            <Play style={{ width: 11, height: 11, fill: "currentColor" }} />
-                                            <span>Tabelle ausführen (offene)</span>
-                                        </button>
-                                        <button
-                                            onClick={() => setShowRunMenu(v => !v)}
-                                            title="Weitere Start-Optionen (z. B. nur Firmendaten oder nur Kontakte)"
-                                            className="btn-v2 btn-v2-ai"
-                                            style={{
-                                                padding: "3px 6px",
-                                                fontSize: 11.5,
-                                                borderRadius: 0,
-                                                border: "none"
-                                            }}
-                                        >
-                                            <ChevronDown style={{ width: 12, height: 12 }} />
-                                        </button>
-                                    </div>
-
-                                    {showRunMenu && (
-                                        <div 
-                                            style={{
-                                                position: "absolute",
-                                                top: "calc(100% + 4px)",
-                                                right: 0,
-                                                width: 250,
-                                                background: "var(--surface)",
-                                                border: "1px solid var(--border)",
-                                                borderRadius: 6,
-                                                boxShadow: "var(--shadow-md)",
-                                                zIndex: 60,
-                                                padding: 4
-                                            }}
-                                        >
-                                            <button
-                                                onClick={() => { setShowRunMenu(false); runFullTable('empty_only'); }}
-                                                className="w-full text-left px-3 py-2 text-xs rounded hover:bg-slate-50 flex items-start gap-2.5 transition-colors cursor-pointer"
-                                            >
-                                                <Play className="w-3.5 h-3.5 text-purple-600 mt-0.5 shrink-0" />
-                                                <div>
-                                                    <div className="font-semibold text-slate-800">Gesamte Tabelle (Alle KI-Spalten)</div>
-                                                    <div className="text-[10.5px] text-slate-500">Reichert Firmendaten & Entscheider für alle unfertigen Zeilen an.</div>
-                                                </div>
-                                            </button>
-
-                                            <div className="h-px bg-slate-100 my-1" />
-
-                                            <button
-                                                onClick={() => { setShowRunMenu(false); runPhase('company'); }}
-                                                className="w-full text-left px-3 py-2 text-xs rounded hover:bg-slate-50 flex items-start gap-2.5 transition-colors cursor-pointer"
-                                            >
-                                                <Building2 className="w-3.5 h-3.5 text-blue-600 mt-0.5 shrink-0" />
-                                                <div>
-                                                    <div className="font-semibold text-slate-800">1. Nur Firmendaten (Schnell)</div>
-                                                    <div className="text-[10.5px] text-slate-500">Holt erst Domain, Adresse & Telefon für alle Zeilen (ohne zeitaufwendige Kontaktsuche).</div>
-                                                </div>
-                                            </button>
-
-                                            <button
-                                                onClick={() => { setShowRunMenu(false); runPhase('contact'); }}
-                                                className="w-full text-left px-3 py-2 text-xs rounded hover:bg-slate-50 flex items-start gap-2.5 transition-colors cursor-pointer"
-                                            >
-                                                <Users className="w-3.5 h-3.5 text-emerald-600 mt-0.5 shrink-0" />
-                                                <div>
-                                                    <div className="font-semibold text-slate-800">2. Nur Entscheider & Kontakte</div>
-                                                    <div className="text-[10.5px] text-slate-500">Sucht Geschäftsführer & Impressum für Firmen mit gefundener Domain.</div>
-                                                </div>
-                                            </button>
-                                        </div>
-                                    )}
-                                </div>
-
-                                {/* Hard Stop Button for entire table process */}
-                                <button
-                                    onClick={handleHardStop}
-                                    disabled={stoppingProcess}
-                                    title="Alle laufenden KI-Jobs & Queue-Hintergrundprozesse für diesen Case sofort hart abbrechen"
-                                    className="btn-v2"
-                                    style={{
-                                        padding: "3px 9px",
-                                        fontSize: 11.5,
-                                        color: "#b91c1c",
-                                        background: "#fef2f2",
-                                        borderColor: "#fecaca",
-                                        fontWeight: 600,
-                                        display: "inline-flex",
-                                        alignItems: "center",
-                                        gap: 4
-                                    }}
-                                >
-                                    {stoppingProcess ? (
-                                        <RefreshCw style={{ width: 11, height: 11 }} className="animate-spin" />
-                                    ) : (
-                                        <Square style={{ width: 10, height: 10, fill: "currentColor" }} />
-                                    )}
-                                    <span>Stop</span>
-                                </button>
-
-                                {/* Spalten Dropdown Toggle */}
-                                <div style={{ position: "relative" }}>
-                                    <button
-                                        title="Spalten ein-/ausblenden"
-                                        onClick={() => setShowColVisibility(v => !v)}
-                                        className="btn-v2 btn-v2-ghost" 
-                                        style={{ 
-                                            padding: "3px 7px", 
-                                            fontSize: 11.5, 
-                                            borderColor: showColVisibility ? "var(--orange)" : "var(--border)",
-                                            color: showColVisibility ? "var(--orange)" : "var(--text-2)",
-                                            background: showColVisibility ? "var(--orange-soft)" : "transparent"
-                                        }}
-                                    >
-                                        <Sliders style={{ width: 11, height: 11 }} /> Spalten
-                                        {manuallyHiddenCols.size > 0 && (
-                                            <span className="badge-v2 badge-v2-orange" style={{ marginLeft: 3 }}>
-                                                {manuallyHiddenCols.size}
-                                            </span>
-                                        )}
-                                    </button>
-
-                                    {/* Spalten Visibility Dropdown Panel */}
-                                    {showColVisibility && (
-                                        <div 
-                                            style={{
-                                                position: "absolute",
-                                                top: "calc(100% + 4px)",
-                                                right: 0,
-                                                background: "var(--surface)",
-                                                border: "1px solid var(--border)",
-                                                borderRadius: "var(--r)",
-                                                boxShadow: "var(--shadow)",
-                                                zIndex: 500,
-                                                minWidth: 260,
-                                                maxHeight: 460,
-                                                overflowY: "auto",
-                                                padding: 10,
-                                            }}
-                                            onMouseLeave={() => setShowColVisibility(false)}
-                                        >
-                                            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "2px 2px 8px", borderBottom: "1px solid var(--border-xs)", marginBottom: 6 }}>
-                                                <span style={{ fontSize: 10.5, fontWeight: 600, color: "var(--text-3)", textTransform: "uppercase", letterSpacing: "0.05em" }}>
-                                                    Spalten verwalten
-                                                </span>
-                                                <div style={{ display: "flex", gap: 6 }}>
-                                                    {manuallyHiddenCols.size > 0 && (
-                                                        <button 
-                                                            onClick={() => setManuallyHiddenCols(new Set())} 
-                                                            style={{ border: "none", background: "none", fontSize: 11, color: "var(--orange)", cursor: "pointer", fontWeight: 500 }}
-                                                        >
-                                                            Alle zeigen
-                                                        </button>
-                                                    )}
-                                                    <button 
-                                                        onClick={() => { setColOrder([]); setManuallyHiddenCols(new Set()); setShowColVisibility(false); }} 
-                                                        style={{ border: "none", background: "none", fontSize: 11, color: "var(--text-3)", cursor: "pointer" }}
-                                                    >
-                                                        ↺ Reset
-                                                    </button>
-                                                </div>
-                                            </div>
-
-                                            {/* Source Columns */}
-                                            {baseCols.length > 0 && (
-                                                <div style={{ fontSize: 10, fontWeight: 600, color: "var(--text-3)", textTransform: "uppercase", padding: "4px 2px", marginBottom: 2 }}>
-                                                    Quelldaten
-                                                </div>
-                                            )}
-                                            {baseCols.map((c, idx) => (
-                                                <div key={c.key} className="flex items-center justify-between py-1 px-1.5 rounded hover:bg-slate-50 text-xs">
-                                                    <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", color: "var(--text-1)", flex: 1, minWidth: 0 }}>
-                                                        <input 
-                                                            type="checkbox" 
-                                                            checked={!manuallyHiddenCols.has(c.key)} 
-                                                            onChange={() => {
-                                                                setManuallyHiddenCols(prev => {
-                                                                    const next = new Set(prev);
-                                                                    next.has(c.key) ? next.delete(c.key) : next.add(c.key);
-                                                                    return next;
-                                                                });
-                                                            }} 
-                                                            style={{ accentColor: "var(--orange)" }}
-                                                        />
-                                                        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                                                            {c.label}
-                                                        </span>
-                                                    </label>
-                                                    <div className="flex items-center gap-0.5 opacity-60 hover:opacity-100">
-                                                        <button
-                                                            onClick={async (e) => {
-                                                                e.stopPropagation();
-                                                                const current = visibleColumns.map(col => col.key);
-                                                                const pos = current.indexOf(c.key);
-                                                                if (pos > 0) {
-                                                                    const next = [...current];
-                                                                    const tmp = next[pos - 1];
-                                                                    next[pos - 1] = next[pos];
-                                                                    next[pos] = tmp;
-                                                                    setColOrder(next);
-                                                                    await apiFetch(`/api/cases/${caseData.id}`, {
-                                                                        method: 'PATCH',
-                                                                        headers: { 'Content-Type': 'application/json' },
-                                                                        body: JSON.stringify({ col_order: next }),
-                                                                    });
-                                                                }
-                                                            }}
-                                                            className="p-0.5 rounded hover:bg-slate-200 text-slate-500 cursor-pointer"
-                                                            title="Nach oben verschieben"
-                                                        >
-                                                            ↑
-                                                        </button>
-                                                        <button
-                                                            onClick={async (e) => {
-                                                                e.stopPropagation();
-                                                                const current = visibleColumns.map(col => col.key);
-                                                                const pos = current.indexOf(c.key);
-                                                                if (pos !== -1 && pos < current.length - 1) {
-                                                                    const next = [...current];
-                                                                    const tmp = next[pos + 1];
-                                                                    next[pos + 1] = next[pos];
-                                                                    next[pos] = tmp;
-                                                                    setColOrder(next);
-                                                                    await apiFetch(`/api/cases/${caseData.id}`, {
-                                                                        method: 'PATCH',
-                                                                        headers: { 'Content-Type': 'application/json' },
-                                                                        body: JSON.stringify({ col_order: next }),
-                                                                    });
-                                                                }
-                                                            }}
-                                                            className="p-0.5 rounded hover:bg-slate-200 text-slate-500 cursor-pointer"
-                                                            title="Nach unten verschieben"
-                                                        >
-                                                            ↓
-                                                        </button>
-                                                    </div>
-                                                </div>
-                                            ))}
-
-                                            {/* AI Columns */}
-                                            {aiColumns.length > 0 && (
-                                                <div style={{ fontSize: 10, fontWeight: 600, color: "var(--green)", textTransform: "uppercase", padding: "8px 2px 2px", marginBottom: 2, borderTop: "1px solid var(--border-xs)", marginTop: 6 }}>
-                                                    KI-Spalten
-                                                </div>
-                                            )}
-                                            {aiColumns.map((c, idx) => (
-                                                <div key={c.outputKey} className="flex items-center justify-between py-1 px-1.5 rounded hover:bg-slate-50 text-xs">
-                                                    <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", color: "var(--green)", flex: 1, minWidth: 0 }}>
-                                                        <input 
-                                                            type="checkbox" 
-                                                            checked={!manuallyHiddenCols.has(c.outputKey)} 
-                                                            onChange={() => {
-                                                                setManuallyHiddenCols(prev => {
-                                                                    const next = new Set(prev);
-                                                                    next.has(c.outputKey) ? next.delete(c.outputKey) : next.add(c.outputKey);
-                                                                    return next;
-                                                                });
-                                                            }} 
-                                                            style={{ accentColor: "var(--green)" }}
-                                                        />
-                                                        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontWeight: 500 }}>
-                                                            {c.name}
-                                                        </span>
-                                                    </label>
-                                                    <div className="flex items-center gap-0.5 opacity-60 hover:opacity-100">
-                                                        <button
-                                                            onClick={async (e) => {
-                                                                e.stopPropagation();
-                                                                const current = visibleColumns.map(col => col.key);
-                                                                const pos = current.indexOf(c.outputKey);
-                                                                if (pos > 0) {
-                                                                    const next = [...current];
-                                                                    const tmp = next[pos - 1];
-                                                                    next[pos - 1] = next[pos];
-                                                                    next[pos] = tmp;
-                                                                    setColOrder(next);
-                                                                    await apiFetch(`/api/cases/${caseData.id}`, {
-                                                                        method: 'PATCH',
-                                                                        headers: { 'Content-Type': 'application/json' },
-                                                                        body: JSON.stringify({ col_order: next }),
-                                                                    });
-                                                                }
-                                                            }}
-                                                            className="p-0.5 rounded hover:bg-slate-200 text-slate-500 cursor-pointer"
-                                                            title="Nach oben verschieben"
-                                                        >
-                                                            ↑
-                                                        </button>
-                                                        <button
-                                                            onClick={async (e) => {
-                                                                e.stopPropagation();
-                                                                const current = visibleColumns.map(col => col.key);
-                                                                const pos = current.indexOf(c.outputKey);
-                                                                if (pos !== -1 && pos < current.length - 1) {
-                                                                    const next = [...current];
-                                                                    const tmp = next[pos + 1];
-                                                                    next[pos + 1] = next[pos];
-                                                                    next[pos] = tmp;
-                                                                    setColOrder(next);
-                                                                    await apiFetch(`/api/cases/${caseData.id}`, {
-                                                                        method: 'PATCH',
-                                                                        headers: { 'Content-Type': 'application/json' },
-                                                                        body: JSON.stringify({ col_order: next }),
-                                                                    });
-                                                                }
-                                                            }}
-                                                            className="p-0.5 rounded hover:bg-slate-200 text-slate-500 cursor-pointer"
-                                                            title="Nach unten verschieben"
-                                                        >
-                                                            ↓
-                                                        </button>
-                                                    </div>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    )}
-                                </div>
-
-                                <button 
-                                    onClick={() => setShowAddColModal(true)} 
-                                    className="btn-v2 btn-v2-ai" 
-                                    style={{ padding: "3px 9px", fontSize: 11.5 }}
-                                >
-                                    <Plus style={{ width: 12, height: 12 }} /> Spalte
-                                </button>
-                            </>
-                        )}
                     </div>
                 </div>
+
+                {/* Table Toolbar (Sprint 3: Clay Enhancement) */}
+                {activeTab === "Firmen" && (
+                    <TableToolbar
+                        totalRows={rows.length}
+                        filteredRowsCount={processedRows.length}
+                        totalColumnsCount={(caseData.columns?.length || baseCols.length) + aiColumns.length}
+                        visibleColumnsCount={visibleColumns.length}
+                        viewMode={viewMode}
+                        onViewModeChange={setViewMode}
+                        searchQuery={tableSearchQuery}
+                        onSearchChange={setTableSearchQuery}
+                        filters={tableFilters}
+                        onAddFilter={handleAddTableFilter}
+                        onUpdateFilter={handleUpdateTableFilter}
+                        onRemoveFilter={handleRemoveTableFilter}
+                        onClearFilters={handleClearTableFilters}
+                        sortRules={tableSortRules}
+                        onAddSort={handleAddTableSortRule}
+                        onUpdateSort={handleUpdateTableSortRule}
+                        onRemoveSort={handleRemoveTableSortRule}
+                        onClearSort={handleClearTableSort}
+                        columns={visibleColumns.map(c => ({
+                            key: c.key,
+                            label: c.label,
+                            isAi: c.isAi,
+                        }))}
+                        onToggleColVisibility={() => setShowColVisibility(v => !v)}
+                        isColVisibilityOpen={showColVisibility}
+                        hiddenColsCount={manuallyHiddenCols.size}
+                        onRunFullTable={runFullTable}
+                        onRunPhase={runPhase}
+                        onHardStop={handleHardStop}
+                        stoppingProcess={stoppingProcess}
+                        onResetStatus={() => setRows(prev => prev.map(r => ({ ...r, cell_statuses: {}, cell_errors: {} })))}
+                        onDedupe={dedupeRows}
+                        onCleanJunk={async () => {
+                            if (!confirm(`Sicher? Dies durchsucht die gesamte Datenbank dieses Cases und entfernt bekannte Junk-Treffer.`)) return;
+                            try {
+                                const res = await apiFetch(`/api/cases/${caseData.id}/clean-junk`, { method: "POST" });
+                                const d = await res.json();
+                                if (d.deleted_count > 0) {
+                                    alert(`Erfolg: ${d.deleted_count} Junk-Zeilen wurden gelöscht.`);
+                                    loadPage(1);
+                                } else {
+                                    alert(`Keine Junk-Zeilen gefunden.`);
+                                }
+                            } catch (err: any) {
+                                alert(`Fehler beim Bereinigen: ${err.message}`);
+                            }
+                        }}
+                        onAddColumn={() => openCreateAiColumn()}
+                        relevanceStats={relevanceStats}
+                        atypicCount={relevanceStats?.atypic_count ?? atypicRows.length}
+                        onOpenRelevanceModal={() => {
+                            fetchProjectAtypicRows();
+                            setShowRelevanceModal(true);
+                        }}
+                        onOpenRelevanceSettings={() => setShowRelevanceSettingsModal(true)}
+                        onCancelRelevanceJob={handleCancelRelevanceJob}
+                    />
+                )}
 
                 {/* Contextual Selection Bar (Strict Match to Next.js UI) */}
                 {activeTab === "Firmen" && selectedRows.size > 0 && (
@@ -1798,7 +1412,7 @@ export default function CaseShow({ case: c }: Props) {
                 {aiColumns.length === 0 && activeTab === "Firmen" && (
                     <div style={{ background: "#fef9c3", borderBottom: "1px solid #fde68a", padding: "7px 16px", fontSize: 12, color: "#854d0e", display: "flex", alignItems: "center", gap: 8 }}>
                         <span>⚠️ Keine KI-Spalten —</span>
-                        <button onClick={() => setShowAddColModal(true)} style={{ padding: "2px 8px", background: "#7c3aed", color: "#fff", border: "none", borderRadius: 4, cursor: "pointer", fontWeight: 600, fontSize: 11.5 }}>
+                        <button onClick={() => openCreateAiColumn()} style={{ padding: "2px 8px", background: "#7c3aed", color: "#fff", border: "none", borderRadius: 4, cursor: "pointer", fontWeight: 600, fontSize: 11.5 }}>
                             + Spalte hinzufügen
                         </button>
                     </div>
@@ -1886,52 +1500,74 @@ export default function CaseShow({ case: c }: Props) {
                                                     }}
                                                 />
 
-                                                <div className="flex items-center gap-1.5 justify-between w-full">
+                                                <div className="flex items-center gap-1.5 justify-between w-full min-w-0">
                                                     <GripVertical className="w-3 h-3 text-slate-400 shrink-0 opacity-40 hover:opacity-100 cursor-grab" />
-                                                    {col.isAi ? (
-                                                        <ColumnHeaderMenu
-                                                            column={col.colDef}
-                                                            onRunAll={() => runColumn(col.colDef, "all_force")}
-                                                            onRunEmptyOnly={() => runColumn(col.colDef, "empty_only")}
-                                                            onDelete={() => setColumnToDelete(col.colDef)}
-                                                            onEdit={() => setEditingCol(col.colDef)}
-                                                        />
-                                                    ) : (() => {
-                                                        const filled = rows.filter(r => r.data && r.data[col.key] != null && String(r.data[col.key]).trim() !== "").length;
-                                                        const isReferenced = (caseData.ai_columns || []).some(ac => 
-                                                            (ac.prompt && ac.prompt.includes(`{${col.key}}`)) ||
-                                                            (ac.searchQuery && ac.searchQuery.includes(`{${col.key}}`)) ||
-                                                            ac.conditionField === col.key
-                                                        );
-                                                        const isCore = ['company_name', 'domain', 'phone', 'address', 'city', 'zip'].includes(col.key);
+                                                    
+                                                    {/* Spalten-Label & Typ-Icon */}
+                                                    <div className="flex items-center gap-1 min-w-0 flex-1">
+                                                        <span className="text-[10px] text-slate-400 font-mono shrink-0">
+                                                            {col.isAi ? "✨" : "T"}
+                                                        </span>
+                                                        <span 
+                                                            className={`truncate font-semibold ${col.isAi ? 'text-orange-700' : 'text-slate-700'}`}
+                                                            title={col.label}
+                                                        >
+                                                            {col.label}
+                                                        </span>
+                                                    </div>
 
-                                                        return (
-                                                            <div className="flex items-center justify-between gap-1 w-full min-w-0">
-                                                                <span className="truncate font-semibold flex-1">{col.label}</span>
-                                                                <BaseColumnHeaderMenu
-                                                                    columnKey={col.key}
-                                                                    label={col.label}
-                                                                    rowsCount={rows.length}
-                                                                    filledCount={filled}
-                                                                    isReferencedInPrompts={isReferenced}
-                                                                    isSystemCore={isCore}
-                                                                    onDelete={() => setDataColumnToDelete({
-                                                                        key: col.key,
-                                                                        label: col.label,
-                                                                        filledCount: filled,
-                                                                        isReferenced,
-                                                                        isCore,
-                                                                    })}
-                                                                    onSort={() => handleSort(col.key)}
-                                                                />
-                                                            </div>
-                                                        );
-                                                    })()}
+                                                    {/* Enhanced Column Header Menu (Sprint 1: Clay Style) */}
+                                                    <EnhancedColumnHeaderMenu
+                                                        columnKey={col.key}
+                                                        label={col.label}
+                                                        isAi={col.isAi}
+                                                        aiColDef={col.colDef}
+                                                        isRunning={col.isAi && (runningCols.has(col.key) || runningCells.size > 0)}
+                                                        sortDirection={tableSortRules.find(r => r.column === col.key)?.direction || null}
+                                                        onSort={(dir) => handleToggleTableSort(col.key, dir)}
+                                                        onFilterByColumn={() => handleAddTableFilter(col.key)}
+                                                        onRename={col.isAi ? undefined : async (newLabel) => {
+                                                            const currentCols = caseData.columns || baseCols;
+                                                            const updated = currentCols.map(c => c.key === col.key ? { ...c, label: newLabel } : c);
+                                                            setCaseData(prev => ({ ...prev, columns: updated }));
+                                                            await apiFetch(`/api/cases/${caseData.id}`, {
+                                                                method: 'PATCH',
+                                                                headers: { 'Content-Type': 'application/json' },
+                                                                body: JSON.stringify({ columns: updated }),
+                                                            });
+                                                        }}
+                                                        onHide={() => toggleColVisibility(col.key)}
+                                                        onDelete={() => {
+                                                            if (col.isAi) {
+                                                                setColumnToDelete(col.colDef);
+                                                            } else {
+                                                                const filled = rows.filter(r => r.data && r.data[col.key] != null && String(r.data[col.key]).trim() !== "").length;
+                                                                const isReferenced = (caseData.ai_columns || []).some(ac => 
+                                                                    (ac.prompt && ac.prompt.includes(`{${col.key}}`)) ||
+                                                                    (ac.searchQuery && ac.searchQuery.includes(`{${col.key}}`)) ||
+                                                                    ac.conditionField === col.key
+                                                                );
+                                                                const isCore = ['company_name', 'domain', 'phone', 'address', 'city', 'zip'].includes(col.key);
+                                                                setDataColumnToDelete({
+                                                                    key: col.key,
+                                                                    label: col.label,
+                                                                    filledCount: filled,
+                                                                    isReferenced,
+                                                                    isCore,
+                                                                });
+                                                            }
+                                                        }}
+                                                        onInsertLeft={() => openCreateAiColumn(`Neue Spalte vor ${col.label}`)}
+                                                        onInsertRight={() => openCreateAiColumn(`Neue Spalte nach ${col.label}`)}
+                                                        onEditAi={col.isAi ? () => setEditingCol(col.colDef) : undefined}
+                                                        onRunAllAi={col.isAi ? () => runColumn(col.colDef, "all_force") : undefined}
+                                                        onRunEmptyAi={col.isAi ? () => runColumn(col.colDef, "empty_only") : undefined}
+                                                    />
                                                 </div>
                                             </th>
                                         );
                                     })}
-                                    <th className="p-2.5 w-24 text-slate-400 font-normal text-center cursor-pointer hover:bg-slate-100" onClick={() => setShowAddColModal(true)}>
+                                    <th className="p-2.5 w-24 text-slate-400 font-normal text-center cursor-pointer hover:bg-slate-100" onClick={() => openCreateAiColumn()}>
                                         + Spalte
                                     </th>
                                 </tr>
@@ -1992,7 +1628,7 @@ export default function CaseShow({ case: c }: Props) {
                                         </td>
                                     </tr>
                                 ) : (
-                                    displayedRows.map((r, idx) => {
+                                    processedRows.map((r, idx) => {
                                         const statuses = aiColumns.map(c => r.cell_statuses?.[c.outputKey] ?? "idle");
                                         const errorCount = statuses.filter(s => s === "error").length;
                                         const runningCount = statuses.filter(s => s === "running" || runningCells.has(`${r.id}:${s}`)).length;
@@ -2544,16 +2180,18 @@ export default function CaseShow({ case: c }: Props) {
                                                                     onClick={(e) => e.stopPropagation()}
                                                                 />
                                                             ) : (
-                                                                <span 
-                                                                    onDoubleClick={(e) => {
-                                                                        e.stopPropagation();
-                                                                        setEditingCell({ rowId: r.id, colKey: col.key, value: String(val ?? '') });
-                                                                    }}
-                                                                    className="cursor-text hover:bg-slate-100/70 p-0.5 rounded transition-colors inline-block w-full truncate"
-                                                                    title="Doppelklick zum Bearbeiten"
-                                                                >
-                                                                    {val !== null && val !== undefined && String(val).trim() !== "" ? String(val) : "—"}
-                                                                </span>
+                                                                <CellExpand value={val} columnKey={col.key}>
+                                                                    <span 
+                                                                        onDoubleClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            setEditingCell({ rowId: r.id, colKey: col.key, value: String(val ?? '') });
+                                                                        }}
+                                                                        className="cursor-text hover:bg-slate-100/70 p-0.5 rounded transition-colors inline-block w-full truncate"
+                                                                        title="Doppelklick zum Bearbeiten"
+                                                                    >
+                                                                        {val !== null && val !== undefined && String(val).trim() !== "" ? String(val) : "—"}
+                                                                    </span>
+                                                                </CellExpand>
                                                             )
                                                         )}
                                                     </td>
@@ -3256,7 +2894,7 @@ export default function CaseShow({ case: c }: Props) {
             )}
 
             {editingCol && (
-                <EditPromptModal
+                <AiColumnSidePanel
                     col={editingCol}
                     caseId={caseData.id}
                     cellContext={rows.length > 0 ? {
@@ -3264,17 +2902,62 @@ export default function CaseShow({ case: c }: Props) {
                         value: rows[0].data[editingCol.outputKey] ?? "",
                         status: (rows[0].cell_statuses?.[editingCol.outputKey] || "idle") as any,
                         rowLabel: rows[0].data["company_name"] || rows[0].data["Unternehmen"] || `Zeile #1`,
-                        row: rows[0] as any,
                     } : undefined}
                     availableFields={baseCols.map(c => c.key)}
-                    onSave={(updated) => {
+                    onSave={async (updated) => {
                         const existing = caseData.ai_columns || (caseData as any).aiColumns || [];
-                        const nextCols = existing.map((c: any) => c.id === updated.id ? updated : c);
+                        const exists = existing.some((c: any) => c.id === updated.id);
+                        const nextCols = exists
+                            ? existing.map((c: any) => c.id === updated.id ? updated : c)
+                            : [...existing, updated];
+
+                        // Clay Way: Automatische Prüfung & Vorschlag für neue Ausgabespalten
+                        const currentKeys = new Set(baseCols.map(c => c.key));
+                        const outputFields = updated.batchOutputFields || [];
+                        const missingFields = outputFields.filter(f => !currentKeys.has(f) && !f.startsWith('_'));
+
+                        let nextCaseColumns = caseData.columns || baseCols;
+                        let nextColOrder = colOrder && colOrder.length > 0 ? [...colOrder] : [];
+
+                        if (missingFields.length > 0) {
+                            const fieldNames = missingFields.map(f => `• ${COL_LABELS[f] || f} (${f})`).join('\n');
+                            const wantAdd = confirm(
+                                `Diese KI-Spalte extrahiert ${missingFields.length} neue Datenfelder:\n\n${fieldNames}\n\nMöchtest du diese Felder als neue sichtbare Spalten zur Tabelle hinzufügen?`
+                            );
+
+                            if (wantAdd) {
+                                const newColumnsToAdd = missingFields.map(f => ({
+                                    key: f,
+                                    label: COL_LABELS[f] || f.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
+                                }));
+
+                                nextCaseColumns = [...nextCaseColumns, ...newColumnsToAdd];
+                                missingFields.forEach(f => {
+                                    if (!nextColOrder.includes(f)) nextColOrder.push(f);
+                                });
+                            }
+                        }
+
+                        // Speichere Case (ai_columns + ggf. columns & col_order)
                         setCaseData(prev => ({
                             ...prev,
                             ai_columns: nextCols,
-                            aiColumns: nextCols
+                            aiColumns: nextCols,
+                            columns: nextCaseColumns,
                         }));
+                        if (nextColOrder.length > 0) {
+                            setColOrder(nextColOrder);
+                        }
+
+                        await apiFetch(`/api/cases/${caseData.id}`, {
+                            method: 'PATCH',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ 
+                                ai_columns: nextCols,
+                                columns: nextCaseColumns,
+                                col_order: nextColOrder.length > 0 ? nextColOrder : undefined
+                            }),
+                        });
                         setEditingCol(null);
                         refreshCase();
                     }}
