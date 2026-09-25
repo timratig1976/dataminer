@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { ChevronDown, ChevronRight, Loader2, Building2, User } from "lucide-react";
 import { useVirtualizer } from "@tanstack/react-virtual";
+import { apiFetch } from "../api";
 import type { GroupedRowsResponse, CompanyGroup } from "../types";
 
 interface Props {
@@ -26,7 +27,7 @@ export default function GroupedTableView({ caseId, groupKey = "company_name" }: 
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/rows/grouped?caseId=${caseId}&page=${p}&perPage=${perPage}`);
+      const res = await apiFetch(`/api/rows/grouped?caseId=${caseId}&page=${p}&perPage=${perPage}`);
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? `HTTP ${res.status}`);
       setData(json);

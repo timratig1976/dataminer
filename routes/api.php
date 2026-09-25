@@ -30,6 +30,10 @@ Route::middleware(['web', 'auth'])->group(function () {
     Route::get('/presets', function () {
         return response()->json(\App\Services\PresetService::getPresets());
     });
+    Route::get('/presets/all', [\App\Http\Controllers\Api\PresetController::class, 'index']);
+    Route::post('/presets/custom', [\App\Http\Controllers\Api\PresetController::class, 'store']);
+    Route::put('/presets/custom/{id}', [\App\Http\Controllers\Api\PresetController::class, 'update']);
+    Route::delete('/presets/custom/{id}', [\App\Http\Controllers\Api\PresetController::class, 'destroy']);
     Route::get('/templates', [\App\Http\Controllers\Api\TemplateController::class, 'index']);
     Route::post('/templates/from-case', [\App\Http\Controllers\Api\TemplateController::class, 'saveFromCase']);
     Route::delete('/templates/{id}', [\App\Http\Controllers\Api\TemplateController::class, 'destroy']);

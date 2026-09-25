@@ -145,4 +145,9 @@ class WebController extends Controller
     {
         return Inertia::render('Settings/Prompts');
     }
+
+    public function columnTemplatesSettings(): Response
+    {
+        return Inertia::render('Settings/ColumnTemplates');
+    }
 }

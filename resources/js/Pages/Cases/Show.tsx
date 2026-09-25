@@ -175,6 +175,7 @@ export default function CaseShow({ case: c }: Props) {
 
     // Execution states
     const [runningCells, setRunningCells] = useState<Set<string>>(new Set());
+    const [runningCols, setRunningCols] = useState<Set<string>>(new Set());
     const [runningPhase, setRunningPhase] = useState<string | null>(null);
     const [statusMsg, setStatusMsg] = useState<string | null>(null);
     const [stoppingProcess, setStoppingProcess] = useState(false);
@@ -488,6 +489,7 @@ export default function CaseShow({ case: c }: Props) {
     // Run entire column
     const runColumn = async (col: any, mode: 'all_force' | 'empty_only' = 'empty_only') => {
         try {
+            setRunningCols(prev => new Set(prev).add(col.key ?? col.name));
             setStatusMsg(`Spalte "${col.name}" wird an die Worker-Queue übergeben...`);
             const res = await apiFetch('/api/run/column', {
                 method: 'POST',
@@ -504,6 +506,8 @@ export default function CaseShow({ case: c }: Props) {
             loadPage(page);
         } catch (e: any) {
             alert('Fehler: ' + e.message);
+        } finally {
+            setRunningCols(prev => { const s = new Set(prev); s.delete(col.key ?? col.name); return s; });
         }
     };
 
@@ -1676,8 +1680,8 @@ export default function CaseShow({ case: c }: Props) {
                                                 {(page - 1) * pageSize + idx + 1}
                                             </td>
                                             {/* Status Badge & Search Source Pill */}
-                                            <td className="p-2.5 border-r whitespace-nowrap" style={{ borderColor: "var(--border-xs)" }}>
-                                                <div className="flex items-center gap-1.5 flex-wrap">
+                                            <td className="p-2 border-r whitespace-nowrap" style={{ borderColor: "var(--border-xs)", width: 44, minWidth: 44 }}>
+                                                <div className="flex items-center justify-center gap-1.5">
                                                     {rowState === "error" && (
                                                         <button
                                                             type="button"
@@ -1688,31 +1692,30 @@ export default function CaseShow({ case: c }: Props) {
                                                                     errors: r.cell_errors || {}
                                                                 });
                                                             }}
-                                                            className="status-pill status-pill-error cursor-pointer hover:opacity-80 transition-opacity inline-flex items-center gap-1 font-bold"
-                                                            title={`${errorCount} von ${totalCols} Spalten fehlgeschlagen (Klicken für Fehler-Details)`}
+                                                            className="cursor-pointer inline-flex items-center justify-center hover:scale-110 transition-transform"
+                                                            title={`Fehler (${errorCount} von ${totalCols} Spalten). Klicken für Details.`}
                                                         >
-                                                            <AlertCircle className="w-2.5 h-2.5 shrink-0" />
-                                                            <span>Fehler ({errorCount})</span>
+                                                            <span className="w-2.5 h-2.5 rounded-full bg-rose-500 ring-2 ring-rose-100 shrink-0" />
                                                         </button>
                                                     )}
                                                     {rowState === "running" && (
-                                                        <span className="status-pill status-pill-pending">
-                                                            <RefreshCw className="w-2.5 h-2.5 animate-spin" /> Läuft
+                                                        <span title="Wird angereichert..." className="inline-flex items-center justify-center">
+                                                            <span className="w-2.5 h-2.5 rounded-full bg-amber-500 ring-2 ring-amber-100 shrink-0 animate-pulse" />
                                                         </span>
                                                     )}
                                                     {rowState === "completed" && (
-                                                        <span className="status-pill status-pill-done">
-                                                            Fertig
+                                                        <span title="Alle Spalten angereichert" className="inline-flex items-center justify-center">
+                                                            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0" />
                                                         </span>
                                                     )}
                                                     {rowState === "partial" && (
-                                                        <span className="status-pill status-pill-done" style={{ background: "var(--orange-soft)", color: "var(--orange)" }}>
-                                                            ◐ {doneCount}/{totalCols}
+                                                        <span title={`Teilweise fertig: ${doneCount}/${totalCols} Spalten`} className="inline-flex items-center justify-center">
+                                                            <span className="w-2.5 h-2.5 rounded-full bg-amber-400 shrink-0" />
                                                         </span>
                                                     )}
                                                     {rowState === "pending" && (
-                                                        <span className="status-pill status-pill-pending">
-                                                            Ausstehend
+                                                        <span title="Ausstehend (noch nicht angereichert)" className="inline-flex items-center justify-center">
+                                                            <span className="w-2 h-2 rounded-full border border-slate-300 bg-transparent shrink-0" />
                                                         </span>
                                                     )}
 
@@ -1722,21 +1725,12 @@ export default function CaseShow({ case: c }: Props) {
                                                             style={{
                                                                 display: "inline-flex",
                                                                 alignItems: "center",
-                                                                gap: 3,
                                                                 fontSize: 10,
-                                                                color: "var(--text-2)",
-                                                                background: "var(--bg)",
-                                                                border: "1px solid var(--border)",
-                                                                padding: "1px 5px",
-                                                                borderRadius: 4,
+                                                                color: "var(--text-3, #94a3b8)",
                                                                 cursor: "help",
-                                                                maxWidth: 85,
-                                                                overflow: "hidden",
-                                                                textOverflow: "ellipsis",
-                                                                whiteSpace: "nowrap"
                                                             }}
                                                         >
-                                                            {icon} {label}
+                                                            {icon}
                                                         </span>
                                                     )}
                                                 </div>
@@ -1970,7 +1964,7 @@ export default function CaseShow({ case: c }: Props) {
                                                                         {val ? (
                                                                             <span className="ai-chip-v2 font-mono text-[11px]">{String(val)}</span>
                                                                         ) : (
-                                                                            <span className="text-slate-400 italic text-[11px]">— leer —</span>
+                                                                            <span className="text-slate-300 italic text-[11px]">—</span>
                                                                         )}
                                                                     </span>
                                                                     <button
@@ -2744,14 +2738,14 @@ export default function CaseShow({ case: c }: Props) {
 
                 {/* Pagination (Only on Firmen Tab) */}
                 {!loading && activeTab === "Firmen" && (
-                    <div className="flex items-center justify-between px-4 py-2 bg-[#fbfaf8] border-t text-xs text-slate-500" style={{ borderColor: "var(--border)" }}>
+                    <div className="flex items-center justify-between px-4 py-2 bg-white border-t text-xs text-slate-500" style={{ borderColor: "var(--border-xs, #f1f5f9)" }}>
                         <div className="flex items-center gap-3">
-                            <span>
-                                Zeile {total === 0 ? 0 : ((page - 1) * pageSize + 1).toLocaleString("de-DE")}–{Math.min(page * pageSize, total).toLocaleString("de-DE")} von {total.toLocaleString("de-DE")}
+                            <span className="text-slate-400">
+                                {total === 0 ? 0 : ((page - 1) * pageSize + 1).toLocaleString("de-DE")}–{Math.min(page * pageSize, total).toLocaleString("de-DE")} von {total.toLocaleString("de-DE")} Zeilen
                             </span>
-                            <div className="flex items-center gap-1.5 pl-3 border-l border-slate-200">
-                                <span className="text-[11px] text-slate-400">Zeilen pro Seite:</span>
-                                <div className="flex items-center gap-1 bg-white border border-slate-200 rounded p-0.5">
+                            <div className="flex items-center gap-1.5 pl-3 border-l border-slate-100">
+                                <span className="text-[11px] text-slate-400">Pro Seite:</span>
+                                <div className="flex items-center gap-0.5">
                                     {[25, 50, 100, 200].map(sz => (
                                         <button
                                             key={sz}
@@ -2764,8 +2758,8 @@ export default function CaseShow({ case: c }: Props) {
                                             }}
                                             className={`px-1.5 py-0.5 rounded text-[11px] font-mono cursor-pointer transition-colors ${
                                                 pageSize === sz
-                                                    ? 'bg-orange-500 text-white font-bold'
-                                                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                                                    ? 'bg-slate-200 text-slate-800 font-semibold'
+                                                    : 'text-slate-400 hover:text-slate-700 hover:bg-slate-50'
                                             }`}
                                         >
                                             {sz}
@@ -2775,13 +2769,56 @@ export default function CaseShow({ case: c }: Props) {
                             </div>
                         </div>
 
-                        <div className="flex items-center gap-2">
-                            <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1} className="btn-v2" title="Vorherige Seite">
+                        <div className="flex items-center gap-1">
+                            <button
+                                onClick={() => setPage(1)}
+                                disabled={page === 1}
+                                className="px-1.5 py-1 text-slate-400 hover:text-slate-700 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer text-[11px] rounded hover:bg-slate-50 transition-colors"
+                                title="Erste Seite"
+                            >
+                                ‹‹
+                            </button>
+                            <button 
+                                onClick={() => setPage(p => Math.max(1, p - 1))} 
+                                disabled={page === 1} 
+                                className="px-1.5 py-1 text-slate-500 hover:text-slate-800 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer rounded hover:bg-slate-50 transition-colors" 
+                                title="Vorherige Seite"
+                            >
                                 <ChevronLeft className="w-3.5 h-3.5" />
                             </button>
-                            <span className="font-medium text-slate-700">Seite {page} / {totalPages}</span>
-                            <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page >= totalPages} className="btn-v2" title="Nächste Seite">
+
+                            <div className="flex items-center gap-1 px-1">
+                                <input
+                                    type="number"
+                                    min={1}
+                                    max={Math.max(1, totalPages)}
+                                    value={page}
+                                    onChange={(e) => {
+                                        const p = parseInt(e.target.value, 10);
+                                        if (!isNaN(p) && p >= 1 && p <= totalPages) {
+                                            setPage(p);
+                                        }
+                                    }}
+                                    className="w-10 text-center py-0.5 px-1 text-xs border border-slate-200 rounded text-slate-700 font-mono focus:outline-none focus:ring-1 focus:ring-slate-300"
+                                />
+                                <span className="text-slate-400">/ {totalPages}</span>
+                            </div>
+
+                            <button 
+                                onClick={() => setPage(p => Math.min(totalPages, p + 1))} 
+                                disabled={page >= totalPages} 
+                                className="px-1.5 py-1 text-slate-500 hover:text-slate-800 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer rounded hover:bg-slate-50 transition-colors" 
+                                title="Nächste Seite"
+                            >
                                 <ChevronRight className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                                onClick={() => setPage(totalPages)}
+                                disabled={page >= totalPages}
+                                className="px-1.5 py-1 text-slate-400 hover:text-slate-700 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer text-[11px] rounded hover:bg-slate-50 transition-colors"
+                                title="Letzte Seite"
+                            >
+                                ››
                             </button>
                         </div>
                     </div>

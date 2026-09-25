@@ -17,6 +17,10 @@ import {
   Layers,
   Building2,
   Users,
+  MoreHorizontal,
+  Trash2,
+  CopyCheck,
+  RotateCcw,
 } from "lucide-react";
 import { FilterPanel } from "./FilterPanel";
 import { SortPanel } from "./SortPanel";
@@ -120,6 +124,7 @@ export function TableToolbar({
   const [showFilterPanel, setShowFilterPanel] = useState(false);
   const [showSortPanel, setShowSortPanel] = useState(false);
   const [showRunMenu, setShowRunMenu] = useState(false);
+  const [showMoreMenu, setShowMoreMenu] = useState(false);
 
   const hasActiveFilters = filters.length > 0 || searchQuery.trim().length > 0;
   const hasActiveSort = sortRules.length > 0;
@@ -294,67 +299,105 @@ export function TableToolbar({
         </div>
       </div>
 
-      {/* RIGHT: Actions (Run, Stop, Tools, Relevance) */}
+      {/* RIGHT: Actions (Run, Stop, Tools, Relevance, More) */}
       <div className="flex flex-wrap items-center gap-2">
-        {/* Reset Status & Dedupe */}
-        <button
-          type="button"
-          onClick={onResetStatus}
-          title="Alle Status zurücksetzen"
-          className="px-2 py-1 text-[11.5px] text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-md transition-colors cursor-pointer"
-        >
-          Reset
-        </button>
-        <button
-          type="button"
-          onClick={onDedupe}
-          title="Doppelte Zeilen entfernen"
-          className="px-2 py-1 text-[11.5px] text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-md transition-colors cursor-pointer"
-        >
-          Dedupe
-        </button>
-
-        {/* Junk bereinigen */}
-        <button
-          type="button"
-          onClick={onCleanJunk}
-          className="px-2 py-1 text-[11.5px] text-rose-700 bg-rose-50 border border-rose-200 hover:bg-rose-100 rounded-md transition-colors cursor-pointer"
-          title="Löscht bekannte redaktionelle Artikel und Verzeichnisse"
-        >
-          🧹 Junk
-        </button>
-
-        {/* Relevance Button */}
-        {relevanceStats?.status === "running" ? (
+        {/* Active Relevance Job indicator (if running) */}
+        {relevanceStats?.status === "running" && (
           <div className="flex items-center gap-1.5 bg-indigo-50 border border-indigo-200 px-2 py-1 rounded-md text-[11px] text-indigo-700">
             <span className="animate-spin">⚙️</span>
             <span>{relevanceStats.progress.percentage}%</span>
             <button
               type="button"
               onClick={onCancelRelevanceJob}
-              className="text-rose-600 hover:text-rose-800 font-bold ml-1"
+              className="text-rose-600 hover:text-rose-800 font-bold ml-1 cursor-pointer"
             >
               ✕
             </button>
           </div>
-        ) : (
+        )}
+
+        {/* 3-Dots More Menu (Reset, Dedupe, Junk, Relevanz) */}
+        <div className="relative">
           <button
             type="button"
-            onClick={onOpenRelevanceSettings}
-            className="inline-flex items-center gap-1 px-2.5 py-1 text-[11.5px] font-medium text-indigo-700 bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 rounded-md transition-colors cursor-pointer"
+            onClick={() => {
+              setShowMoreMenu((v) => !v);
+              setShowRunMenu(false);
+            }}
+            className={`inline-flex items-center gap-1 px-2 py-1 text-[11.5px] rounded-md border transition-colors cursor-pointer ${
+              showMoreMenu
+                ? "bg-slate-100 border-slate-300 text-slate-800 font-medium"
+                : "bg-white border-slate-200 text-slate-600 hover:text-slate-900 hover:bg-slate-50"
+            }`}
+            title="Weitere Aktionen (Reset, Dedupe, Junk, Relevanz)"
           >
-            <Sparkles className="w-3 h-3 text-indigo-600" />
-            <span>Relevanz</span>
+            <MoreHorizontal className="w-4 h-4 text-slate-500" />
+            <span className="text-[11px]">Mehr</span>
           </button>
-        )}
+
+          {showMoreMenu && (
+            <div
+              className="absolute right-0 top-full mt-1.5 w-56 bg-white border border-slate-200 rounded-lg shadow-xl z-50 py-1 text-xs animate-in fade-in"
+              onClick={() => setShowMoreMenu(false)}
+            >
+              <button
+                type="button"
+                onClick={onOpenRelevanceSettings}
+                className="w-full text-left px-3 py-2 hover:bg-indigo-50/60 text-slate-800 flex items-center gap-2.5 cursor-pointer"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                <div>
+                  <div className="font-semibold text-slate-800">Relevanz-Filter</div>
+                  <div className="text-[10px] text-slate-500">Zielkunden vs. Kataloge prüfen</div>
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={onDedupe}
+                className="w-full text-left px-3 py-2 hover:bg-slate-50 text-slate-800 flex items-center gap-2.5 border-t border-slate-100 cursor-pointer"
+              >
+                <CopyCheck className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                <div>
+                  <div className="font-semibold text-slate-800">Deduplizieren</div>
+                  <div className="text-[10px] text-slate-500">Doppelte Domains/Zeilen entfernen</div>
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={onCleanJunk}
+                className="w-full text-left px-3 py-2 hover:bg-rose-50/60 text-rose-700 flex items-center gap-2.5 border-t border-slate-100 cursor-pointer"
+              >
+                <Trash2 className="w-3.5 h-3.5 text-rose-500 shrink-0" />
+                <div>
+                  <div className="font-semibold text-rose-700">Junk bereinigen</div>
+                  <div className="text-[10px] text-rose-600/80">Verzeichnisse & Redaktion löschen</div>
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={onResetStatus}
+                className="w-full text-left px-3 py-2 hover:bg-slate-50 text-slate-700 flex items-center gap-2.5 border-t border-slate-100 cursor-pointer"
+              >
+                <RotateCcw className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                <div>
+                  <div className="font-semibold">Status zurücksetzen</div>
+                  <div className="text-[10px] text-slate-500">Zell-Status für diesen View leeren</div>
+                </div>
+              </button>
+            </div>
+          )}
+        </div>
 
         {/* Run Full Table Menu */}
         <div className="relative">
-          <div className="inline-flex rounded-md overflow-hidden border border-orange-600 bg-orange-600 text-white shadow-2xs">
+          <div className="inline-flex rounded-md overflow-hidden border border-emerald-600 bg-emerald-600 text-white shadow-2xs">
             <button
               type="button"
               onClick={() => onRunFullTable("empty_only")}
-              className="inline-flex items-center gap-1.5 px-3 py-1 text-[11.5px] font-semibold hover:bg-orange-700 transition-colors cursor-pointer"
+              className="inline-flex items-center gap-1.5 px-3 py-1 text-[11.5px] font-semibold hover:bg-emerald-700 transition-colors cursor-pointer"
             >
               <Play className="w-3 h-3 fill-white" />
               <span>Tabelle ausführen</span>
@@ -362,7 +405,7 @@ export function TableToolbar({
             <button
               type="button"
               onClick={() => setShowRunMenu((v) => !v)}
-              className="px-1.5 py-1 border-l border-orange-500 hover:bg-orange-700 transition-colors cursor-pointer"
+              className="px-1.5 py-1 border-l border-emerald-500 hover:bg-emerald-700 transition-colors cursor-pointer"
             >
               <ChevronDown className="w-3 h-3" />
             </button>
@@ -376,9 +419,9 @@ export function TableToolbar({
               <button
                 type="button"
                 onClick={() => onRunFullTable("empty_only")}
-                className="w-full text-left px-3 py-2 hover:bg-orange-50 text-slate-800 flex items-start gap-2"
+                className="w-full text-left px-3 py-2 hover:bg-emerald-50 text-slate-800 flex items-start gap-2"
               >
-                <Play className="w-3.5 h-3.5 text-orange-600 mt-0.5 shrink-0" />
+                <Play className="w-3.5 h-3.5 text-emerald-600 mt-0.5 shrink-0" />
                 <div>
                   <div className="font-semibold">Nur offene Zeilen</div>
                   <div className="text-[10px] text-slate-500">Überspringt bereits fertige Zeilen</div>
@@ -387,7 +430,7 @@ export function TableToolbar({
               <button
                 type="button"
                 onClick={() => onRunFullTable("all_force")}
-                className="w-full text-left px-3 py-2 hover:bg-orange-50 text-slate-800 flex items-start gap-2 border-t border-slate-100"
+                className="w-full text-left px-3 py-2 hover:bg-emerald-50 text-slate-800 flex items-start gap-2 border-t border-slate-100"
               >
                 <RefreshCw className="w-3.5 h-3.5 text-slate-400 mt-0.5 shrink-0" />
                 <div>
@@ -426,13 +469,13 @@ export function TableToolbar({
           type="button"
           onClick={onHardStop}
           disabled={stoppingProcess}
-          className="inline-flex items-center gap-1 px-2.5 py-1 text-[11.5px] font-semibold text-rose-700 bg-rose-50 border border-rose-200 hover:bg-rose-100 rounded-md transition-colors cursor-pointer"
+          className="inline-flex items-center gap-1 px-2.5 py-1 text-[11.5px] font-medium text-rose-600 bg-white border border-rose-300 hover:bg-rose-50 hover:border-rose-400 rounded-md transition-colors cursor-pointer"
           title="Alle laufenden Prozesse für diesen Case abbrechen"
         >
           {stoppingProcess ? (
             <RefreshCw className="w-3 h-3 animate-spin" />
           ) : (
-            <Square className="w-3 h-3 fill-current" />
+            <Square className="w-3 h-3 fill-current text-rose-500" />
           )}
           <span>Stop</span>
         </button>
@@ -441,7 +484,7 @@ export function TableToolbar({
         <button
           type="button"
           onClick={onAddColumn}
-          className="inline-flex items-center gap-1 px-2.5 py-1 text-[11.5px] font-semibold text-slate-800 bg-white border border-slate-200 hover:border-slate-300 rounded-md shadow-2xs transition-colors cursor-pointer"
+          className="inline-flex items-center gap-1 px-2.5 py-1 text-[11.5px] font-medium text-slate-600 bg-white border border-slate-200 hover:border-slate-300 hover:text-slate-800 rounded-md transition-colors cursor-pointer"
         >
           <span>+ Spalte</span>
         </button>

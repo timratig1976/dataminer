@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, usePage } from '@inertiajs/react';
-import { Key, Sliders, ShieldAlert, Sparkles, Zap, BrainCircuit, Palette } from 'lucide-react';
+import { Key, Sliders, ShieldAlert, Sparkles, Zap, BrainCircuit, Palette, TableProperties } from 'lucide-react';
 
 export default function SettingsTabs() {
     const { url } = usePage();
@@ -8,6 +8,7 @@ export default function SettingsTabs() {
     const tabs = [
         { href: '/settings', label: 'API & Keys', icon: <Key className="w-3.5 h-3.5" /> },
         { href: '/settings/communication', label: 'Globales Branding', icon: <Palette className="w-3.5 h-3.5" /> },
+        { href: '/settings/column-templates', label: 'Spalten-Vorlagen', icon: <TableProperties className="w-3.5 h-3.5" /> },
         { href: '/settings/models', label: 'Modell-Auswahl', icon: <Sliders className="w-3.5 h-3.5" /> },
         { href: '/settings/blacklist', label: 'Domain-Blacklist', icon: <ShieldAlert className="w-3.5 h-3.5" /> },
         { href: '/settings/prompts', label: 'Normalisierung', icon: <BrainCircuit className="w-3.5 h-3.5" /> },
